@@ -174,8 +174,17 @@ func TestHTTP_yearsGame(t *testing.T) {
 		!decodeBody[acceptedResponse](t, rec).Accepted {
 		t.Fatalf("answer = %d %s", rec.Code, rec.Body)
 	}
-	if rec := e.browser().do(http.MethodPost, base+"/answer", pressRequest{Round: 1, Choice: choice}); rec.Code != http.StatusForbidden {
-		t.Errorf("stranger answer = %d", rec.Code)
+	if rec := e.browser().do(http.MethodPost, base+"/answer", pressRequest{Round: 1, Choice: choice}); rec.Code != http.StatusUnauthorized {
+		t.Errorf("stranger answer = %d, want 401 not_in_room", rec.Code)
+	}
+	if got := decodeBody[meResponse](t, guest.do(http.MethodGet, base+"/me", nil)); got.PlayerID != mia {
+		t.Errorf("guest /me = %+v", got)
+	}
+	if got := decodeBody[meResponse](t, h.do(http.MethodGet, base+"/me", nil)); got.PlayerID != jan {
+		t.Errorf("profile /me = %+v", got)
+	}
+	if rec := e.browser().do(http.MethodGet, base+"/me", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("stranger /me = %d", rec.Code)
 	}
 	s = decodeBody[State](t, guest.do(http.MethodGet, base, nil))
 	if s.Round.Result == nil || *s.Round.Result.WinnerID != mia {
@@ -374,6 +383,44 @@ func TestEvents_stateOnEveryChange(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestRoomLookups_guessingCodesIsLimited(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	h := e.pairedHost()
+	code := e.createRoom(h, Config{})
+	b := e.browser()
+	// A known room costs nothing however often it is read.
+	for range 40 {
+		if rec := b.do(http.MethodGet, "/api/rooms/"+code, nil); rec.Code != http.StatusOK {
+			t.Fatalf("known room = %d", rec.Code)
+		}
+	}
+	if s := decodeBody[State](t, h.do(http.MethodGet, "/api/rooms/"+code, nil)); s.Now != e.clock().UnixMilli() {
+		t.Errorf("now = %d", s.Now)
+	}
+	var last int
+	for range 21 {
+		last = b.do(http.MethodGet, "/api/rooms/ZZZZ", nil).Code
+	}
+	if last != http.StatusTooManyRequests {
+		t.Errorf("21st unknown code = %d, want 429", last)
+	}
+}
+
+func TestSubscribe_perKeyCap(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	for i := range maxStreamsPerKey {
+		if _, _, _, ok := r.Subscribe("", "198.51.100.1"); !ok {
+			t.Fatalf("stream %d refused", i)
+		}
+	}
+	if _, _, _, ok := r.Subscribe("", "198.51.100.1"); ok {
+		t.Error("one address took more than its share")
+	}
+	if _, _, _, ok := r.Subscribe("", "198.51.100.2"); !ok {
+		t.Error("another address refused")
 	}
 }
 

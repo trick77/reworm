@@ -28,6 +28,8 @@ const (
 	StateOut      = "out"
 	StateBuzzed   = "buzzed"
 	StateAnswered = "answered"
+	// StateLate is a player who joined mid-round: plays from the next round.
+	StateLate = "late"
 )
 
 // Settings is what the host picks in the lobby.
@@ -40,7 +42,11 @@ type Settings struct {
 // State is RoomState of docs/api.md: the whole room, sent on every change. It never holds the song before the
 // round's result.
 type State struct {
-	Code     string        `json:"code"`
+	Code string `json:"code"`
+	// Seq grows by one with every change of the room: a client keeps the state with the highest.
+	Seq int64 `json:"seq"`
+	// Now is the server clock (unix ms) when the state was written: clients derive their offset for countdowns.
+	Now      int64         `json:"now"`
 	Mode     string        `json:"mode"`
 	Phase    string        `json:"phase"`
 	HostID   string        `json:"hostId"`
@@ -71,7 +77,9 @@ type RoundState struct {
 	Buzz         *BuzzState     `json:"buzz"`
 	RevealVotes  []string       `json:"revealVotes"`
 	JudgeVotes   map[string]int `json:"judgeVotes"`
-	Result       *ResultState   `json:"result"`
+	// JudgeEndsAt is when the votes so far decide (buzzer, from the reveal on); null before.
+	JudgeEndsAt *int64       `json:"judgeEndsAt"`
+	Result      *ResultState `json:"result"`
 }
 
 // BuzzState is the buzz that paused the round.
@@ -83,8 +91,10 @@ type BuzzState struct {
 
 // ResultState is the reveal: the song, who took the round and how close the others came.
 type ResultState struct {
-	Song        deck.Revealed `json:"song"`
-	WinnerID    *string       `json:"winnerId"`
+	Song     deck.Revealed `json:"song"`
+	WinnerID *string       `json:"winnerId"`
+	// WinnerMs is the winning press (years: the answer, buzzer: the buzz) in ms of round time, pauses left out.
+	WinnerMs    *int64        `json:"winnerMs"`
 	Points      int           `json:"points"`
 	PhotoFinish []PhotoFinish `json:"photoFinish"`
 }

@@ -66,6 +66,9 @@ type Service struct {
 	guests  *auth.Sessions
 	join    func(http.Handler) http.Handler
 	actions func(http.Handler) http.Handler
+	reads   func(http.Handler) http.Handler
+	// misses meters unknown room codes per client: guessing codes costs, playing does not.
+	misses *ratelimit.Limiter
 
 	mu    sync.Mutex
 	rooms map[string]*Room
@@ -94,8 +97,10 @@ func New(o Options) (*Service, error) {
 	// A party shares one address behind the home router: limits per address allow eight phones at once.
 	joinLim := ratelimit.New(ratelimit.Options{Rate: 30.0 / 60, Burst: 30, Now: o.Now})
 	actLim := ratelimit.New(ratelimit.Options{Rate: 10, Burst: 60, Now: o.Now})
+	readLim := ratelimit.New(ratelimit.Options{Rate: 5, Burst: 60, Now: o.Now})
+	missLim := ratelimit.New(ratelimit.Options{Rate: 10.0 / 60, Burst: 20, Now: o.Now})
 	return &Service{o: o, guests: g, join: joinLim.Middleware(o.ClientKey), actions: actLim.Middleware(o.ClientKey),
-		rooms: map[string]*Room{}}, nil
+		reads: readLim.Middleware(o.ClientKey), misses: missLim, rooms: map[string]*Room{}}, nil
 }
 
 // Run fires the rooms' deadlines and drops idle rooms until ctx ends.
@@ -113,20 +118,26 @@ func (s *Service) Run(ctx context.Context) {
 }
 
 // Tick fires every room's deadlines and drops the rooms idle for IdleTTL.
+// Neither a busy room nor the registry is waited on: the rooms are collected under s.mu, then each is checked
+// (its idle time is atomic, its tick skips a locked room).
 func (s *Service) Tick(now time.Time) {
 	s.mu.Lock()
 	rooms := make([]*Room, 0, len(s.rooms))
-	for code, r := range s.rooms {
-		if now.Sub(r.idleSince()) >= IdleTTL {
-			delete(s.rooms, code)
-			r.close()
-			continue
-		}
+	for _, r := range s.rooms {
 		rooms = append(rooms, r)
 	}
 	s.mu.Unlock()
 	for _, r := range rooms {
-		r.Tick(now)
+		if now.Sub(r.idleSince()) < IdleTTL {
+			r.Tick(now)
+			continue
+		}
+		s.mu.Lock()
+		if s.rooms[r.Code()] == r {
+			delete(s.rooms, r.Code())
+		}
+		s.mu.Unlock()
+		r.close()
 	}
 }
 
@@ -157,7 +168,7 @@ func (s *Service) create(hostProfile string, c Config) (*Room, error) {
 	for s.rooms[code] != nil {
 		code = api.Code(4)
 	}
-	r := newRoom(code, hostProfile, c, s.o.Now(), s.o.Rand(), s.resolver())
+	r := newRoom(code, hostProfile, c, s.o.Now, s.o.Rand(), s.resolver())
 	s.rooms[code] = r
 	return r, nil
 }
@@ -215,8 +226,9 @@ func (s *Service) recordPlayed(ctx context.Context, hostProfile, songID string) 
 func (s *Service) Mount(mux *http.ServeMux) {
 	acc := s.o.Accounts
 	mux.HandleFunc("POST /api/rooms", acc.Require(s.handleCreate))
-	mux.HandleFunc("GET /api/rooms/{code}", s.withRoom(s.handleState))
-	mux.HandleFunc("GET /api/rooms/{code}/events", s.withRoom(s.handleEvents))
+	mux.Handle("GET /api/rooms/{code}", s.reads(s.withRoom(s.handleState)))
+	mux.Handle("GET /api/rooms/{code}/events", s.reads(s.withRoom(s.handleEvents)))
+	mux.Handle("GET /api/rooms/{code}/me", s.reads(s.withRoom(s.handleMe)))
 	mux.Handle("POST /api/rooms/{code}/join", s.join(s.withRoom(s.handleJoin)))
 	for action, f := range map[string]func(hostCall) error{
 		"start": s.start, "next": s.next, "pause": s.pause, "resume": s.resume, "rematch": s.rematch,
@@ -231,15 +243,37 @@ func (s *Service) Mount(mux *http.ServeMux) {
 	}
 }
 
+// withRoom looks the room up and runs h. Every lookup reserves a token of the client's miss budget, refunded when
+// the room exists: a guesser runs out after a few dozen unknown codes, a party never pays.
 func (s *Service) withRoom(h func(http.ResponseWriter, *http.Request, *Room)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		key := s.o.ClientKey(r)
+		if ok, wait := s.misses.Take(key, 1, 1); !ok {
+			httpx.TooManyRequests(w, wait)
+			return
+		}
 		room, err := s.room(r.PathValue("code"))
 		if err != nil {
 			api.WriteError(w, r, err)
 			return
 		}
+		s.misses.Charge(key, -1)
 		h(w, r, room)
 	}
+}
+
+type meResponse struct {
+	PlayerID string `json:"playerId"`
+}
+
+// handleMe is the player the request's guest or device session plays as in the room.
+func (s *Service) handleMe(w http.ResponseWriter, r *http.Request, room *Room) {
+	id := s.playerID(r, room)
+	if err := room.Member(id); err != nil {
+		api.WriteError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, meResponse{PlayerID: id})
 }
 
 type createResponse struct {
@@ -390,13 +424,13 @@ func (s *Service) hostAction(f func(hostCall) error) http.HandlerFunc {
 }
 
 func (s *Service) start(c hostCall) error {
-	song, err := c.room.Start(c.ctx, s.o.Now(), c.profile, s.loader(c.room.HostProfile()))
+	song, err := c.room.Start(c.ctx, c.profile, s.loader(c.room.HostProfile()))
 	s.recordPlayed(c.ctx, c.room.HostProfile(), song)
 	return err
 }
 
 func (s *Service) next(c hostCall) error {
-	song, err := c.room.Next(c.ctx, s.o.Now(), c.profile)
+	song, err := c.room.Next(c.ctx, c.profile)
 	s.recordPlayed(c.ctx, c.room.HostProfile(), song)
 	return err
 }

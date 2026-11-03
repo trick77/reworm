@@ -6,11 +6,13 @@ package party
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/trick77/ship/kit/logging"
@@ -19,6 +21,7 @@ import (
 	"github.com/trick77/reworm/internal/api"
 	"github.com/trick77/reworm/internal/deck"
 	"github.com/trick77/reworm/internal/engine"
+	"github.com/trick77/reworm/internal/preview"
 )
 
 // Rule constants (D11, D14, D15).
@@ -37,18 +40,28 @@ const (
 	DefaultToWin = 10
 )
 
+// Stream caps per room. A party shares one address behind the home router: eight pads, the stage and a reconnect
+// or two must fit under one key, while one caller still cannot take every slot.
+const (
+	maxStreams       = 64
+	maxStreamsPerKey = 12
+)
+
 // Errors a room answers with.
 var (
-	errNotPlayer   = api.Fail(http.StatusForbidden, "not_a_player", "join the room first")
+	errNotInRoom   = api.Fail(http.StatusUnauthorized, "not_in_room", "join the room first")
+	errKicked      = api.Fail(http.StatusForbidden, "kicked", "the host removed you from this room")
 	errNotHost     = api.Fail(http.StatusForbidden, "not_host", "only the host can do that")
 	errFull        = api.Fail(http.StatusConflict, "room_full", "the room is full")
 	errPhase       = api.Fail(http.StatusConflict, "wrong_phase", "not now")
 	errMode        = api.Fail(http.StatusConflict, "wrong_mode", "not in this mode")
 	errRound       = api.Fail(http.StatusConflict, "wrong_round", "that round is over")
 	errAnswered    = api.Fail(http.StatusConflict, "already_answered", "you already answered this round")
+	errLate        = api.Fail(http.StatusConflict, "late", "you joined mid-round: you play from the next round")
 	errNoPlayers   = api.Fail(http.StatusConflict, "no_players", "nobody has joined yet")
 	errDeckEmpty   = api.Fail(http.StatusUnprocessableEntity, "deck_empty", "no playable song in this deck")
 	errUnknownUser = api.Fail(http.StatusNotFound, "unknown_player", "no such player")
+	errPreviews    = api.Fail(http.StatusServiceUnavailable, "previews_unavailable", "the preview source failed; try again")
 )
 
 // Resolver is a song's preview URL (preview.Source); nil means none is configured.
@@ -85,6 +98,8 @@ type round struct {
 	proposed  int
 	startedAt time.Time
 	endsAt    time.Time
+	// paused is how long the round stood still before its decisive press.
+	paused    time.Duration
 	buzz      *buzz
 	reveal    []string
 	judge     map[string]int
@@ -92,12 +107,17 @@ type round struct {
 	result    *ResultState
 	// decidedAt is the decisive press: the first correct answer, or the buzz; the photo window runs from it.
 	decidedAt time.Time
-	photo     []PhotoFinish
+	// pressMs is the decisive press in ms of running round time (pauses left out).
+	pressMs int64
+	photo   []PhotoFinish
 }
 
-// Room is one party. Every method takes the room's lock, so the rules see one change at a time.
+// Room is one party. Every rule runs under mu, so the rules see one change at a time; preview lookups run outside
+// it, serialized by fetch, so a slow preview source never holds up the room or the ticker. Lock order: fetch, then
+// mu; never fetch while holding mu.
 type Room struct {
-	mu sync.Mutex
+	mu    sync.Mutex
+	fetch sync.Mutex
 
 	code        string
 	hostProfile string
@@ -108,11 +128,19 @@ type Room struct {
 	pausedFrom  string
 	pausedAt    time.Time
 	players     []*player
-	round       *round
-	queue       []deck.Song
-	next        *pick
-	lastActive  time.Time
+	// banned are the player and profile ids the host kicked, for the room's lifetime.
+	banned map[string]bool
+	round  *round
+	queue  []deck.Song
+	next   *pick
+	// gen changes whenever the queue is replaced: a lookup started on the old one is stale.
+	gen        int
+	seq        int64
+	lastActive time.Time
+	// idle mirrors lastActive (unix ms) for the reaper, which must not wait for a busy room.
+	idle atomic.Int64
 
+	clock   func() time.Time
 	rng     *rand.Rand
 	resolve Resolver
 	hub     *sse.Hub[string]
@@ -157,9 +185,11 @@ func (c *Config) Normalize(thisYear int) error {
 	return nil
 }
 
-func newRoom(code, hostProfile string, c Config, now time.Time, rng *rand.Rand, resolve Resolver) *Room {
-	r := &Room{code: code, hostProfile: hostProfile, phase: PhaseLobby, lastActive: now, rng: rng, resolve: resolve,
-		hub: sse.NewHub[string](sse.HubOptions{Max: 64})}
+func newRoom(code, hostProfile string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
+	r := &Room{code: code, hostProfile: hostProfile, phase: PhaseLobby, banned: map[string]bool{}, clock: clock,
+		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey})}
+	r.lastActive = clock()
+	r.idle.Store(r.lastActive.UnixMilli())
 	r.configure(c)
 	return r
 }
@@ -174,15 +204,24 @@ func (r *Room) Code() string { return r.code }
 
 // --- snapshot and publishing -----------------------------------------------------------------------------------
 
+func millisOrNil(t time.Time) *int64 {
+	if t.IsZero() {
+		return nil
+	}
+	ms := api.Millis(t)
+	return &ms
+}
+
 func (r *Room) state() State {
-	s := State{Code: r.code, Mode: r.mode, Phase: r.phase, HostID: r.hostProfile, ToWin: r.toWin, Settings: r.settings,
-		Players: make([]PlayerState, len(r.players))}
+	s := State{Code: r.code, Seq: r.seq, Now: api.Millis(r.clock()), Mode: r.mode, Phase: r.phase, HostID: r.hostProfile, ToWin: r.toWin,
+		Settings: r.settings, Players: make([]PlayerState, len(r.players))}
 	for i, p := range r.players {
 		s.Players[i] = PlayerState{ID: p.id, Name: p.name, Avatar: p.avatar, Score: p.score, Connected: p.streams > 0, State: p.state}
 	}
 	if rd := r.round; rd != nil {
 		rs := &RoundState{N: rd.n, StartedAt: api.Millis(rd.startedAt), EndsAt: api.Millis(rd.endsAt), Clip: rd.pick.clip,
-			RevealVotes: slices.Clone(rd.reveal), JudgeVotes: map[string]int{}, Result: rd.result}
+			RevealVotes: slices.Clone(rd.reveal), JudgeVotes: map[string]int{}, JudgeEndsAt: millisOrNil(rd.judgeEnds),
+			Result: rd.result}
 		if rs.RevealVotes == nil {
 			rs.RevealVotes = []string{}
 		}
@@ -215,8 +254,10 @@ func (r *Room) State(now time.Time) State {
 	return r.state()
 }
 
-// publish sends the state to every stream, under the lock so streams see the changes in order.
+// publish numbers the change and sends the state to every stream, under the lock so streams see the changes in
+// order; seq lets a client drop a snapshot older than an event it already has.
 func (r *Room) publish() {
+	r.seq++
 	b, err := json.Marshal(r.state())
 	if err != nil {
 		slog.Error("room state", logging.Err(err)) // plain structs; a programmer error
@@ -226,7 +267,7 @@ func (r *Room) publish() {
 }
 
 // Subscribe opens a stream for the room, counting playerID ("" for the stage) as connected while it is open. It
-// returns the current state as the stream's first event; ok is false when the room's stream cap is reached.
+// returns the current state as the stream's first event; ok is false when a stream cap is reached.
 func (r *Room) Subscribe(playerID string, key string) (ch <-chan string, cancel func(), first string, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -283,15 +324,36 @@ func (r *Room) PlayerOf(profileID string) string {
 	return ""
 }
 
+// Member checks that playerID is in the room: errNotInRoom when it is not (no session, or a room it never joined),
+// errKicked when the host removed it.
+func (r *Room) Member(playerID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.member(playerID)
+}
+
+func (r *Room) member(playerID string) error {
+	switch {
+	case playerID != "" && r.banned[playerID]:
+		return errKicked
+	case r.player(playerID) == nil:
+		return errNotInRoom
+	}
+	return nil
+}
+
 // HostProfile is the profile that created the room.
 func (r *Room) HostProfile() string { return r.hostProfile }
 
 // Join adds a player, or returns the one rejoining: a guest by the player id its cookie carries, a paired profile by
-// its profile. A player who joins mid-round sits that round out.
+// its profile. A player who joins mid-round is "late" and plays from the next round. The kicked stay out.
 func (r *Room) Join(now time.Time, playerID, profileID, name, avatar string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.touch(now)
+	if (playerID != "" && r.banned[playerID]) || (profileID != "" && r.banned[profileID]) {
+		return "", errKicked
+	}
 	for _, p := range r.players {
 		if (playerID != "" && p.id == playerID) || (profileID != "" && p.profileID == profileID) {
 			p.name, p.avatar = name, avatar
@@ -304,7 +366,7 @@ func (r *Room) Join(now time.Time, playerID, profileID, name, avatar string) (st
 	}
 	p := &player{id: api.ID(), profileID: profileID, name: name, avatar: avatar, state: StateThinking}
 	if r.phase != PhaseLobby {
-		p.state = StateOut
+		p.state = StateLate
 	}
 	r.players = append(r.players, p)
 	r.publish()
@@ -319,16 +381,13 @@ func (r *Room) touch(now time.Time) time.Time {
 		now = r.lastActive
 	}
 	r.lastActive = now
+	r.idle.Store(now.UnixMilli())
 	r.advance(now)
 	return now
 }
 
-// idleSince is the last activity.
-func (r *Room) idleSince() time.Time {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.lastActive
-}
+// idleSince is the last activity, read without the lock.
+func (r *Room) idleSince() time.Time { return time.UnixMilli(r.idle.Load()) }
 
 // --- host actions ----------------------------------------------------------------------------------------------
 
@@ -355,7 +414,8 @@ func (r *Room) Configure(now time.Time, profileID string, c Config) error {
 	return nil
 }
 
-// Kick removes a player.
+// Kick removes a player for the rest of the room's life (player and profile). A running round is settled at once;
+// a paused one when it resumes.
 func (r *Room) Kick(now time.Time, profileID, playerID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -367,104 +427,186 @@ func (r *Room) Kick(now time.Time, profileID, playerID string) error {
 	if i < 0 {
 		return errUnknownUser
 	}
+	r.banned[playerID] = true
+	if pid := r.players[i].profileID; pid != "" {
+		r.banned[pid] = true
+	}
 	r.players = slices.Delete(r.players, i, i+1)
 	if rd := r.round; rd != nil {
 		rd.reveal = slices.DeleteFunc(rd.reveal, func(id string) bool { return id == playerID })
 		delete(rd.judge, playerID)
-		phase := r.phase
-		if phase == PhasePaused {
-			phase = r.pausedFrom
-		}
-		switch {
-		case phase == PhasePlaying && r.mode == ModeYears && !r.anyThinking():
-			r.finish(now, nil, 0)
-		case (phase == PhaseBuzzed || phase == PhaseJudging) && rd.buzz.playerID == playerID:
-			if rd.result == nil {
-				rd.result = r.newResult()
-			}
-			r.finish(now, nil, 0)
-		case phase == PhaseBuzzed:
-			r.tryReveal(now)
-		case phase == PhaseJudging:
-			r.tryDecide(now, false)
+		if r.phase != PhasePaused {
+			r.settle(now)
 		}
 	}
 	r.publish()
 	return nil
 }
 
-// Start begins the game: loads the deck's play order and plays the first round. It returns the first song's id.
-func (r *Room) Start(ctx context.Context, now time.Time, profileID string, load Loader) (string, error) {
+// settle re-runs the round's end conditions after the players changed: years with nobody left thinking ends; a
+// buzzer who left ends the round without points; otherwise reveal and judging are counted again.
+func (r *Room) settle(now time.Time) {
+	rd := r.round
+	switch r.phase {
+	case PhasePlaying:
+		if r.mode == ModeYears && !r.anyThinking() {
+			r.finish(now, nil, 0)
+		}
+	case PhaseBuzzed, PhaseJudging:
+		switch {
+		case r.player(rd.buzz.playerID) == nil:
+			r.finish(now, nil, 0)
+		case r.phase == PhaseBuzzed:
+			r.tryReveal(now)
+		default:
+			r.tryDecide(now, false)
+		}
+	}
+}
+
+func (r *Room) canStart(profileID string) error {
+	switch {
+	case r.host(profileID) != nil:
+		return errNotHost
+	case r.phase != PhaseLobby:
+		return errPhase
+	case r.resolve == nil:
+		return api.ErrNoPreviews
+	case len(r.players) == 0:
+		return errNoPlayers
+	}
+	return nil
+}
+
+// Start begins the game: loads the deck's play order, resolves the first song and plays it, then prefetches the
+// next clip. The deck query and every preview lookup run outside the room lock. It returns the first song's id.
+func (r *Room) Start(ctx context.Context, profileID string, load Loader) (string, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	now = r.touch(now)
-	if err := r.host(profileID); err != nil {
-		return "", err
-	}
-	if r.phase != PhaseLobby {
-		return "", errPhase
-	}
-	if r.resolve == nil {
-		return "", api.ErrNoPreviews
-	}
-	if len(r.players) == 0 {
-		return "", errNoPlayers
-	}
-	q, err := load(ctx, r.settings.Deck)
+	r.touch(r.clock())
+	err := r.canStart(profileID)
+	sel, gen := r.settings.Deck, r.gen
+	r.mu.Unlock()
 	if err != nil {
 		return "", err
 	}
-	r.queue = q
-	first := r.take(ctx)
+	q, err := load(ctx, sel)
+	if err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	if err := r.canStart(profileID); err != nil || r.gen != gen {
+		r.mu.Unlock()
+		return "", errPhase
+	}
+	r.gen++
+	r.queue, r.next = q, nil
+	r.mu.Unlock()
+	if err := r.prefetch(ctx); err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	now := r.touch(r.clock())
+	if err := r.canStart(profileID); err != nil {
+		r.mu.Unlock()
+		return "", errPhase
+	}
+	first := r.next
 	if first == nil {
+		r.mu.Unlock()
 		return "", errDeckEmpty
 	}
-	r.next = r.take(ctx)
+	r.next = nil
 	for _, p := range r.players {
 		p.score = 0
 	}
 	r.play(now, *first, 0)
 	r.publish()
+	r.mu.Unlock()
+	r.prefetchNext(ctx)
 	return first.song.ID, nil
 }
 
 // Next plays the next round after a result; with no song left the game is over. It returns the song's id, "" when
 // none.
-func (r *Room) Next(ctx context.Context, now time.Time, profileID string) (string, error) {
+func (r *Room) Next(ctx context.Context, profileID string) (string, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	now = r.touch(now)
-	if err := r.host(profileID); err != nil {
+	r.touch(r.clock())
+	err := r.host(profileID)
+	if err == nil && r.phase != PhaseResult {
+		err = errPhase
+	}
+	r.mu.Unlock()
+	if err != nil {
 		return "", err
 	}
+	// Usually prefetched during the last round already; else (it failed then) now.
+	if err := r.prefetch(ctx); err != nil {
+		return "", err
+	}
+	r.mu.Lock()
+	now := r.touch(r.clock())
 	if r.phase != PhaseResult {
+		r.mu.Unlock()
 		return "", errPhase
 	}
 	cur := r.next
 	if cur == nil {
 		r.phase = PhaseOver
 		r.publish()
+		r.mu.Unlock()
 		return "", nil
 	}
-	r.next = r.take(ctx)
+	r.next = nil
 	r.play(now, *cur, r.round.n)
 	r.publish()
+	r.mu.Unlock()
+	r.prefetchNext(ctx)
 	return cur.song.ID, nil
 }
 
-// take is the next song of the queue whose preview resolves, nil when none is left.
-func (r *Room) take(ctx context.Context) *pick {
-	for len(r.queue) > 0 {
-		s := r.queue[0]
-		r.queue = r.queue[1:]
-		u, err := r.resolve(ctx, s)
-		if err != nil {
-			slog.WarnContext(ctx, "song skipped: no preview", "song", s.ID, logging.Err(err))
-			continue
-		}
-		return &pick{song: s, clip: engine.Clip{PreviewURL: u, From: engine.ClipFrom(r.rng, r.settings.Clip), Length: r.settings.Clip.Length}}
+// prefetchNext resolves the next clip for the stage; a failure only leaves nextClip empty until Next tries again.
+func (r *Room) prefetchNext(ctx context.Context) {
+	if err := r.prefetch(ctx); err != nil {
+		slog.WarnContext(ctx, "next clip not prefetched", "room", r.code, logging.Err(err))
 	}
-	return nil
+}
+
+// prefetch resolves the head of the queue into r.next, outside the room lock. A song without a preview
+// (preview.ErrNone) leaves the queue; any other failure (a cancelled request, the source down) leaves the queue as
+// it is and answers errPreviews.
+func (r *Room) prefetch(ctx context.Context) error {
+	r.fetch.Lock()
+	defer r.fetch.Unlock()
+	for {
+		r.mu.Lock()
+		if r.next != nil || len(r.queue) == 0 {
+			r.mu.Unlock()
+			return nil
+		}
+		s, gen := r.queue[0], r.gen
+		r.mu.Unlock()
+		u, err := r.resolve(ctx, s)
+		r.mu.Lock()
+		switch {
+		case gen != r.gen:
+			// The queue was replaced meanwhile: look again.
+		case errors.Is(err, preview.ErrNone):
+			slog.WarnContext(ctx, "song skipped: no preview", "song", s.ID)
+			r.queue = r.queue[1:]
+		case err != nil:
+			r.mu.Unlock()
+			slog.WarnContext(ctx, "preview lookup failed", "song", s.ID, logging.Err(err))
+			return errPreviews
+		default:
+			r.queue = r.queue[1:]
+			r.next = &pick{song: s, clip: engine.Clip{PreviewURL: u, From: engine.ClipFrom(r.rng, r.settings.Clip),
+				Length: r.settings.Clip.Length}}
+			if r.round != nil {
+				r.publish() // the stage prefetches nextClip
+			}
+		}
+		r.mu.Unlock()
+	}
 }
 
 // play starts round n+1 with p.
@@ -498,7 +640,7 @@ func (r *Room) Pause(now time.Time, profileID string) error {
 	return nil
 }
 
-// Resume continues a paused round.
+// Resume continues a paused round and settles what changed while it stood still (a kick).
 func (r *Room) Resume(now time.Time, profileID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -512,12 +654,19 @@ func (r *Room) Resume(now time.Time, profileID string) error {
 	d := now.Sub(r.pausedAt)
 	rd := r.round
 	rd.endsAt = rd.endsAt.Add(d)
-	rd.judgeEnds = rd.judgeEnds.Add(d)
-	rd.decidedAt = rd.decidedAt.Add(d)
+	if !rd.judgeEnds.IsZero() {
+		rd.judgeEnds = rd.judgeEnds.Add(d)
+	}
+	if rd.decidedAt.IsZero() {
+		rd.paused += d
+	} else {
+		rd.decidedAt = rd.decidedAt.Add(d)
+	}
 	if rd.buzz != nil {
 		rd.buzz.answerEndsAt = rd.buzz.answerEndsAt.Add(d)
 	}
 	r.phase = r.pausedFrom
+	r.settle(now)
 	r.publish()
 	return nil
 }
@@ -533,6 +682,7 @@ func (r *Room) Rematch(now time.Time, profileID string) error {
 	if r.phase != PhaseOver {
 		return errPhase
 	}
+	r.gen++
 	r.phase, r.round, r.next, r.queue = PhaseLobby, nil, nil, nil
 	for _, p := range r.players {
 		p.score, p.state = 0, StateThinking
@@ -578,7 +728,12 @@ func (r *Room) Tick(now time.Time) {
 }
 
 func (r *Room) newResult() *ResultState {
-	return &ResultState{Song: r.round.pick.song.Reveal(), PhotoFinish: []PhotoFinish{}}
+	rd := r.round
+	res := &ResultState{Song: rd.pick.song.Reveal(), PhotoFinish: rd.photo}
+	if res.PhotoFinish == nil {
+		res.PhotoFinish = []PhotoFinish{}
+	}
+	return res
 }
 
 // finish ends the round: winner (nil: nobody) scores points; reaching toWin ends the game.
@@ -586,18 +741,14 @@ func (r *Room) finish(now time.Time, winner *player, points int) {
 	rd := r.round
 	if rd.result == nil {
 		rd.result = r.newResult()
-		rd.result.PhotoFinish = rd.photo
-		if rd.result.PhotoFinish == nil {
-			rd.result.PhotoFinish = []PhotoFinish{}
-		}
 	}
 	rd.result.Points = points
 	r.phase = PhaseResult
 	if winner == nil || points == 0 {
 		return
 	}
-	id := winner.id
-	rd.result.WinnerID = &id
+	id, ms := winner.id, rd.pressMs
+	rd.result.WinnerID, rd.result.WinnerMs = &id, &ms
 	if rd.decidedAt.IsZero() {
 		rd.decidedAt = now
 	}
@@ -609,6 +760,13 @@ func (r *Room) finish(now time.Time, winner *player, points int) {
 
 func (r *Room) anyThinking() bool {
 	return slices.ContainsFunc(r.players, func(p *player) bool { return p.state == StateThinking })
+}
+
+// decide marks now as the round's decisive press.
+func (r *Room) decide(now time.Time) {
+	rd := r.round
+	rd.decidedAt = now
+	rd.pressMs = (now.Sub(rd.startedAt) - rd.paused).Milliseconds()
 }
 
 // inPhotoWindow reports whether now is within the window after the round's decisive press.
@@ -624,14 +782,15 @@ func (r *Room) photo(p *player, now time.Time) {
 	}
 }
 
-// press is the checks every player action shares: the round, the player, the room not paused.
-// It returns the player and the time the press counts at (touch).
+// press is the checks every player action shares: the player, the round, the room not paused. It returns the
+// player and the time the press counts at (touch).
 func (r *Room) press(now time.Time, playerID string, n int, mode string) (*player, time.Time, error) {
 	now = r.touch(now)
+	if err := r.member(playerID); err != nil {
+		return nil, now, err
+	}
 	p := r.player(playerID)
 	switch {
-	case p == nil:
-		return nil, now, errNotPlayer
 	case r.mode != mode:
 		return nil, now, errMode
 	case r.round == nil || r.round.n != n:
@@ -655,7 +814,11 @@ func (r *Room) Answer(now time.Time, playerID string, n int, choice string) erro
 	if choice != "earlier" && choice != "exact" && choice != "later" {
 		return api.Fail(http.StatusBadRequest, "invalid_choice", `choice is "earlier", "exact" or "later"`)
 	}
-	if p.state != StateThinking {
+	switch p.state {
+	case StateThinking:
+	case StateLate:
+		return errLate
+	default:
 		return errAnswered
 	}
 	rd := r.round
@@ -684,7 +847,7 @@ func (r *Room) Answer(now time.Time, playerID string, n int, choice string) erro
 		return nil
 	}
 	p.state = StateAnswered
-	rd.decidedAt = now
+	r.decide(now)
 	points := 1
 	if choice == "exact" {
 		points++
@@ -705,11 +868,13 @@ func (r *Room) Buzz(now time.Time, playerID string, n int) error {
 	}
 	rd := r.round
 	switch {
+	case p.state == StateLate:
+		return errLate
 	case p.state != StateThinking:
 		return errAnswered
 	case r.phase == PhasePlaying:
 		rd.buzz = &buzz{playerID: p.id, at: now, answerEndsAt: now.Add(AnswerTime)}
-		rd.decidedAt = now
+		r.decide(now)
 		p.state = StateBuzzed
 		r.phase = PhaseBuzzed
 	case r.inPhotoWindow(now) && slices.ContainsFunc(rd.photo, func(f PhotoFinish) bool { return f.PlayerID == p.id }):
@@ -759,10 +924,6 @@ func (r *Room) tryReveal(now time.Time) {
 func (r *Room) revealNow(now time.Time) {
 	rd := r.round
 	rd.result = r.newResult()
-	rd.result.PhotoFinish = rd.photo
-	if rd.result.PhotoFinish == nil {
-		rd.result.PhotoFinish = []PhotoFinish{}
-	}
 	rd.judgeEnds = now.Add(JudgeTime)
 	r.phase = PhaseJudging
 }

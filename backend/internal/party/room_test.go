@@ -41,7 +41,15 @@ func newTestRoom(t *testing.T, mode string) *Room {
 		t.Fatal(err)
 	}
 	f := &preview.Fake{}
-	return newRoom("K7Q4", host, c, t0, rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
+	return newRoom("K7Q4", host, c, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
+}
+
+func fixed(t time.Time) func() time.Time { return func() time.Time { return t } }
+
+// next plays the next round at now.
+func next(r *Room, now time.Time) (string, error) {
+	r.clock = fixed(now)
+	return r.Next(context.Background(), host)
 }
 
 // join adds n players and returns their ids.
@@ -60,7 +68,7 @@ func join(t *testing.T, r *Room, n int) []string {
 
 func start(t *testing.T, r *Room, n int) {
 	t.Helper()
-	if _, err := r.Start(context.Background(), t0, host, loaderOf(songs(n))); err != nil {
+	if _, err := r.Start(context.Background(), host, loaderOf(songs(n))); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -149,7 +157,8 @@ func TestYears_firstCorrectWinsWithPhotoFinish(t *testing.T) {
 	}
 	// After the window nothing more counts.
 	other, _ := r.Join(t0, "", "", "Late", "worm")
-	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), other, 1, right(r)), "already_answered")
+	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), other, 1, right(r)), "late")
+	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), p[2], 1, right(r)), "already_answered")
 }
 
 func TestYears_exactScoresTwoAndTheWindowCloses(t *testing.T) {
@@ -179,7 +188,7 @@ func TestYears_allOutAndTimer(t *testing.T) {
 	if s := r.State(t0.Add(time.Second)); s.Phase != PhaseResult || s.Round.Result.WinnerID != nil || s.Round.Result.Points != 0 {
 		t.Errorf("all out = %+v", s.Round)
 	}
-	if _, err := r.Next(context.Background(), t0.Add(2*time.Second), host); err != nil {
+	if _, err := next(r, t0.Add(2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	// Nobody answers: the timer reveals.
@@ -198,7 +207,8 @@ func TestYears_inputChecks(t *testing.T) {
 	p := join(t, r, 1)
 	wantProblem(t, r.Answer(t0, p[0], 1, "later"), "wrong_round")
 	start(t, r, 3)
-	wantProblem(t, r.Answer(t0, "stranger", 1, "later"), "not_a_player")
+	wantProblem(t, r.Answer(t0, "stranger", 1, "later"), "not_in_room")
+	wantProblem(t, r.Answer(t0, "", 1, "later"), "not_in_room")
 	wantProblem(t, r.Answer(t0, p[0], 2, "later"), "wrong_round")
 	wantProblem(t, r.Answer(t0, p[0], 1, "sideways"), "invalid_choice")
 	wantProblem(t, r.Buzz(t0, p[0], 1), "wrong_mode")
@@ -242,7 +252,7 @@ func TestGame_toWinPauseNextRematch(t *testing.T) {
 			break
 		}
 		wantProblem(t, r.Rematch(now, host), "wrong_phase")
-		if _, err := r.Next(context.Background(), now, host); err != nil {
+		if _, err := next(r, now); err != nil {
 			t.Fatal(err)
 		}
 		if seen[r.round.pick.song.ID] {
@@ -253,7 +263,7 @@ func TestGame_toWinPauseNextRematch(t *testing.T) {
 	if s := r.State(now); playerOf(s, p[0]).Score != 3 || s.Round.Result == nil {
 		t.Errorf("game over = %+v", s)
 	}
-	wantProblem(t, func() error { _, err := r.Next(context.Background(), now, host); return err }(), "wrong_phase")
+	wantProblem(t, func() error { _, err := next(r, now); return err }(), "wrong_phase")
 	if err := r.Rematch(now, host); err != nil {
 		t.Fatal(err)
 	}
@@ -266,16 +276,16 @@ func TestNext_deckRunsOutAndSkipsMissingPreviews(t *testing.T) {
 	c := Config{}
 	_ = c.Normalize(2026)
 	f := &preview.Fake{Missing: map[string]bool{"s1": true}}
-	r := newRoom("K7Q4", host, c, t0, rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
+	r := newRoom("K7Q4", host, c, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
 	p := join(t, r, 1)
-	if _, err := r.Start(context.Background(), t0, host, loaderOf(songs(3))); err != nil {
+	if _, err := r.Start(context.Background(), host, loaderOf(songs(3))); err != nil {
 		t.Fatal(err)
 	}
 	if r.next == nil || r.next.song.ID != "s2" {
 		t.Fatalf("next = %+v, want s2 (s1 has no preview)", r.next)
 	}
 	_ = r.Answer(t0, p[0], 1, wrong(r))
-	id, err := r.Next(context.Background(), t0, host)
+	id, err := next(r, t0)
 	if err != nil || id != "s2" || r.next != nil {
 		t.Fatalf("Next = %q, %v; next %+v", id, err, r.next)
 	}
@@ -283,34 +293,146 @@ func TestNext_deckRunsOutAndSkipsMissingPreviews(t *testing.T) {
 		t.Error("nextClip with nothing left")
 	}
 	_ = r.Answer(t0, p[0], 2, wrong(r))
-	id, err = r.Next(context.Background(), t0, host)
+	id, err = next(r, t0)
 	if err != nil || id != "" || r.phase != PhaseOver {
 		t.Errorf("deck done: %q, %v, phase %s", id, err, r.phase)
+	}
+}
+
+// failing is a preview source that fails (not "no preview") for the ids in down, ErrNone for none.
+type failing struct {
+	mu   sync.Mutex
+	down map[string]bool
+	none map[string]bool
+}
+
+func (f *failing) set(id string, down bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.down[id] = down
+}
+
+func (f *failing) PreviewURL(_ context.Context, s deck.Song) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch {
+	case f.down[s.ID]:
+		return "", errors.New("apple: 503")
+	case f.none[s.ID]:
+		return "", preview.ErrNone
+	}
+	return "https://previews.invalid/" + s.ID, nil
+}
+
+func TestPrefetch_onlyNoPreviewDropsASong(t *testing.T) {
+	f := &failing{down: map[string]bool{"s0": true}, none: map[string]bool{"s2": true}}
+	r := newRoom("K7Q4", host, Config{Mode: ModeYears, ToWin: 10}, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
+	p := join(t, r, 1)
+	// The source is down for the first song: Start fails, the queue keeps it.
+	_, err := r.Start(context.Background(), host, loaderOf(songs(4)))
+	wantProblem(t, err, "previews_unavailable")
+	if r.phase != PhaseLobby || len(r.queue) != 4 || r.queue[0].ID != "s0" {
+		t.Fatalf("after a failed lookup: phase %s queue %d", r.phase, len(r.queue))
+	}
+	f.set("s0", false)
+	f.set("s1", true)
+	if _, err := r.Start(context.Background(), host, loaderOf(songs(4))); err != nil {
+		t.Fatal(err)
+	}
+	// s1 is down while prefetching: no nextClip, s1 still queued; Next tries again and fails cleanly.
+	if r.next != nil || r.queue[0].ID != "s1" {
+		t.Fatalf("next = %+v, queue head %s", r.next, r.queue[0].ID)
+	}
+	_ = r.Answer(t0, p[0], 1, wrong(r))
+	_, err = next(r, t0)
+	wantProblem(t, err, "previews_unavailable")
+	if r.phase != PhaseResult {
+		t.Errorf("phase after a failed Next = %s", r.phase)
+	}
+	// Back up: s1 plays; s2 has no preview and leaves; s3 is prefetched.
+	f.set("s1", false)
+	if id, err := next(r, t0); err != nil || id != "s1" || r.next == nil || r.next.song.ID != "s3" {
+		t.Errorf("Next = %q, %v, next %+v", id, err, r.next)
+	}
+}
+
+// blocking is a preview source that waits until release is closed.
+type blocking struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (b *blocking) PreviewURL(ctx context.Context, s deck.Song) (string, error) {
+	select {
+	case b.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	return "https://previews.invalid/" + s.ID, nil
+}
+
+func TestStart_slowPreviewsHoldNothingUp(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	slow := &blocking{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	busy := newRoom("SLOW", host, Config{Mode: ModeYears, ToWin: 10}, fixed(t0), rand.New(rand.NewPCG(1, 2)), slow.PreviewURL)
+	join(t, busy, 1)
+	other, err := e.svc.create(host, Config{Mode: ModeYears, ToWin: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.svc.mu.Lock()
+	e.svc.rooms[busy.code] = busy
+	e.svc.mu.Unlock()
+	join(t, other, 1)
+	if _, err := other.Start(context.Background(), host, loaderOf(songs(3))); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := busy.Start(context.Background(), host, loaderOf(songs(3)))
+		done <- err
+	}()
+	<-slow.entered
+	// While busy waits on its preview: the other room's timer still fires, and busy itself answers.
+	e.svc.Tick(e.clock().Add(RoundTime))
+	if s := other.State(e.clock().Add(RoundTime)); s.Phase != PhaseResult {
+		t.Errorf("other room = %s, want result", s.Phase)
+	}
+	if s := busy.State(t0); s.Phase != PhaseLobby {
+		t.Errorf("busy room = %s", s.Phase)
+	}
+	close(slow.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 
 func TestStart_refusals(t *testing.T) {
 	ctx := context.Background()
 	r := newTestRoom(t, ModeYears)
-	_, err := r.Start(ctx, t0, host, loaderOf(songs(2)))
+	_, err := r.Start(ctx, host, loaderOf(songs(2)))
 	wantProblem(t, err, "no_players")
 	join(t, r, 1)
-	_, err = r.Start(ctx, t0, "x", loaderOf(songs(2)))
+	_, err = r.Start(ctx, "x", loaderOf(songs(2)))
 	wantProblem(t, err, "not_host")
-	_, err = r.Start(ctx, t0, host, loaderOf(nil))
+	_, err = r.Start(ctx, host, loaderOf(nil))
 	wantProblem(t, err, "deck_empty")
-	if _, err := r.Start(ctx, t0, host, func(context.Context, deck.Selector) ([]deck.Song, error) {
+	if _, err := r.Start(ctx, host, func(context.Context, deck.Selector) ([]deck.Song, error) {
 		return nil, errors.New("db down")
 	}); err == nil || errors.As(err, new(*api.Problem)) {
 		t.Errorf("load failure = %v", err)
 	}
 	start(t, r, 2)
-	_, err = r.Start(ctx, t0, host, loaderOf(songs(2)))
+	_, err = r.Start(ctx, host, loaderOf(songs(2)))
 	wantProblem(t, err, "wrong_phase")
 
-	none := newRoom("ABCD", host, Config{Mode: ModeYears}, t0, rand.New(rand.NewPCG(1, 2)), nil)
+	none := newRoom("ABCD", host, Config{Mode: ModeYears}, fixed(t0), rand.New(rand.NewPCG(1, 2)), nil)
 	join(t, none, 1)
-	_, err = none.Start(ctx, t0, host, loaderOf(songs(2)))
+	_, err = none.Start(ctx, host, loaderOf(songs(2)))
 	wantProblem(t, err, "previews_unavailable")
 }
 
@@ -333,18 +455,115 @@ func TestJoin(t *testing.T) {
 	_, err = r.Join(t0, "", "", "Ninth", "mic")
 	wantProblem(t, err, "room_full")
 
-	// Late join mid-round: out for this round, in from the next.
+	// Late join mid-round: late for this round, in from the next.
 	r2 := newTestRoom(t, ModeYears)
 	q := join(t, r2, 1)
 	start(t, r2, 3)
 	late, _ := r2.Join(t0, "", "", "Late", "worm")
-	wantProblem(t, r2.Answer(t0, late, 1, right(r2)), "already_answered")
+	if s := r2.State(t0); playerOf(s, late).State != StateLate {
+		t.Errorf("late joiner state = %q", playerOf(s, late).State)
+	}
+	wantProblem(t, r2.Answer(t0, late, 1, right(r2)), "late")
 	_ = r2.Answer(t0, q[0], 1, wrong(r2))
-	if _, err := r2.Next(context.Background(), t0, host); err != nil {
+	if _, err := next(r2, t0); err != nil {
 		t.Fatal(err)
 	}
 	if err := r2.Answer(t0, late, 2, right(r2)); err != nil {
 		t.Errorf("late joiner in the next round = %v", err)
+	}
+}
+
+func TestKick_bansForTheRoomsLife(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	guest := join(t, r, 1)[0]
+	pro, _ := r.Join(t0, "", "profile-1", "Jan", "vinyl")
+	for _, id := range []string{guest, pro} {
+		if err := r.Kick(t0, host, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := r.Join(t0, guest, "", "Again", "mic")
+	wantProblem(t, err, "kicked")
+	_, err = r.Join(t0, "", "profile-1", "Jan", "vinyl")
+	wantProblem(t, err, "kicked")
+	wantProblem(t, r.Member(guest), "kicked")
+	wantProblem(t, r.Member("never"), "not_in_room")
+	_, _ = r.Join(t0, "", "", "Mia", "mic")
+	start(t, r, 3)
+	wantProblem(t, r.Answer(t0, guest, 1, right(r)), "kicked")
+}
+
+func TestKick_whilePausedSettlesOnResume(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 2)
+	start(t, r, 3)
+	_ = r.Answer(t0, p[0], 1, wrong(r))
+	_ = r.Pause(t0, host)
+	if err := r.Kick(t0, host, p[1]); err != nil {
+		t.Fatal(err)
+	}
+	if r.phase != PhasePaused {
+		t.Fatalf("kick ended the pause: %s", r.phase)
+	}
+	if err := r.Resume(t0.Add(time.Second), host); err != nil {
+		t.Fatal(err)
+	}
+	if r.phase != PhaseResult {
+		t.Errorf("after resume = %s, want the round settled", r.phase)
+	}
+
+	// The buzzer kicked while paused: still paused, and the round ends without points on resume.
+	b := newTestRoom(t, ModeBuzzer)
+	q := join(t, b, 2)
+	start(t, b, 3)
+	_ = b.Buzz(t0, q[0], 1)
+	_ = b.Pause(t0, host)
+	_ = b.Kick(t0, host, q[0])
+	if b.phase != PhasePaused {
+		t.Fatalf("phase %s", b.phase)
+	}
+	_ = b.Resume(t0, host)
+	if b.phase != PhaseResult || b.round.result.Points != 0 {
+		t.Errorf("after resume = %s %+v", b.phase, b.round.result)
+	}
+}
+
+func TestState_seqWinnerMsAndJudgeEndsAt(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 2)
+	s0 := r.State(t0).Seq
+	start(t, r, 3)
+	s1 := r.State(t0).Seq
+	if s1 <= s0 {
+		t.Errorf("seq %d after start, %d before", s1, s0)
+	}
+	r.round.proposed = r.round.pick.song.Year + 5
+	_ = r.Pause(t0.Add(time.Second), host)
+	_ = r.Resume(t0.Add(time.Minute), host)
+	_ = r.Answer(t0.Add(time.Minute+2*time.Second), p[0], 1, right(r))
+	s := r.State(t0.Add(2 * time.Minute))
+	// 1 s before the pause, 2 s after it: 3000 ms of round time.
+	if s.Seq <= s1 || s.Round.Result.WinnerMs == nil || *s.Round.Result.WinnerMs != 3000 {
+		t.Errorf("seq %d, winnerMs %v", s.Seq, s.Round.Result.WinnerMs)
+	}
+	if s.Round.JudgeEndsAt != nil {
+		t.Error("judgeEndsAt in years mode")
+	}
+
+	b := newTestRoom(t, ModeBuzzer)
+	q := join(t, b, 2)
+	start(t, b, 3)
+	_ = b.Buzz(t0.Add(4*time.Second), q[0], 1)
+	_ = b.Reveal(t0.Add(5*time.Second), q[0], 1)
+	_ = b.Reveal(t0.Add(5*time.Second), q[1], 1)
+	st := b.State(t0.Add(5 * time.Second))
+	if st.Round.JudgeEndsAt == nil || *st.Round.JudgeEndsAt != t0.Add(5*time.Second+JudgeTime).UnixMilli() {
+		t.Errorf("judgeEndsAt = %v", st.Round.JudgeEndsAt)
+	}
+	_ = b.Judge(t0.Add(6*time.Second), q[0], 1, 1)
+	_ = b.Judge(t0.Add(6*time.Second), q[1], 1, 1)
+	if ms := b.State(t0.Add(6 * time.Second)).Round.Result.WinnerMs; ms == nil || *ms != 4000 {
+		t.Errorf("buzzer winnerMs = %v", ms)
 	}
 }
 
@@ -498,7 +717,7 @@ func TestBuzzer_deadlines(t *testing.T) {
 	wantProblem(t, r.Buzz(t0.Add(RoundTime), p[0], 1), "wrong_round")
 
 	// The answer window ends: the stage reveals; judging time ends: the votes so far decide.
-	if _, err := r.Next(context.Background(), t0.Add(RoundTime), host); err != nil {
+	if _, err := next(r, t0.Add(RoundTime)); err != nil {
 		t.Fatal(err)
 	}
 	at := t0.Add(RoundTime + time.Second)
@@ -514,7 +733,7 @@ func TestBuzzer_deadlines(t *testing.T) {
 	}
 
 	// No vote at all in time: nothing.
-	_, _ = r.Next(context.Background(), at.Add(time.Minute), host)
+	_, _ = next(r, at.Add(time.Minute))
 	at = at.Add(time.Minute)
 	_ = r.Buzz(at, p[0], 3)
 	r.Tick(at.Add(AnswerTime + JudgeTime))
