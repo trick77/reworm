@@ -1,0 +1,7 @@
+go:
+  dir: backend
+ui:
+  embed: backend/web/dist
+images:
+  - { containerfile: backend/Containerfile }
+visibility: public

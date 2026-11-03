@@ -1,0 +1,10 @@
+{
+  // Solution file: `tsc -b` (npm run build) type-checks every project below.
+  // tsconfig.app.json is src, tests included; tsconfig.node.json is ship's,
+  // for vite.config.ts.
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}

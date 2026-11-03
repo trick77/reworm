@@ -1,0 +1,48 @@
+/* Design tokens and base styles, from the mock (docs/mock/index.html). */
+:root {
+  --ink: #13110f;
+  --ink2: #1b1815;
+  --panel: #231f1b;
+  --panel2: #2b2621;
+  --line: #3a332c;
+  --paper: #f5eee4;
+  --muted: #a69a8b;
+  --faint: #6f655a;
+  --hanko: #e5482f;
+  --hanko2: #ff6a4d;
+  --gold: #e9b44c;
+  --jade: #3dbb8c;
+  --rose: #e0675d;
+  --sky: #69aee8;
+  --r: 18px;
+  --num: ui-rounded, "SF Pro Rounded", "SF Pro Display", system-ui, sans-serif;
+  --txt:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui,
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--txt);
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.num {
+  font-family: var(--num);
+  font-variant-numeric: tabular-nums;
+}
