@@ -1,0 +1,121 @@
+package train
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+)
+
+// masteredBox is the box from which a song counts as mastered: three first-try hits in a row, days apart.
+const masteredBox = 3
+
+// intervals is how long a song rests after a hit, by its new box (spaced repetition).
+var intervals = []time.Duration{0, 24 * time.Hour, 3 * 24 * time.Hour, 7 * 24 * time.Hour, 16 * 24 * time.Hour, 35 * 24 * time.Hour}
+
+func interval(box int) time.Duration { return intervals[min(box, len(intervals)-1)] }
+
+// Award is a record award (D9), reached at XP.
+type Award struct {
+	Name string
+	XP   int
+}
+
+// Awards are the record awards, bronze to diamond: about 15 XP a card, so silver after a couple of sessions,
+// diamond after a few weeks of daily training.
+var Awards = []Award{{"bronze", 0}, {"silver", 250}, {"gold", 750}, {"platinum", 1500}, {"diamond", 3000}}
+
+// AwardFor is the award reached at xp and the XP of the next one (nil at diamond).
+func AwardFor(xp int) (string, *int) {
+	i := 0
+	for i+1 < len(Awards) && xp >= Awards[i+1].XP {
+		i++
+	}
+	if i+1 == len(Awards) {
+		return Awards[i].Name, nil
+	}
+	next := Awards[i+1].XP
+	return Awards[i].Name, &next
+}
+
+// progress is a song's spaced-repetition row.
+type progress struct {
+	box      int
+	attempts int
+	correct  int
+	found    bool
+}
+
+// state is the song's progress state as the year proposal adapts to it.
+func (p progress) state() string {
+	switch {
+	case !p.found:
+		return "new"
+	case p.box >= masteredBox:
+		return "mastered"
+	}
+	return "learning"
+}
+
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func loadProgress(ctx context.Context, q querier, profileID, songID string) (progress, error) {
+	var p progress
+	err := q.QueryRowContext(ctx, `SELECT box, attempts, correct FROM train_progress WHERE profile_id = ? AND song_id = ?`,
+		profileID, songID).Scan(&p.box, &p.attempts, &p.correct)
+	if errors.Is(err, sql.ErrNoRows) {
+		return progress{}, nil
+	}
+	p.found = err == nil
+	return p, err
+}
+
+// saveAnswer updates the song's progress and the profile's XP and streak for one answer, in tx. A first-try answer
+// moves the box (a hit up, a miss back to 0); a re-ask only counts toward the accuracy.
+func saveAnswer(ctx context.Context, tx *sql.Tx, profileID string, a answer, now time.Time) error {
+	p, err := loadProgress(ctx, tx, profileID, a.SongID)
+	if err != nil {
+		return err
+	}
+	ok := 0
+	if a.Correct {
+		ok = 1
+	}
+	// A miss is due again at once (the next session asks it first); a hit rests by its box.
+	due := now
+	switch {
+	case a.Retry && p.found:
+		// the year was just shown: no evidence for the box
+	case a.Correct:
+		p.box++
+		due = now.Add(interval(p.box))
+	default:
+		p.box = 0
+	}
+	if a.Retry && p.found {
+		_, err = tx.ExecContext(ctx, `UPDATE train_progress SET attempts = attempts + 1, correct = correct + ?, last_at = ?
+WHERE profile_id = ? AND song_id = ?`, ok, now.UnixMilli(), profileID, a.SongID)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+INSERT INTO train_progress (profile_id, song_id, box, due_at, attempts, correct, last_at) VALUES (?, ?, ?, ?, 1, ?, ?)
+ON CONFLICT (profile_id, song_id) DO UPDATE SET box = excluded.box, due_at = excluded.due_at,
+    attempts = attempts + 1, correct = correct + excluded.correct, last_at = excluded.last_at`,
+			profileID, a.SongID, p.box, due.UnixMilli(), ok, now.UnixMilli())
+	}
+	if err != nil {
+		return err
+	}
+	today := day(now)
+	yesterday := day(now.AddDate(0, 0, -1))
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO train_profiles (profile_id, xp, streak_days, last_day) VALUES (?, ?, 1, ?)
+ON CONFLICT (profile_id) DO UPDATE SET xp = xp + excluded.xp,
+    streak_days = CASE WHEN last_day = ? THEN streak_days WHEN last_day = ? THEN streak_days + 1 ELSE 1 END,
+    last_day = excluded.last_day`, profileID, a.XP, today, today, yesterday)
+	return err
+}
+
+// day is the local calendar day of t, what the daily streak counts.
+func day(t time.Time) string { return t.Local().Format(time.DateOnly) }
