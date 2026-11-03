@@ -295,15 +295,51 @@ func TestSession_noPreviews(t *testing.T) {
 }
 
 func TestSession_skipsSongsWithoutPreview(t *testing.T) {
-	e := newEnv(t, &preview.Fake{Missing: map[string]bool{"s0": true, "s1": true}}, 3)
+	// Two of five have no preview: the session still gets its three cards.
+	e := newEnv(t, &preview.Fake{Missing: map[string]bool{"s0": true, "s1": true}}, 5)
 	cr := decodeBody[createResponse](t, e.do(http.MethodPost, "/api/train/sessions", Config{Length: 3}))
 	g := decodeBody[getResponse](t, e.do(http.MethodGet, "/api/train/sessions/"+cr.ID, nil))
-	if g.Total != 1 || e.songOf(cr.ID, cr.Card.ID).SongID != "s2" {
-		t.Errorf("session = %+v", g)
+	if g.Total != 3 || cr.Now != e.clock().UnixMilli() || g.Now != cr.Now {
+		t.Errorf("session = %+v, now %d", g, cr.Now)
+	}
+	if id := e.songOf(cr.ID, cr.Card.ID).SongID; id == "s0" || id == "s1" {
+		t.Errorf("card without a preview: %s", id)
 	}
 	all := newEnv(t, &preview.Fake{Missing: map[string]bool{"s0": true}}, 1)
 	if rec := all.do(http.MethodPost, "/api/train/sessions", Config{}); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("nothing playable = %d", rec.Code)
+	}
+}
+
+type downSource struct{}
+
+func (downSource) PreviewURL(context.Context, deck.Song) (string, error) {
+	return "", errors.New("apple: token refused")
+}
+
+func TestSession_sourceDownIs503(t *testing.T) {
+	e := newEnv(t, downSource{}, 3)
+	if rec := e.do(http.MethodPost, "/api/train/sessions", Config{}); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("source down = %d, want 503", rec.Code)
+	}
+}
+
+func TestSession_drillSongIDs(t *testing.T) {
+	e := newEnv(t, &preview.Fake{}, 6)
+	cr := decodeBody[createResponse](t, e.do(http.MethodPost, "/api/train/sessions",
+		Config{SongIDs: []string{"s4", "s1", "s4", "gone"}}))
+	g := decodeBody[getResponse](t, e.do(http.MethodGet, "/api/train/sessions/"+cr.ID, nil))
+	if g.Total != 2 {
+		t.Fatalf("drill total = %d, want the 2 known distinct songs", g.Total)
+	}
+	if id := e.songOf(cr.ID, cr.Card.ID).SongID; id != "s4" && id != "s1" {
+		t.Errorf("drill card = %s", id)
+	}
+	if rec := e.do(http.MethodPost, "/api/train/sessions", Config{SongIDs: []string{"gone"}}); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("drill of unknown songs = %d", rec.Code)
+	}
+	if rec := e.do(http.MethodPost, "/api/train/sessions", Config{SongIDs: make([]string, 51)}); rec.Code != http.StatusBadRequest {
+		t.Errorf("51 song ids = %d", rec.Code)
 	}
 }
 
@@ -312,23 +348,44 @@ func TestProgress_spacedRepetitionAndStreak(t *testing.T) {
 	ctx := context.Background()
 	var profile string
 	_ = e.db.QueryRow(`SELECT id FROM profiles`).Scan(&profile)
-	// Answer s0 right three times on three days: mastered, the streak counts days.
-	for i := range 3 {
-		tx, _ := e.db.BeginTx(ctx, nil)
-		if err := saveAnswer(ctx, tx, profile, answer{SongID: "s0", Year: 1960, Correct: true, XP: 10}, e.clock()); err != nil {
+	hit := func(song string) {
+		t.Helper()
+		if err := store.InTx(ctx, e.db, func(tx *sql.Tx) error {
+			return saveAnswer(ctx, tx, profile, answer{SongID: song, Year: 1960, Correct: true, XP: 10}, e.clock())
+		}); err != nil {
 			t.Fatal(err)
 		}
-		_ = tx.Commit()
-		if i < 2 {
-			e.advance(24 * time.Hour)
-		}
 	}
+	box := func(song string) int {
+		p, _ := loadProgress(ctx, e.db, profile, song)
+		return p.box
+	}
+	// Hits the same day prove nothing: one box, however often.
+	for range 3 {
+		hit("s0")
+	}
+	if box("s0") != 1 {
+		t.Fatalf("three same-day hits: box %d, want 1", box("s0"))
+	}
+	// Spaced as due (1 day, then 3 days): mastered; the daily streak counts days in a row.
+	e.advance(24 * time.Hour)
+	hit("s0")
+	e.advance(24 * time.Hour)
+	hit("s0") // not due yet (3 days): counts for the streak, not the box
+	if box("s0") != 2 {
+		t.Fatalf("early hit moved the box: %d", box("s0"))
+	}
+	if st, _ := e.svc.stats(ctx, profile); st.StreakDays != 3 {
+		t.Errorf("streak = %d, want 3", st.StreakDays)
+	}
+	e.advance(2 * 24 * time.Hour)
+	hit("s0")
 	p, _ := loadProgress(ctx, e.db, profile, "s0")
-	if p.box != 3 || p.state() != "mastered" || p.attempts != 3 {
+	if p.box != 3 || p.state() != "mastered" || p.attempts != 6 {
 		t.Errorf("progress = %+v", p)
 	}
 	st, _ := e.svc.stats(ctx, profile)
-	if st.StreakDays != 3 || st.Mastered != 1 || st.XP != 30 {
+	if st.Mastered != 1 || st.XP != 60 {
 		t.Errorf("stats = %+v", st)
 	}
 	// The next session asks the new songs first; s0 rests a week.
@@ -343,7 +400,7 @@ func TestProgress_spacedRepetitionAndStreak(t *testing.T) {
 	_ = saveAnswer(ctx, tx, profile, answer{SongID: "s0", Year: 1960, Correct: true, Retry: true}, e.clock())
 	_ = tx.Commit()
 	p, _ = loadProgress(ctx, e.db, profile, "s0")
-	if p.box != 0 || p.attempts != 5 || p.correct != 4 {
+	if p.box != 0 || p.attempts != 8 || p.correct != 7 {
 		t.Errorf("after miss and re-ask = %+v", p)
 	}
 	order, _ = e.svc.order(ctx, profile, songs, rand.New(rand.NewPCG(1, 1)), e.clock())
@@ -366,10 +423,10 @@ func TestSave_conflict(t *testing.T) {
 	a, _ := e.svc.load(ctx, cr.ID, profile)
 	b, _ := e.svc.load(ctx, cr.ID, profile)
 	a.s.XP, b.s.XP = 1, 2
-	if err := e.svc.inTx(ctx, func(tx *sql.Tx) error { return e.svc.save(ctx, tx, a) }); err != nil {
+	if err := store.InTx(ctx, e.db, func(tx *sql.Tx) error { return e.svc.save(ctx, tx, a) }); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.svc.inTx(ctx, func(tx *sql.Tx) error { return e.svc.save(ctx, tx, b) }); !errors.Is(err, errConflict) {
+	if err := store.InTx(ctx, e.db, func(tx *sql.Tx) error { return e.svc.save(ctx, tx, b) }); !errors.Is(err, errConflict) {
 		t.Errorf("stale save = %v, want a conflict", err)
 	}
 	if _, err := e.svc.load(ctx, cr.ID, "someone-else"); !errors.Is(err, errNoSession) {

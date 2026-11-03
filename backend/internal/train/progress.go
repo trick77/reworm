@@ -41,6 +41,7 @@ func AwardFor(xp int) (string, *int) {
 // progress is a song's spaced-repetition row.
 type progress struct {
 	box      int
+	due      time.Time
 	attempts int
 	correct  int
 	found    bool
@@ -63,12 +64,13 @@ type querier interface {
 
 func loadProgress(ctx context.Context, q querier, profileID, songID string) (progress, error) {
 	var p progress
-	err := q.QueryRowContext(ctx, `SELECT box, attempts, correct FROM train_progress WHERE profile_id = ? AND song_id = ?`,
-		profileID, songID).Scan(&p.box, &p.attempts, &p.correct)
+	var due int64
+	err := q.QueryRowContext(ctx, `SELECT box, due_at, attempts, correct FROM train_progress WHERE profile_id = ? AND song_id = ?`,
+		profileID, songID).Scan(&p.box, &due, &p.attempts, &p.correct)
 	if errors.Is(err, sql.ErrNoRows) {
 		return progress{}, nil
 	}
-	p.found = err == nil
+	p.found, p.due = err == nil, time.UnixMilli(due)
 	return p, err
 }
 
@@ -83,18 +85,22 @@ func saveAnswer(ctx context.Context, tx *sql.Tx, profileID string, a answer, now
 	if a.Correct {
 		ok = 1
 	}
-	// A miss is due again at once (the next session asks it first); a hit rests by its box.
+	// A miss is due again at once (the next session asks it first); a hit on a due song moves it up a box and rests
+	// it by that box. A hit before the song is due (a drill, a small deck) proves nothing about memory over days: the
+	// box and the due date stay, so mastered always means hits spaced out by the intervals.
 	due := now
+	keep := a.Retry && p.found // the year was just shown: no evidence for the box
 	switch {
-	case a.Retry && p.found:
-		// the year was just shown: no evidence for the box
+	case keep:
+	case a.Correct && p.found && now.Before(p.due):
+		keep = true
 	case a.Correct:
 		p.box++
 		due = now.Add(interval(p.box))
 	default:
 		p.box = 0
 	}
-	if a.Retry && p.found {
+	if keep {
 		_, err = tx.ExecContext(ctx, `UPDATE train_progress SET attempts = attempts + 1, correct = correct + ?, last_at = ?
 WHERE profile_id = ? AND song_id = ?`, ok, now.UnixMilli(), profileID, a.SongID)
 	} else {

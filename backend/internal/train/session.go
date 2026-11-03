@@ -35,6 +35,8 @@ type Config struct {
 	Difficulty string              `json:"difficulty"`
 	Clip       engine.ClipSettings `json:"clip"`
 	Length     int                 `json:"length"`
+	// SongIDs drills these songs (a summary's misses) instead of the deck.
+	SongIDs []string `json:"songIds,omitempty"`
 }
 
 // Normalize fills the defaults and checks the values.
@@ -45,10 +47,16 @@ func (c *Config) Normalize(thisYear int) error {
 	if c.Difficulty == "" {
 		c.Difficulty = "medium"
 	}
+	bad := func(msg string) error { return api.Fail(http.StatusBadRequest, "invalid_settings", msg) }
+	if len(c.SongIDs) > MaxLength {
+		return bad("songIds holds at most 50 songs")
+	}
 	if c.Length == 0 {
 		c.Length = DefaultLength
+		if len(c.SongIDs) > 0 {
+			c.Length = len(c.SongIDs)
+		}
 	}
-	bad := func(msg string) error { return api.Fail(http.StatusBadRequest, "invalid_settings", msg) }
 	if c.Mode != ModeYears && c.Mode != ModePin {
 		return bad(`mode is "years" or "pin"`)
 	}

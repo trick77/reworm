@@ -20,6 +20,7 @@ import (
 	"github.com/trick77/reworm/internal/deck"
 	"github.com/trick77/reworm/internal/engine"
 	"github.com/trick77/reworm/internal/preview"
+	"github.com/trick77/reworm/internal/store"
 )
 
 // Options configures New.
@@ -67,7 +68,8 @@ var (
 	errNoSession = api.Fail(http.StatusNotFound, "unknown_session", "no such session")
 	errConflict  = api.Fail(http.StatusConflict, "conflict", "the session changed meanwhile; reload it")
 	errNotCard   = api.Fail(http.StatusConflict, "wrong_card", "that card is not the current one")
-	errDeckEmpty = api.Fail(http.StatusUnprocessableEntity, "deck_empty", "no song in this deck")
+	errDeckEmpty = api.Fail(http.StatusUnprocessableEntity, "deck_empty", "no playable song in this deck")
+	errPreviews  = api.Fail(http.StatusServiceUnavailable, "previews_unavailable", "the preview source failed; try again")
 )
 
 // cardJSON is a card as the client sees it: never the year before the answer.
@@ -120,18 +122,6 @@ func (s *Service) save(ctx context.Context, tx *sql.Tx, st *stored) error {
 	return nil
 }
 
-func (s *Service) inTx(ctx context.Context, f func(*sql.Tx) error) error {
-	tx, err := s.o.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	if err := f(tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
 // present makes the current card ready: its proposal drawn (shifted by the session so far and the song's
 // progress) and its preview resolved. A song without a preview leaves the queue. It returns nil when the session is
 // done, and whether the session changed.
@@ -157,7 +147,8 @@ func (s *Service) present(ctx context.Context, st *stored, rng *rand.Rand) (*car
 			continue
 		}
 		if err != nil {
-			return nil, changed, err
+			slog.WarnContext(ctx, "preview lookup failed", "song", song.ID, logging.Err(err))
+			return nil, changed, errPreviews
 		}
 		cfg := st.s.Config
 		out := &cardJSON{ID: c.ID, Retry: c.Retry, Clip: engine.Clip{PreviewURL: u, From: c.From, Length: cfg.Clip.Length}}
@@ -188,6 +179,8 @@ func (s *Service) present(ctx context.Context, st *stored, rng *rand.Rand) (*car
 type createResponse struct {
 	ID   string    `json:"id"`
 	Card *cardJSON `json:"card"`
+	// Now is the server clock (unix ms), for the client's clock offset.
+	Now int64 `json:"now"`
 }
 
 func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request, id account.Identity) {
@@ -211,21 +204,33 @@ func (s *Service) create(ctx context.Context, profile string, cfg Config) (creat
 	if s.o.Previews == nil {
 		return createResponse{}, api.ErrNoPreviews
 	}
-	songs, err := s.o.Songs.Select(ctx, cfg.Deck)
+	songs, err := s.songs(ctx, cfg)
 	if err != nil {
 		return createResponse{}, err
-	}
-	if len(songs) == 0 {
-		return createResponse{}, errDeckEmpty
 	}
 	rng := s.o.Rand()
 	order, err := s.order(ctx, profile, songs, rng, now)
 	if err != nil {
 		return createResponse{}, err
 	}
+	// Fill up to Length with songs that have a preview; one without is passed over, a failing source is not.
 	st := &stored{id: api.ID(), profile: profile, s: session{Config: cfg}}
-	for _, song := range order[:min(cfg.Length, len(order))] {
+	for _, song := range order {
+		if len(st.s.Queue) == cfg.Length {
+			break
+		}
+		_, err := s.o.Previews.PreviewURL(ctx, song)
+		if errors.Is(err, preview.ErrNone) {
+			continue
+		}
+		if err != nil {
+			slog.WarnContext(ctx, "preview lookup failed", "song", song.ID, logging.Err(err))
+			return createResponse{}, errPreviews
+		}
 		st.s.Queue = append(st.s.Queue, card{ID: api.ID(), SongID: song.ID, Year: song.Year, From: engine.ClipFrom(rng, cfg.Clip)})
+	}
+	if len(st.s.Queue) == 0 {
+		return createResponse{}, errDeckEmpty
 	}
 	c, _, err := s.present(ctx, st, rng)
 	if err != nil {
@@ -240,7 +245,31 @@ func (s *Service) create(ctx context.Context, profile string, cfg Config) (creat
 	}
 	_, err = s.o.DB.ExecContext(ctx, `INSERT INTO train_sessions (id, profile_id, created_at, updated_at, state) VALUES (?, ?, ?, ?, ?)`,
 		st.id, profile, now.UnixMilli(), now.UnixMilli(), string(b))
-	return createResponse{ID: st.id, Card: c}, err
+	return createResponse{ID: st.id, Card: c, Now: api.Millis(s.o.Now())}, err
+}
+
+// songs is what a session draws from: the drilled songs (a summary's misses) when songIds is set, else the deck.
+func (s *Service) songs(ctx context.Context, cfg Config) ([]deck.Song, error) {
+	if len(cfg.SongIDs) == 0 {
+		return s.o.Songs.Select(ctx, cfg.Deck)
+	}
+	var out []deck.Song
+	seen := map[string]bool{}
+	for _, id := range cfg.SongIDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		song, err := s.o.Songs.Get(ctx, id)
+		if errors.Is(err, deck.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, song)
+	}
+	return out, nil
 }
 
 // order is the play order for a profile: songs due after a miss first, then new ones, then mastered songs that are
@@ -298,6 +327,7 @@ type getResponse struct {
 	Total int       `json:"total"`
 	Card  *cardJSON `json:"card"`
 	Stats statsJSON `json:"stats"`
+	Now   int64     `json:"now"`
 }
 
 func (s *Service) handleGet(w http.ResponseWriter, r *http.Request, id account.Identity) {
@@ -308,7 +338,7 @@ func (s *Service) handleGet(w http.ResponseWriter, r *http.Request, id account.I
 		c, changed, err = s.present(r.Context(), st, s.o.Rand())
 	}
 	if err == nil && changed {
-		err = s.inTx(r.Context(), func(tx *sql.Tx) error { return s.save(r.Context(), tx, st) })
+		err = store.InTx(r.Context(), s.o.DB, func(tx *sql.Tx) error { return s.save(r.Context(), tx, st) })
 	}
 	if err != nil {
 		api.WriteError(w, r, err)
@@ -317,7 +347,7 @@ func (s *Service) handleGet(w http.ResponseWriter, r *http.Request, id account.I
 	ss := st.s
 	httpx.WriteJSON(w, http.StatusOK, getResponse{ID: st.id, Index: ss.Index, Total: len(ss.Queue), Card: c,
 		Stats: statsJSON{Correct: ss.correct(), Answered: len(ss.Answers), Streak: ss.Streak, BestStreak: ss.Best,
-			Learning: ss.learning(), XP: ss.XP}})
+			Learning: ss.learning(), XP: ss.XP}, Now: api.Millis(s.o.Now())})
 }
 
 type answerRequest struct {
@@ -332,6 +362,7 @@ type answerResponse struct {
 	XP      int           `json:"xp"`
 	Song    deck.Revealed `json:"song"`
 	Next    *cardJSON     `json:"next"`
+	Now     int64         `json:"now"`
 }
 
 func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request, id account.Identity) {
@@ -385,7 +416,7 @@ func (s *Service) answer(ctx context.Context, sessionID, profile string, req ans
 		return answerResponse{}, err
 	}
 	now := s.o.Now()
-	err = s.inTx(ctx, func(tx *sql.Tx) error {
+	err = store.InTx(ctx, s.o.DB, func(tx *sql.Tx) error {
 		if err := s.save(ctx, tx, st); err != nil {
 			return err
 		}
@@ -394,7 +425,7 @@ func (s *Service) answer(ctx context.Context, sessionID, profile string, req ans
 	if err != nil {
 		return answerResponse{}, err
 	}
-	return answerResponse{Correct: correct, Tier: tier, XP: xp, Song: song.Reveal(), Next: next}, nil
+	return answerResponse{Correct: correct, Tier: tier, XP: xp, Song: song.Reveal(), Next: next, Now: api.Millis(s.o.Now())}, nil
 }
 
 type missJSON struct {
