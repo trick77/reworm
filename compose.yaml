@@ -1,0 +1,42 @@
+services:
+  reworm:
+    # A release tag (exists from the first release on); Dependabot moves it.
+    image: ghcr.io/trick77/reworm:0.1.0
+    # distroless nonroot's own uid, never 1000 (the host's first user). Host ./data must belong to it:
+    # sudo chown -R 65532:65532 data
+    user: "65532:65532"
+    restart: unless-stopped
+    # Secrets and settings come from .env as they are (Docker Compose 2.24+ for env_file `path`).
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BACKEND_ADDR: ":8080"
+      BACKEND_DATA_DIR: "/data"
+      BACKEND_LOG_LEVEL: "${BACKEND_LOG_LEVEL:-info}"
+      PUBLIC_FQDN: "${PUBLIC_FQDN:-}"
+      # Traefik is the one proxy in front: its X-Forwarded-For entry is the client.
+      BACKEND_TRUSTED_PROXIES: "1"
+    healthcheck:
+      test: ["CMD", "/reworm", "healthcheck"]
+      interval: 60s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 5s
+      retries: 3
+    volumes:
+      - ./data:/data
+    networks:
+      - traefik
+    labels:
+      # One image serves the API and the embedded SPA on :8080; Traefik terminates TLS in front of it.
+      traefik.enable: "true"
+      traefik.docker.network: traefik
+      traefik.http.routers.reworm.rule: Host(`${PUBLIC_FQDN:?set PUBLIC_FQDN in .env, the hostname Traefik routes reworm on}`)
+      traefik.http.routers.reworm.entrypoints: websecure
+      traefik.http.routers.reworm.tls: "true"
+      traefik.http.services.reworm.loadbalancer.server.port: "8080"
+
+networks:
+  traefik:
+    external: true

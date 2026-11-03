@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reworm — mocks</title>
+<style>
+:root{
+  --ink:#13110f; --ink2:#1b1815; --panel:#231f1b; --panel2:#2b2621; --line:#3a332c;
+  --paper:#f5eee4; --muted:#a69a8b; --faint:#6f655a;
+  --hanko:#e5482f; --hanko2:#ff6a4d; --gold:#e9b44c; --jade:#3dbb8c; --rose:#e0675d; --sky:#69aee8;
+  --r:18px;
+  --num: ui-rounded, "SF Pro Rounded", "SF Pro Display", system-ui, sans-serif;
+  --txt: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:#0b0a09;color:var(--paper);font-family:var(--txt)}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+.num{font-family:var(--num);font-variant-numeric:tabular-nums}
+
+/* ---------- mock chrome ---------- */
+.topbar{position:sticky;top:0;z-index:50;display:flex;gap:14px;align-items:center;justify-content:space-between;
+  padding:12px 20px;background:rgba(11,10,9,.85);backdrop-filter:blur(12px);border-bottom:1px solid #221e1a}
+.topbar h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.2px}
+.topbar h1 small{color:var(--muted);font-weight:450;margin-left:8px}
+.seg{display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px}
+.seg button{padding:6px 14px;border-radius:999px;font-size:13px;color:var(--muted)}
+.seg button.on{background:var(--paper);color:var(--ink);font-weight:600}
+.stage{display:flex;justify-content:center;padding:28px 16px 60px}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:36px 28px;padding:28px;max-width:1720px;margin:0 auto}
+.board-t{grid-template-columns:repeat(auto-fill,minmax(600px,1fr));border-top:1px solid #221e1a}
+.board figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:12px}
+.board figcaption{font-size:13px;color:var(--muted);text-align:center;max-width:370px;line-height:1.45}
+.board figcaption b{color:var(--paper);display:block;font-size:14px;margin-bottom:2px}
+.notes{max-width:1100px;margin:0 auto;padding:0 28px 60px;color:var(--muted);font-size:14px;line-height:1.6}
+.notes h2{color:var(--paper);font-size:16px;margin:28px 0 8px}
+.notes code{background:var(--panel);padding:1px 6px;border-radius:6px;color:var(--paper)}
+
+.phone{width:390px;height:844px;border-radius:54px;padding:12px;background:#000;
+  box-shadow:0 0 0 1px #2c2824,0 30px 80px rgba(0,0,0,.6);position:relative;flex:none}
+.phone::before{content:"";position:absolute;top:22px;left:50%;transform:translateX(-50%);width:118px;height:34px;border-radius:20px;background:#000;z-index:20}
+.tablet{width:1180px;height:820px;border-radius:40px;padding:18px;background:#000;box-shadow:0 0 0 1px #2c2824,0 30px 80px rgba(0,0,0,.6);flex:none}
+.tablet.portrait{width:820px;height:1180px}
+.tablet .app{border-radius:22px}
+.tablet .status{height:30px;align-items:center;padding:0 22px;font-size:12px}
+
+.full{width:min(560px,100%);height:calc(100vh - 120px);min-height:700px;border-radius:22px;border:1px solid var(--line);overflow:hidden}
+.app{width:100%;height:100%;border-radius:42px;overflow:hidden;background:var(--ink);position:relative;display:flex;flex-direction:column}
+.full .app{border-radius:0}
+
+/* ---------- app ---------- */
+.status{height:50px;flex:none;display:flex;justify-content:space-between;align-items:flex-end;padding:0 30px 6px;font-size:14px;font-weight:600}
+.full .status{display:none}
+.scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:4px 18px 18px;scrollbar-width:none}
+.scroll::-webkit-scrollbar{display:none}
+.tabs{flex:none;display:flex;justify-content:space-around;padding:8px 10px 26px;border-top:1px solid #241f1b;background:var(--ink)}
+.tabs button{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--faint);padding:4px 16px}
+.tabs button.on{color:var(--paper)}
+.tabs svg{width:24px;height:24px}
+
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.h-title{font-size:30px;font-weight:750;letter-spacing:-.5px;margin:6px 0 2px}
+.sub{color:var(--muted);font-size:14px}
+.label{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);font-weight:600;margin:22px 2px 10px}
+.card{background:var(--panel);border:1px solid #2f2924;border-radius:var(--r);padding:16px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;background:var(--panel2);font-size:12.5px;color:var(--paper);border:1px solid var(--line)}
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;height:54px;border-radius:16px;font-weight:650;font-size:16px;width:100%}
+.btn svg{width:18px;height:18px;flex:none}
+.btn.primary{background:var(--hanko);color:#fff;box-shadow:0 8px 24px rgba(229,72,47,.35)}
+.btn.primary:active{transform:scale(.98)}
+.btn.ghost{background:var(--panel2);border:1px solid var(--line)}
+.btn.small{height:40px;font-size:14px;border-radius:12px;width:auto;padding:0 14px}
+.icon-btn{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--panel);border:1px solid var(--line)}
+.icon-btn svg{width:20px;height:20px}
+
+/* seal / logo */
+.seal{width:34px;height:34px;border-radius:9px;background:var(--hanko);display:grid;place-items:center;color:#fff;font-weight:800;font-size:14px;
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.18);transform:rotate(-4deg);font-family:var(--num)}
+.brand{font-weight:750;font-size:18px;letter-spacing:-.2px}
+.brand span{color:var(--hanko2)}
+
+/* hero */
+.hero{position:relative;overflow:hidden;background:linear-gradient(150deg,#2e211a 0%,#231b16 55%,#1d1714 100%);border:1px solid #3d2c22}
+.hero::after{content:"";position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;
+  background:repeating-radial-gradient(circle,#0000 0 5px,rgba(255,255,255,.035) 5px 6px),radial-gradient(circle,#e5482f 0 18%,#14110f 19% 100%);opacity:.9}
+.hero > *{position:relative;z-index:1}
+.kata{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--gold);font-weight:700}
+
+/* bucket bar (quizlet-style) */
+.buckets{display:flex;height:10px;border-radius:99px;overflow:hidden;background:var(--panel2);gap:2px}
+.buckets i{display:block;height:100%}
+.legend{display:flex;gap:14px;font-size:12.5px;color:var(--muted);margin-top:9px}
+.legend b{color:var(--paper);font-weight:650}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px}
+
+/* decades */
+.decades{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.dec{border-radius:14px;padding:10px 10px 9px;border:1px solid #ffffff10;text-align:left}
+.dec .d{font-size:17px;font-weight:750;font-family:var(--num)}
+.dec .p{font-size:12px;opacity:.8;margin-top:1px}
+.dec .bar{height:4px;border-radius:9px;background:#00000040;margin-top:7px;overflow:hidden}
+.dec .bar i{display:block;height:100%;background:currentColor;opacity:.85}
+
+/* deck list */
+.deck{display:flex;align-items:center;gap:12px;padding:10px;border-radius:16px}
+.deck + .deck{margin-top:4px}
+.deck:hover{background:var(--panel)}
+.art{width:52px;height:52px;border-radius:12px;flex:none;display:grid;place-items:center;font-weight:800;font-size:15px;color:#fff;position:relative;overflow:hidden}
+.art.lg{width:100%;height:auto;aspect-ratio:1;border-radius:22px;font-size:46px}
+.art::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 30% 20%,rgba(255,255,255,.25),transparent 60%)}
+.deck .meta{flex:1;min-width:0}
+.deck .t{font-weight:620;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.deck .s{font-size:12.5px;color:var(--muted);margin-top:2px}
+.mini-ring{width:34px;height:34px;flex:none}
+
+/* belt */
+.belt{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.belt svg{width:34px;height:18px}
+
+/* setup */
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{padding:9px 13px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:14px;color:var(--paper)}
+.chip.on{background:var(--paper);color:var(--ink);border-color:var(--paper);font-weight:620}
+.chip small{color:var(--muted);margin-left:4px}
+.chip.on small{color:#00000080}
+.opt{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:16px;background:var(--panel);border:1.5px solid transparent;text-align:left;width:100%}
+.opt + .opt{margin-top:8px}
+.opt.on{border-color:var(--hanko);background:#2b1f1a}
+.opt .ic{width:38px;height:38px;border-radius:11px;background:var(--panel2);display:grid;place-items:center;flex:none;font-size:18px}
+.opt .ic svg{width:22px;height:22px}
+.opt .t{font-weight:640;font-size:15px}
+.opt .s{font-size:13px;color:var(--muted);margin-top:2px;line-height:1.35}
+.opt .tag{font-size:10.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--gold);margin-left:6px}
+.segbar{display:flex;background:var(--panel);border-radius:13px;padding:3px;border:1px solid var(--line)}
+.segbar button{flex:1;padding:9px 4px;border-radius:10px;font-size:14px;color:var(--muted)}
+.segbar button.on{background:var(--panel2);color:var(--paper);font-weight:620;box-shadow:0 1px 0 #ffffff10 inset,0 2px 8px #0006}
+.distrib{display:flex;height:26px;border-radius:9px;overflow:hidden;margin-top:10px;font-size:11.5px;font-weight:650}
+.distrib i{display:flex;align-items:center;justify-content:center;font-style:normal;color:#14110f}
+.range{position:relative;height:44px;margin-top:4px}
+.range .track{position:absolute;left:0;right:0;top:20px;height:4px;border-radius:9px;background:var(--panel2)}
+.range .fill{position:absolute;top:20px;height:4px;background:var(--hanko);border-radius:9px}
+.range .knob{position:absolute;top:11px;width:22px;height:22px;border-radius:50%;background:var(--paper);box-shadow:0 2px 8px #000a;transform:translateX(-50%)}
+.range .ticks{position:absolute;left:0;right:0;top:32px;display:flex;justify-content:space-between;font-size:11px;color:var(--faint)}
+.sticky-cta{flex:none;padding:12px 18px 28px;background:linear-gradient(transparent,var(--ink) 30%)}
+.full .sticky-cta{padding-bottom:18px}
+
+/* play */
+.playhead{display:flex;align-items:center;gap:12px;padding:2px 0 8px}
+.prog{flex:1;display:flex;gap:3px}
+.prog i{flex:1;height:5px;border-radius:9px;background:var(--panel2)}
+.prog i.ok{background:var(--jade)} .prog i.bad{background:var(--rose)} .prog i.cur{background:var(--paper)}
+.counts{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+.counts b{color:var(--paper)}
+.vinyl-wrap{display:flex;justify-content:center;margin:10px 0 4px}
+.vinyl{width:178px;height:178px;border-radius:50%;position:relative;
+  background:repeating-radial-gradient(circle,#191614 0 2px,#221e1b 2px 3px),#191614;
+  box-shadow:0 20px 50px #000a, inset 0 0 0 1px #ffffff12}
+.vinyl::before{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 30deg,transparent 0 10%,rgba(255,255,255,.07) 14%,transparent 20% 60%,rgba(255,255,255,.05) 64%,transparent 70%)}
+.vinyl .lbl{position:absolute;inset:33%;border-radius:50%;background:var(--hanko);display:grid;place-items:center;font-size:30px;font-weight:800;color:#fff;font-family:var(--num);box-shadow:inset 0 0 0 3px #0002}
+.vinyl .lbl::after{content:"";position:absolute;width:8px;height:8px;border-radius:50%;background:var(--ink)}
+.vinyl .lbl span{transform:translateY(-14px);font-size:20px;opacity:.9}
+.spin{animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.wave{display:flex;align-items:center;gap:3px;height:34px;margin:14px 4px 4px}
+.wave i{flex:1;border-radius:3px;background:var(--line);transition:background .2s}
+.wave i.on{background:var(--paper)}
+.playing .wave i.on:nth-last-child(n){animation:none}
+.time{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:0 4px}
+.volrow{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--faint)}
+.vb{display:inline-block;width:46px;height:4px;border-radius:9px;background:var(--panel2);overflow:hidden}
+.vb i{display:block;height:100%;background:var(--jade);transition:width .1s linear}
+.player-ctl{display:flex;justify-content:center;gap:14px;margin-top:8px}
+.player-ctl button{height:38px;padding:0 14px;border-radius:12px;background:var(--panel);border:1px solid var(--line);font-size:13px;display:flex;align-items:center;gap:6px;color:var(--paper)}
+.player-ctl svg{width:16px;height:16px}
+
+.yearcard{margin:18px 0 0;border-radius:24px;padding:16px 16px 18px;text-align:center;position:relative;touch-action:none;user-select:none;
+  background:linear-gradient(180deg,#f7f0e6,#ece2d4);color:var(--ink);box-shadow:0 16px 40px #000a;transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .2s}
+.yearcard.drag{transition:none}
+.yearcard .q{font-size:13px;font-weight:650;letter-spacing:.4px;color:#7b6e60}
+.yearcard .y{font-size:84px;line-height:1;font-weight:800;letter-spacing:-3px;font-family:var(--num);margin:4px 0 2px}
+.yearcard .hint{font-size:12px;color:#8e8072}
+.yearcard .tint{position:absolute;inset:0;border-radius:24px;pointer-events:none;display:flex;align-items:flex-start;justify-content:center;padding-top:12px;font-weight:800;font-size:13px;letter-spacing:2px;opacity:0;color:#fff;z-index:2}
+.yearcard .tint span{background:rgba(0,0,0,.35);padding:4px 10px;border-radius:99px}
+.yearcard .y{position:relative;z-index:3}
+.choices{display:grid;grid-template-columns:1fr 1.15fr 1fr;gap:10px;margin-top:16px}
+.choice{height:74px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-weight:700;font-size:15px;
+  background:var(--panel);border:1px solid var(--line);transition:transform .1s}
+.choice:active{transform:scale(.96)}
+.choice svg{width:22px;height:22px}
+.choice small{font-size:10.5px;font-weight:600;color:var(--faint);letter-spacing:.5px}
+.choice.mid{background:var(--hanko);border-color:var(--hanko);color:#fff}
+.choice.mid small{color:#ffffffa0}
+.kbd{display:inline-block;padding:0 5px;border-radius:5px;border:1px solid currentColor;font-size:10px;line-height:15px;opacity:.75}
+
+/* pin-the-year */
+.dial{margin-top:18px;border-radius:24px;padding:18px 16px;background:var(--panel);border:1px solid var(--line);text-align:center}
+.dial .y{font-size:64px;font-weight:800;font-family:var(--num);letter-spacing:-2px;line-height:1}
+.dial input{width:100%;accent-color:var(--hanko);margin:14px 0 4px}
+
+/* reveal */
+.reveal-top{display:flex;gap:16px;align-items:flex-end;margin-top:8px;perspective:600px}
+.cover{width:132px;height:132px;border-radius:10px;flex:none;position:relative;overflow:hidden;box-shadow:0 14px 34px #000c,0 0 0 1px #ffffff14;
+  display:flex;flex-direction:column;justify-content:space-between;padding:10px;color:#fff;animation:flipin .55s cubic-bezier(.2,.9,.3,1.2) both}
+.cover::after{content:"";position:absolute;inset:0;background:linear-gradient(160deg,rgba(255,255,255,.22),transparent 45%,rgba(0,0,0,.35))}
+.cover .ca{font-size:10.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;opacity:.9;position:relative;z-index:1}
+.cover .cb{font-size:15px;font-weight:800;line-height:1.05;letter-spacing:-.2px;position:relative;z-index:1;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cover .disc{position:absolute;right:-26px;top:50%;width:84px;height:84px;margin-top:-42px;border-radius:50%;background:repeating-radial-gradient(circle,#0000 0 3px,rgba(0,0,0,.18) 3px 4px);opacity:.6}
+@keyframes flipin{from{transform:rotateY(-90deg) scale(.9);opacity:0}to{transform:none;opacity:1}}
+.song-t{font-size:21px;font-weight:750;letter-spacing:-.3px;line-height:1.15}
+.song-a{color:var(--muted);font-size:15px;margin-top:3px}
+.verdict{margin-top:18px;border-radius:22px;padding:18px;position:relative;overflow:hidden}
+.verdict.ok{background:linear-gradient(160deg,#173a2d,#132a22);border:1px solid #23573f}
+.verdict.bad{background:linear-gradient(160deg,#3d1e1a,#2a1714);border:1px solid #5a2a23}
+.verdict .big{font-size:76px;font-weight:800;font-family:var(--num);letter-spacing:-3px;line-height:1}
+.verdict .what{font-size:15px;font-weight:650}
+.verdict .why{font-size:13.5px;color:#ffffffb0;margin-top:3px}
+.stamp{position:absolute;right:16px;top:16px;width:78px;height:78px;border-radius:14px;border:3px solid currentColor;display:grid;place-items:center;
+  transform:rotate(-12deg);font-weight:900;font-size:13px;letter-spacing:1px;text-align:center;line-height:1.05;opacity:.9}
+.verdict.ok .stamp{color:var(--jade)} .verdict.bad .stamp{color:var(--rose)}
+.stamp.anim{animation:stamp .45s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes stamp{from{transform:rotate(-30deg) scale(2.2);opacity:0}to{transform:rotate(-12deg) scale(1);opacity:.9}}
+.ruler{margin-top:16px;position:relative;height:58px}
+.ruler .line{position:absolute;left:0;right:0;top:30px;height:2px;background:#ffffff25}
+.ruler .tick{position:absolute;top:26px;width:1px;height:10px;background:#ffffff40}
+.ruler .tick.big{height:14px;top:24px;background:#ffffff70}
+.ruler .tl{position:absolute;top:42px;font-size:10.5px;color:#ffffff80;transform:translateX(-50%);font-family:var(--num)}
+.ruler .mk{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap;display:flex;flex-direction:column;align-items:center;font-size:11px;font-weight:700;gap:2px}
+.ruler .mk i{width:12px;height:12px;border-radius:50%;margin-top:9px;box-shadow:0 0 0 3px #0005}
+.ruler .gap{position:absolute;top:30px;height:2px;background:var(--rose)}
+.src{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:12px 14px;border-radius:14px;background:var(--panel);border:1px solid var(--line);font-size:13px;line-height:1.4}
+.src .ic{flex:none;width:28px;height:28px;border-radius:8px;background:var(--panel2);display:grid;place-items:center;font-size:14px}
+.src b{color:var(--paper)}
+.src .m{color:var(--muted)}
+.src a{color:var(--sky);text-decoration:none}
+.srs{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);margin-top:12px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+
+/* summary */
+.ring{width:150px;height:150px;position:relative;margin:4px auto 0}
+.ring .c{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ring .c b{font-size:40px;font-family:var(--num);font-weight:800;letter-spacing:-1px}
+.ring .c span{font-size:12px;color:var(--muted)}
+.stats3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.stats3 .card{padding:12px;text-align:center}
+.stats3 b{font-size:22px;font-family:var(--num);display:block}
+.stats3 span{font-size:11.5px;color:var(--muted)}
+.dbar{display:flex;align-items:center;gap:10px;font-size:13px;margin-top:8px}
+.dbar .n{width:38px;font-family:var(--num);font-weight:700}
+.dbar .b{flex:1;height:10px;border-radius:9px;background:var(--panel2);overflow:hidden}
+.dbar .b i{display:block;height:100%;border-radius:9px}
+.dbar .v{width:42px;text-align:right;color:var(--muted);font-family:var(--num)}
+.miss{display:flex;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid #2a2520}
+.miss:last-child{border:0}
+.miss .art{width:42px;height:42px;border-radius:10px;font-size:12px}
+.miss .y{margin-left:auto;text-align:right;font-family:var(--num)}
+.miss .y b{font-size:17px}
+.miss .y div{font-size:11.5px;color:var(--muted)}
+.beltprog{display:flex;align-items:center;gap:12px}
+.beltprog .b{flex:1;height:8px;border-radius:9px;background:var(--panel2);overflow:hidden}
+.beltprog .b i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),#f3d27a)}
+
+/* settings */
+.set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #2a2520;font-size:14.5px}
+.set-row:last-child{border:0}
+.set-row .m{font-size:12.5px;color:var(--muted);margin-top:2px}
+.ok-dot{width:9px;height:9px;border-radius:50%;background:var(--jade);box-shadow:0 0 0 4px #3dbb8c25;display:inline-block}
+.warn-dot{background:var(--gold);box-shadow:0 0 0 4px #e9b44c25}
+.toggle{width:46px;height:28px;border-radius:99px;background:var(--panel2);position:relative;flex:none;border:1px solid var(--line)}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--muted);transition:.2s}
+.toggle.on{background:var(--jade);border-color:var(--jade)} .toggle.on::after{left:21px;background:#fff}
+.field{display:flex;gap:8px;margin-top:10px}
+.field input{flex:1;height:44px;border-radius:12px;background:var(--ink2);border:1px solid var(--line);color:var(--paper);padding:0 12px;font-family:ui-monospace,monospace;font-size:13px}
+.steps{margin:10px 0 0;padding-left:20px;color:var(--muted);font-size:13px;line-height:1.6}
+.steps b{color:var(--paper);font-weight:600}
+.radio{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid #2a2520}
+.radio:last-child{border:0}
+.radio .o{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:none;margin-top:1px}
+.radio.on .o{border:6px solid var(--hanko)}
+.radio .t{font-size:14.5px;font-weight:600}
+.radio .s{font-size:12.5px;color:var(--muted);margin-top:2px;line-height:1.4}
+
+@keyframes drain{from{stroke-dashoffset:0}to{stroke-dashoffset:var(--c)}}
+@keyframes drainw{from{width:100%}to{width:0}}
+.tbar{height:8px;border-radius:9px;background:var(--panel2);overflow:hidden;margin:10px 6px 0}
+.tbar i{display:block;height:100%;background:var(--gold);border-radius:9px}
+.padbtn{flex:1;min-height:86px;max-height:130px;border-radius:24px;display:flex;align-items:center;justify-content:center;gap:12px;font-size:26px;font-weight:800;color:#13110f;box-shadow:0 8px 24px #0008;transition:transform .08s}
+.padbtn:active{transform:scale(.97)}
+.padbtn svg{width:30px;height:30px}
+.confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5}
+.confetti i{position:absolute;top:-12px;width:9px;height:14px;border-radius:2px;animation:fall linear infinite;opacity:.9}
+@keyframes fall{to{transform:translateY(900px) rotate(540deg)}}
+.toast{position:absolute;left:50%;bottom:110px;transform:translateX(-50%);background:var(--paper);color:var(--ink);font-size:13px;font-weight:600;padding:9px 14px;border-radius:12px;box-shadow:0 10px 30px #000a;white-space:nowrap;z-index:30}
+.fade-in{animation:fi .28s ease both}
+@keyframes fi{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ---------- tablet layout (last, so it wins over the phone rules above) ----------
+   The .app is the container: from 760px two columns. */
+.app{container-type:inline-size;container-name:app}
+.cols{display:block}
+@container app (min-width:560px){
+  .scroll{padding-left:max(18px,calc((100% - 560px)/2));padding-right:max(18px,calc((100% - 560px)/2))}
+}
+@container app (min-width:760px){
+  .scroll{padding:10px 40px 24px}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 36px;align-items:start}
+  .cols.mid{align-items:center}
+  .cols > .col > .label:first-child{margin-top:8px}
+  .vinyl{width:280px;height:280px}
+  .yearcard .y{font-size:118px;letter-spacing:-4px}
+  .choice{height:92px;font-size:17px}
+  .wave{height:44px}
+  .reveal-top .cover{width:180px;height:180px}
+  .song-t{font-size:26px}
+  .verdict .big{font-size:96px}
+  .sticky-cta{display:flex;justify-content:flex-end;padding:12px 40px 20px}
+  .sticky-cta > .btn{max-width:420px}
+  .sticky-cta[style*="grid"]{display:grid !important;grid-template-columns:200px 280px !important;justify-content:end}
+  .tabs{justify-content:center;gap:40px}
+  .decades{grid-template-columns:repeat(4,1fr)}
+  .scroll.playscr{display:flex;flex-direction:column}
+  .scroll.playscr > .cols.mid{flex:1;min-height:0;align-content:center}
+}
+/* iPad portrait (760–999): list screens keep two columns, play + reveal stack centered */
+@container app (min-width:760px) and (max-width:999px){
+  .cols.wide{display:flex;flex-direction:column;justify-content:center}
+  .cols.wide > .col{width:100%;max-width:580px;margin:0 auto}
+  .cols.wide .yearcard{margin-top:28px}
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>Reworm <small>clickable mock · sample data · real Apple previews with fade</small></h1>
+  <div class="row">
+    <div class="seg" id="viewSeg">
+      <button data-view="proto" class="on">Prototype</button>
+      <button data-view="board">All screens</button>
+      <button data-view="notes">Notes</button>
+    </div>
+    <div class="seg" id="frameSeg">
+      <button data-frame="phone" class="on">iPhone</button>
+      <button data-frame="ipad">iPad</button>
+      <button data-frame="ipadp">iPad ↕</button>
+      <button data-frame="full">Desktop</button>
+    </div>
+  </div>
+</div>
+<div id="root"></div>
+
+<script src="previews.js"></script>
+<script>
+/* ======================= sample data ======================= */
+// year = original first release (what the game scores against). apple = what Apple Music's releaseDate says for the catalog version, when it differs.
+const SONGS = [
+  {t:"Bohemian Rhapsody",a:"Queen",al:"A Night at the Opera (2011 Remaster)",y:1975,apple:2011,g:"Rock"},
+  {t:"Dancing Queen",a:"ABBA",al:"ABBA Gold",y:1976,apple:1992,g:"Pop"},
+  {t:"Superstition",a:"Stevie Wonder",al:"Talking Book",y:1972,g:"Soul"},
+  {t:"Respect",a:"Aretha Franklin",al:"I Never Loved a Man the Way I Love You",y:1967,g:"Soul"},
+  {t:"Don't Stop Believin'",a:"Journey",al:"Escape",y:1981,g:"Rock"},
+  {t:"Like a Prayer",a:"Madonna",al:"Like a Prayer",y:1989,g:"Pop"},
+  {t:"Purple Rain",a:"Prince",al:"Purple Rain",y:1984,g:"Pop"},
+  {t:"Smells Like Teen Spirit",a:"Nirvana",al:"Nevermind",y:1991,g:"Rock"},
+  {t:"Wonderwall",a:"Oasis",al:"(What's the Story) Morning Glory?",y:1995,g:"Rock"},
+  {t:"Losing My Religion",a:"R.E.M.",al:"Out of Time",y:1991,g:"Rock"},
+  {t:"Hey Ya!",a:"OutKast",al:"Speakerboxxx/The Love Below",y:2003,g:"Hip-Hop"},
+  {t:"Seven Nation Army",a:"The White Stripes",al:"Elephant",y:2003,g:"Rock"},
+  {t:"Get Lucky",a:"Daft Punk",al:"Random Access Memories",y:2013,g:"Dance"},
+  {t:"Uptown Funk",a:"Mark Ronson, Bruno Mars",al:"Uptown Special",y:2014,g:"Pop"},
+  {t:"Blinding Lights",a:"The Weeknd",al:"After Hours",y:2019,g:"Pop"},
+  {t:"Levitating",a:"Dua Lipa",al:"Future Nostalgia",y:2020,g:"Pop"},
+  {t:"Stayin' Alive",a:"Bee Gees",al:"Saturday Night Fever",y:1977,g:"Disco"},
+  {t:"I Will Survive",a:"Gloria Gaynor",al:"Love Tracks",y:1978,g:"Disco"},
+  // from the Essentials card list (year = the card's year)
+  {t:"Guajira Guantanamera",a:"Joseíto Fernández",al:"Cuba: Grandes Éxitos",y:1929,apple:2004,g:"Latin",h:"Essentials"},
+  {t:"Wann wird's mal wieder richtig Sommer",a:"Rudi Carrell",al:"Das Beste",y:1975,apple:1996,g:"Schlager",h:"Essentials"},
+  {t:"The Twist",a:"Chubby Checker",al:"Twist with Chubby Checker",y:1960,g:"Rock'n'Roll",h:"Essentials"},
+  {t:"You Can Call Me Al",a:"Paul Simon",al:"Graceland",y:1986,g:"Pop",h:"Essentials"},
+  {t:"Start Me Up",a:"The Rolling Stones",al:"Tattoo You",y:1981,g:"Rock",h:"Essentials"},
+  {t:"One More Time",a:"Daft Punk",al:"Discovery",y:2000,g:"Dance",h:"Essentials"},
+  {t:"Atemlos durch die Nacht",a:"Helene Fischer",al:"Farbenspiel",y:2013,g:"Schlager",h:"Schlager Fest"},
+  {t:"99 Luftballons",a:"Nena",al:"Nena",y:1983,g:"Deutschpop",h:"Essentials"},
+  {t:"Felicità",a:"Al Bano & Romina Power",al:"Felicità",y:1982,g:"Italo-Schlager"},
+  {t:"Ti amo",a:"Umberto Tozzi",al:"È nell'aria...ti amo",y:1977,g:"Italo-Schlager"},
+  {t:"L'italiano",a:"Toto Cutugno",al:"L'italiano",y:1983,g:"Italo-Schlager"},
+  {t:"Non, je ne regrette rien",a:"Édith Piaf",al:"Non, je ne regrette rien",y:1960,g:"French chanson"},
+  {t:"Les Champs-Élysées",a:"Joe Dassin",al:"Les Champs-Élysées",y:1969,g:"French chanson"},
+];
+const DECKS = [
+  {id:"orig",t:"Essentials (DE)",s:"Card set · 1908–2021 · 308 cards",src:"hit",c:["#e5482f","#7a1f14"],m:.46},
+  {id:"smash",t:"Smash Hits",s:"Category · 1950–2025 · ~500 #1s & mega hits",src:"cat",c:["#e9b44c","#c0662b"],m:.31},
+  {id:"plat",t:"Mega Mix (DE)",s:"Card set · 1950–2024 · 500 cards",src:"hit",c:["#cfd3d8","#5d636b"],m:.18},
+  {id:"rock",t:"Rock",s:"Genre · 1954–2024 · well-known only",src:"cat",c:["#69aee8","#3a4f9a"],m:.35},
+  {id:"road",t:"Road Trip 2024",s:"Your playlist · 84 songs",src:"lib",c:["#3dbb8c","#1f6a6a"],m:.58},
+];
+// community game-night card lists (German editions): cards, year span
+const CARDSETS = [
+  ["Essentials","308","1908–2021"],["Mega Mix","500","1950–2024"],["Rock Anthems","308","1954–2024"],["Schlager Fest","308","1961–2022"],
+  ["Sunshine","308","1958–2023"],["Cheesy Classics","308","1960–2023"],["Party Starters","308","1949–2024"],["Crowd Pleasers","226","1961–2023"],
+  ["Screen Hits","154","1939–2023"],["Christmas Hits","154","1941–2023"],["Radio Gold","154","1955–2023"]];
+const GENRES = ["General","Pop","Rock","Schlager & Deutschpop","Italo-Schlager","Hip-Hop / Rap","R&B / Soul","Dance / Electronic","Disco & Funk","Indie / Alternative","Metal & Hard Rock","Country","Latin","Reggae","French chanson"];
+const CATEGORIES = [
+  ["Smash Hits","500"],["Number ones","320"],["Summer hits","200"],["Party classics","180"],["Guilty pleasures","150"],["Movie & TV","140"],
+  ["Christmas","120"],["One-hit wonders","150"],["Love songs","160"],["Eurovision","120"],["Swiss charts","200"],["Evergreens (pre-1950)","40"]];
+const PLAYLISTS = [["Road Trip 2024","84"],["Kitchen disco","142"],["Heavy Rotation","50"],["Recently played","50"],["Liked songs","1,204"]];
+// Proposed year = actual ± an offset from one of four tiers. Each card draws its tier from the
+// difficulty's base mix, shifted per card (see pickTier): warm-up, streak, last miss, song state.
+const TIERS = [ // easiest first
+  {k:"easy",  label:"Easy one",  r:[10,25], col:"var(--sky)"},   // other era: 1966 shown as 1983
+  {k:"clear", label:"Clear one", r:[4,9],   col:"var(--jade)"},  // same era, different years
+  {k:"tight", label:"Tight one", r:[1,3],   col:"var(--gold)"},  // the game-night pain
+  {k:"exact", label:"Spot-on card", r:[0,0], col:"var(--hanko)"},
+];
+const DIFF = {
+  easy:  {label:"Easy",  mix:[.55,.25,.08,.12], desc:"Mostly other eras. Learn the decades first."},
+  medium:{label:"Medium",mix:[.35,.30,.20,.15], desc:"Mostly easy and clear cards, a tight one now and then."},
+  hard:  {label:"Hard",  mix:[.12,.28,.38,.22], desc:"Lots of ±1–3. Game-night pressure."},
+};
+const YEAR_MIN=1900, YEAR_MAX=2025;
+
+/* ======================= helpers ======================= */
+// logo: a worm that is also a sound wave
+const WORM = '<svg viewBox="0 0 32 32" width="26" height="26" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"><path d="M4 18c3-8 6-8 8 0s5 8 8 0 4-6 6-4"/><circle cx="27" cy="12" r="2.4" fill="#fff" stroke="none"/></svg>';
+const $ = s => document.querySelector(s);
+const hash = s => [...s].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7);
+function artGrad(s){const h=hash(s)%360,h2=(h+40+hash(s+"x")%80)%360;return `linear-gradient(135deg,hsl(${h} 62% 52%),hsl(${h2} 55% 28%))`}
+function initials(s){return s.split(/[\s,]+/).filter(w=>/^[A-Za-z0-9(]/.test(w)).slice(0,2).map(w=>w.replace(/[^A-Za-z0-9]/g,"")[0]||"").join("").toUpperCase()}
+const art = (song,cls="") => `<div class="art ${cls}" style="background:${artGrad(song.t+song.a)}">${initials(song.a)}</div>`;
+const deckArt = d => `<div class="art" style="background:linear-gradient(135deg,${d.c[0]},${d.c[1]})">${initials(d.t)}</div>`;
+const rnd = (a,b) => a+Math.floor(Math.random()*(b-a+1));
+const decadeOf = y => Math.floor(y/10)*10;
+const ICON = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>',
+  train:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M12 3v3M12 18v3"/></svg>',
+  stats:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  left:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  right:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>',
+  target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3" fill="currentColor"/></svg>',
+  x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  replay:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  pause:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+  play:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5v14l12-7z"/></svg>',
+  party:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8" cy="9" r="3"/><circle cx="16.5" cy="9.5" r="2.5"/><path d="M2.5 20c.6-3.4 2.8-5.5 5.5-5.5s4.9 2.1 5.5 5.5M14 15.2c.8-.5 1.6-.7 2.5-.7 2.3 0 4.2 1.8 4.8 4.8"/></svg>',
+  qr:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3M21 14v7h-7"/></svg>',
+  flame:'<svg viewBox="0 0 24 24" width="16" height="16" fill="#e9b44c"><path d="M12 2s5 4.5 5 10a5 5 0 0 1-10 0c0-2 1-3.5 1-3.5S9 11 11 11c0-4 1-9 1-9z"/></svg>',
+};
+// training levels = record awards (D9): bronze → silver → gold → platinum → diamond
+const AWARDS={bronze:["#c98a52","#7a4a22"],silver:["#e2e6ea","#8d96a3"],gold:["#f3d27a","#b8862b"],platinum:["#f5f7fa","#aab4c3"],diamond:["#bfeaff","#5aa9e6"]};
+const award = (tier,label) => { const [a,b]=AWARDS[tier]; return `<span class="belt"><svg viewBox="0 0 24 24" style="width:24px;height:24px"><defs><linearGradient id="aw-${tier}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><circle cx="12" cy="12" r="11" fill="url(#aw-${tier})" stroke="#0006"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="#0003"/><circle cx="12" cy="12" r="5" fill="none" stroke="#0003"/><circle cx="12" cy="12" r="2.6" fill="#13110f"/><path d="M6 7.5a8 8 0 0 1 4-3" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity=".7"/></svg>${label}</span>`; };
+function ring(p,size=150,stroke=12,col="var(--jade)"){const r=(size-stroke)/2,c=2*Math.PI*r;return `<svg width="${size}" height="${size}" style="transform:rotate(-90deg)"><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="var(--panel2)" stroke-width="${stroke}" fill="none"/><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${col}" stroke-width="${stroke}" fill="none" stroke-linecap="round" stroke-dasharray="${c*p} ${c}"/></svg>`}
+const statusBar = () => `<div class="status"><span class="num">9:41</span><span>●●● ᯤ ▮</span></div>`;
+const tabs = on => `<div class="tabs">${[["home","Home","home"],["party","Party","party"],["train","Train","setup"],["gear","Settings","settings"]].map(([k,l,to])=>`<button data-go="${to}" class="${on===k?"on":""}">${ICON[k]}${l}</button>`).join("")}</div>`;
+// fake QR: finder squares + hash noise, enough to read as "scan me"
+function fakeQR(seed,size=168){
+  const n=25, c=size/n; let r="";
+  const finder=(x,y)=>`<rect x="${x*c}" y="${y*c}" width="${7*c}" height="${7*c}" fill="#13110f"/><rect x="${(x+1)*c}" y="${(y+1)*c}" width="${5*c}" height="${5*c}" fill="#f5eee4"/><rect x="${(x+2)*c}" y="${(y+2)*c}" width="${3*c}" height="${3*c}" fill="#13110f"/>`;
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){ const inF=(x<8&&y<8)||(x>16&&y<8)||(x<8&&y>16); if(!inF && hash(seed+x+"."+y)%2) r+=`<rect x="${x*c}" y="${y*c}" width="${c}" height="${c}" fill="#13110f"/>`; }
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="background:#f5eee4;border-radius:12px;padding:10px;box-sizing:content-box">${r}${finder(0,0)}${finder(18,0)}${finder(0,18)}</svg>`;
+}
+/* ---------- comic avatars: music objects with faces, our own SVG (64×64) ---------- */
+const INK="#13110f", CREAM="#f5eee4";
+const eye=(x,y,r=3.4,look=.7)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="#fff" stroke="${INK}" stroke-width="1.2"/><circle cx="${x+look}" cy="${y+.6}" r="${r*.5}" fill="${INK}"/><circle cx="${x+look+.7}" cy="${y-.4}" r="${r*.16}" fill="#fff"/>`;
+const smile=(x,y,w=8,col=INK,d=4)=>`<path d="M${x-w/2} ${y} Q${x} ${y+d} ${x+w/2} ${y}" stroke="${col}" stroke-width="2.2" fill="none" stroke-linecap="round"/>`;
+const blush=(x1,x2,y)=>`<circle cx="${x1}" cy="${y}" r="2.4" fill="#ff8fa3" opacity=".55"/><circle cx="${x2}" cy="${y}" r="2.4" fill="#ff8fa3" opacity=".55"/>`;
+const AVATARS={
+  vinyl:{name:"Vinyl Vince",bg:"#e9b44c",svg:`<circle cx="32" cy="35" r="21" fill="#1b1715"/>
+    <circle cx="32" cy="35" r="17" fill="none" stroke="#3a332c" stroke-width="1"/><circle cx="32" cy="35" r="13" fill="none" stroke="#3a332c" stroke-width="1"/>
+    <circle cx="32" cy="42" r="6" fill="#e5482f"/><circle cx="32" cy="42" r="1.2" fill="${INK}"/>
+    <rect x="18" y="26" width="12" height="7" rx="3" fill="#0b0a09" stroke="#e9b44c" stroke-width="1.2"/><rect x="34" y="26" width="12" height="7" rx="3" fill="#0b0a09" stroke="#e9b44c" stroke-width="1.2"/>
+    <path d="M30 29h4" stroke="#e9b44c" stroke-width="1.5"/><path d="M20 28l3 0" stroke="#fff" stroke-width="1" opacity=".7"/><path d="M36 28l3 0" stroke="#fff" stroke-width="1" opacity=".7"/>
+    ${smile(32,36,9,CREAM,3)}`},
+  cassette:{name:"Cass Ette",bg:"#69aee8",svg:`<rect x="13" y="19" width="38" height="28" rx="5" fill="${CREAM}" stroke="${INK}" stroke-width="2"/>
+    <rect x="17" y="22" width="30" height="6.5" rx="2" fill="#e5482f"/><path d="M20 25.3h12" stroke="#fff" stroke-width="1.4" opacity=".8"/>
+    <rect x="19" y="31" width="26" height="11" rx="5.5" fill="${INK}"/>${eye(25.5,36.5,4)}${eye(38.5,36.5,4,-.7)}
+    <path d="M20 47l3.5-4h17l3.5 4" fill="#d8cdbd" stroke="${INK}" stroke-width="1.5"/>${smile(32,50.5,7,INK,2.5)}`},
+  boombox:{name:"Boom Bo",bg:"#c86bd9",svg:`<path d="M22 25v-6h20v6" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
+    <rect x="11" y="24" width="42" height="26" rx="6" fill="#ffd166" stroke="${INK}" stroke-width="2"/>
+    <circle cx="22" cy="38" r="8" fill="${INK}"/><circle cx="42" cy="38" r="8" fill="${INK}"/>${eye(22,38,4.2)}${eye(42,38,4.2,-.7)}
+    <rect x="28" y="28" width="8" height="4.5" rx="1.5" fill="${INK}"/>${smile(32,44,5,INK,2.5)}
+    <path d="M12 15l3 3M52 15l-3 3" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`},
+  mic:{name:"Mic Drop",bg:"#3dbb8c",svg:`<rect x="27" y="38" width="10" height="20" rx="3" fill="#3a332c" stroke="${INK}" stroke-width="2"/>
+    <circle cx="32" cy="25" r="16" fill="#cfd3d8" stroke="${INK}" stroke-width="2"/>
+    <path d="M18 21h28M17 27h30M20 33h24M26 10v30M32 9v32M38 10v30" stroke="#a9b0b9" stroke-width="1"/>
+    ${eye(26,23)}${eye(38,23)}<ellipse cx="32" cy="32" rx="4" ry="3.2" fill="${INK}"/><ellipse cx="32" cy="33.2" rx="2.2" ry="1.4" fill="#e5482f"/>
+    <path d="M46 8l2-4M50 12l4-2M51 18h4" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>`},
+  worm:{name:"Ear Worm",bg:"#ffd166",svg:`<path d="M10 54 Q18 42 26 52 T42 46" stroke="#ff8fa3" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M10 54 Q18 42 26 52 T42 46" stroke="${INK}" stroke-width="1.2" fill="none" stroke-dasharray="1 5" opacity=".35"/>
+    <circle cx="42" cy="30" r="13" fill="#ff8fa3" stroke="${INK}" stroke-width="2"/>
+    <path d="M28 30a14 14 0 0 1 28 0" stroke="${INK}" stroke-width="3" fill="none"/>
+    <rect x="25" y="26" width="7" height="11" rx="3" fill="#e5482f" stroke="${INK}" stroke-width="1.5"/><rect x="52" y="26" width="7" height="11" rx="3" fill="#e5482f" stroke="${INK}" stroke-width="1.5"/>
+    ${eye(38,29,3)}${eye(46,29,3)}${blush(35,49,34)}${smile(42,35,7)}
+    <path d="M19 11v11" stroke="${INK}" stroke-width="2"/><path d="M19 11q5 1 6 6" stroke="${INK}" stroke-width="2" fill="none"/><ellipse cx="16.5" cy="22.5" rx="3.2" ry="2.5" transform="rotate(-20 16.5 22.5)" fill="${INK}"/>`},
+  disco:{name:"Disco Dot",bg:"#7b5cff",svg:`<path d="M32 4v10" stroke="${INK}" stroke-width="2"/>
+    <circle cx="32" cy="33" r="19" fill="#c9d0d9" stroke="${INK}" stroke-width="2"/>
+    <path d="M14 27h36M13 33h38M14 39h36M17 45h30M18 21h28M24 15v36M32 14v38M40 15v36" stroke="#8d96a3" stroke-width="1"/>
+    <rect x="34" y="22" width="5" height="5" fill="#fff" opacity=".8"/><rect x="20" y="40" width="4" height="4" fill="#fff" opacity=".6"/>
+    ${eye(26,31)}${eye(38,31)}${smile(32,39,9,INK,4)}
+    <path d="M9 12l1.5 3.5L14 17l-3.5 1.5L9 22l-1.5-3.5L4 17l3.5-1.5zM55 40l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z" fill="#fff"/>`},
+  guitar:{name:"Strummy",bg:"#e5482f",svg:`<rect x="29" y="2" width="6" height="22" rx="1.5" fill="#7a4a22" stroke="${INK}" stroke-width="1.5"/>
+    <path d="M27 4h-3M27 8h-3M37 4h3M37 8h3" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>
+    <path d="M32 20c-9 0-12 5-11 10 1 3-4 5-4 12 0 8 7 13 15 13s15-5 15-13c0-7-5-9-4-12 1-5-2-10-11-10z" fill="#e9b44c" stroke="${INK}" stroke-width="2"/>
+    ${eye(27,32)}${eye(37,32)}<circle cx="32" cy="43" r="4.5" fill="${INK}"/><rect x="25" y="50" width="14" height="2.5" rx="1" fill="#7a4a22"/>
+    <path d="M30 20v28M32 20v28M34 20v28" stroke="#5a3a1a" stroke-width=".6" opacity=".6"/>`},
+  drum:{name:"Ba-Dum",bg:"#3dbb8c",svg:`<path d="M12 6l18 18M52 6L34 24" stroke="#7a4a22" stroke-width="3.5" stroke-linecap="round"/>
+    <rect x="12" y="24" width="40" height="26" fill="#e5482f" stroke="${INK}" stroke-width="2"/>
+    <ellipse cx="32" cy="50" rx="20" ry="6" fill="#c23a24" stroke="${INK}" stroke-width="2"/>
+    <ellipse cx="32" cy="24" rx="20" ry="6" fill="${CREAM}" stroke="${INK}" stroke-width="2"/>
+    <path d="M14 30l6 14M24 31l6 15M34 31l6 15M44 30l6 13" stroke="${CREAM}" stroke-width="1.2" opacity=".6"/>
+    ${eye(25,36)}${eye(39,36)}${smile(32,43,10,INK,4)}`},
+  note:{name:"Quaver",bg:"#69aee8",svg:`<rect x="34" y="8" width="4.5" height="38" rx="2" fill="${INK}"/>
+    <path d="M38.5 8c8 3 14 9 10 22-1-7-5-10-10-11z" fill="${INK}"/>
+    <ellipse cx="27" cy="46" rx="13" ry="10" transform="rotate(-20 27 46)" fill="${INK}"/>
+    ${eye(22,45,3.4)}${eye(31,42,3.4)}${smile(27,50,7,CREAM,3)}`},
+  keys:{name:"Keys",bg:"#c86bd9",svg:`<rect x="8" y="16" width="48" height="34" rx="7" fill="${INK}"/>
+    ${eye(22,26,4)}${eye(42,26,4)}
+    ${[0,1,2,3,4,5].map(i=>`<rect x="${13+i*6.6}" y="35" width="5.6" height="13" rx="1.2" fill="${CREAM}"/>`).join("")}
+    ${[0,1,3,4].map(i=>`<rect x="${17.2+i*6.6}" y="35" width="3.6" height="7" rx=".8" fill="${INK}"/>`).join("")}
+    <path d="M12 16c4-6 36-6 40 0" stroke="${INK}" stroke-width="3" fill="none"/>`},
+  speaker:{name:"Woofer",bg:"#ffd166",svg:`<rect x="14" y="6" width="36" height="52" rx="7" fill="#2b2621" stroke="${INK}" stroke-width="2"/>
+    <circle cx="25" cy="19" r="6" fill="#5a5047"/><circle cx="39" cy="19" r="6" fill="#5a5047"/>${eye(25,19,4.2)}${eye(39,19,4.2,-.7)}
+    <circle cx="32" cy="41" r="12" fill="#3a332c" stroke="#5a5047" stroke-width="2"/><circle cx="32" cy="41" r="7" fill="${INK}"/>
+    <path d="M27 41q5 5 10 0" stroke="#e5482f" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <path d="M54 30q4 4 0 8M58 26q7 8 0 16" stroke="${INK}" stroke-width="2" fill="none" stroke-linecap="round"/>`},
+  jukebox:{name:"Jukey",bg:"#e5482f",svg:`<path d="M12 58V30a20 20 0 0 1 40 0v28z" fill="#ffd166" stroke="${INK}" stroke-width="2"/>
+    <path d="M18 56V31a14 14 0 0 1 28 0v25" fill="none" stroke="#e5482f" stroke-width="3"/>
+    <path d="M22 31a10 10 0 0 1 20 0v8H22z" fill="${CREAM}" stroke="${INK}" stroke-width="1.5"/>
+    ${eye(28,31,3.2)}${eye(36,31,3.2)}${smile(32,36,6,INK,2.5)}
+    <rect x="22" y="44" width="20" height="10" rx="2" fill="${INK}"/><path d="M24 47h16M24 50h16" stroke="#e9b44c" stroke-width="1.2"/>`},
+};
+const AV_KEYS=Object.keys(AVATARS);
+const av=(key,s=38)=>{const a=AVATARS[key]||AVATARS.vinyl; return `<svg width="${s}" height="${s}" viewBox="0 0 64 64" style="flex:none;border-radius:50%;display:inline-block;vertical-align:middle"><circle cx="32" cy="32" r="32" fill="${a.bg}"/><g style="clip-path:circle(32px at 32px 32px)">${a.svg}</g></svg>`;};
+const PLAYERS=[["Jan","#e5482f","vinyl"],["Mia","#69aee8","mic"],["Luca","#3dbb8c","guitar"],["Sarah","#e9b44c","disco"]];
+const avatar=(n,c,s=38)=>av((PLAYERS.find(p=>p[0]===n)||[])[2]||AV_KEYS[hash(n)%AV_KEYS.length],s);
+
+/* ======================= state ======================= */
+const S = {
+  view:"proto", frame:"phone", screen:"home",
+  cfg:{src:"hit", pick:"Essentials", sets:["Essentials"], genres:["General"], from:1900, to:2025, mode:"ab", diff:"medium", clipStart:"intro", clipLen:20, len:10},
+  ses:null, toast:null,
+  me:{name:"Jan",av:"vinyl"}, pair:null, joinAv:"mic",   // pair: null | "device" | "invite"
+};
+
+// Song memory across sessions (mock seed): mastered songs get harder cards, learning ones easier.
+const MEM = {"Wonderwall":"mastered","Hey Ya!":"mastered","Dancing Queen":"learning","Superstition":"learning"};
+
+function pickTier(card,ses){
+  const base=[...DIFF[S.cfg.diff].mix];
+  let shift=0;                                       // + harder, - easier
+  if(ses.i<2) shift--;                               // warm-up: first two cards lean easy
+  if(ses.streak>=3) shift++;                         // on a roll: tighten
+  if(ses.lastMiss) shift--;                          // just missed: give an easier one
+  const mem=MEM[card.song.t];
+  if(mem==="learning") shift--; else if(mem==="mastered") shift++;
+  if(card.retry) shift+=2;                           // missed earlier this session and just saw the year: test recall
+  shift=Math.max(-2,Math.min(2,shift));
+  // each step moves weight between the ends: harder = easy → tight/exact, easier = tight/exact → easy/clear
+  const w=base;
+  for(let s=0;s<Math.abs(shift);s++){
+    if(shift>0){ const a=Math.min(.15,w[0]); w[0]-=a; w[2]+=a*.65; w[3]+=a*.35; }
+    else { const a=Math.min(.12,w[2]), b=Math.min(.04,w[3]); w[2]-=a; w[3]-=b; w[0]+=a*.6+b; w[1]+=a*.4; }
+  }
+  const sum=w.reduce((a,b)=>a+b,0); let r=Math.random()*sum;
+  for(let i=0;i<4;i++){ if((r-=w[i])<0) return i; } return 1;
+}
+function proposeYear(card,ses){
+  const y=card.song.y, tier=pickTier(card,ses), [lo,hi]=TIERS[tier].r;
+  card.tier=tier;
+  if(hi===0) return y;
+  const d=rnd(lo,hi);
+  // direction: 50/50 when both fit; near the edges (2023 songs, 1920s songs) only the side that fits
+  const canUp=y+d<=YEAR_MAX, canDown=y-d>=YEAR_MIN;
+  const up = canUp&&canDown ? Math.random()<.5 : canUp;
+  return up? y+d : y-d;
+}
+function ensureProposal(){ const ses=S.ses; if(!ses) return; const c=ses.queue[ses.i]; if(c && c.proposed==null) c.proposed=proposeYear(c,ses); }
+function startSession(){
+  const pool=[...SONGS].sort(()=>Math.random()-.5).slice(0,S.cfg.len);
+  S.ses={queue:pool.map(s=>({song:s,proposed:null,retry:false})),i:0,results:[],learning:new Set(),mastered:0,t0:Date.now(),
+    clip:{pos:0,playing:true,len:S.cfg.clipLen,extra:0},answer:null,dial:null,streak:0,best:0,lastMiss:false};
+  go("play");
+}
+function answer(choice){
+  const ses=S.ses; if(!ses||ses.answer) return;
+  const c=ses.queue[ses.i], y=c.song.y, p=c.proposed;
+  let ok;
+  if(S.cfg.mode==="pin"){ ok=Math.abs(choice-y)<=1; ses.answer={choice,ok,diff:Math.abs(choice-y)}; }
+  else{
+    ok = choice==="exact"? p===y : choice==="earlier"? y<p : y>p;
+    ses.answer={choice,ok,diff:Math.abs(p-y)};
+  }
+  ses.streak = ok? ses.streak+1 : 0; ses.best=Math.max(ses.best,ses.streak); ses.lastMiss=!ok;
+  ses.results.push({song:c.song,proposed:p,choice,ok,retry:c.retry});
+  const key=c.song.t;
+  if(ok){ if(ses.learning.has(key)){ses.learning.delete(key);} ses.mastered++; }
+  else if(!c.retry){ ses.learning.add(key); // quizlet-style: comes back 3 cards later with a new proposed year
+    const at=Math.min(ses.i+4,ses.queue.length); ses.queue.splice(at,0,{song:c.song,proposed:null,retry:true}); }
+  ses.clip.playing=false;
+  go("reveal");
+}
+function next(){
+  const ses=S.ses; ses.i++; ses.answer=null; ses.dial=null; ses.clip={pos:0,playing:true,len:S.cfg.clipLen,extra:0};
+  go(ses.i>=ses.queue.length?"summary":"play");
+}
+function go(screen){ const prev=S.screen; S.screen=screen; if(screen==="play") ensureProposal(); if(S.view==="proto") audioOnScreen(prev,screen); render(); }
+
+/* ======================= screens ======================= */
+function scrHome(){
+  const dec=[[1960,.81],[1970,.52],[1980,.74],[1990,.68],[2000,.61],[2010,.79],[2020,.88],["all",.69]];
+  const col=p=>p>.78?"#3dbb8c":p>.65?"#9bc36b":p>.55?"#e9b44c":"#e0675d";
+  return `${statusBar()}<div class="scroll fade-in">
+  <div class="row between" style="margin-top:4px">
+    <div class="row"><div class="seal">${WORM}</div><div class="brand">Re<span>worm</span></div></div>
+    <div class="row"><span class="pill">${ICON.flame}<b class="num">12</b> days</span><button data-go="me" title="Profile & devices" style="padding:0;border-radius:50%;box-shadow:0 0 0 2px var(--ink),0 0 0 3.5px ${AVATARS[S.me.av].bg}">${av(S.me.av,36)}</button></div>
+  </div>
+  <div class="cols"><div class="col">
+  <div class="card party-card" style="margin-top:18px;padding:14px 16px">
+    <div class="row between"><div><div class="kata" style="color:var(--sky)">Game night</div>
+      <div style="font-weight:700;font-size:16px;margin-top:3px">Play with friends</div>
+      <div class="sub" style="font-size:12.5px;margin-top:2px">One screen plays, phones are buzzers. Fastest right answer wins.</div></div>
+      <div style="display:flex">${PLAYERS.slice(0,3).map(([n,c],i)=>`<span style="margin-left:${i?-10:0}px;box-shadow:0 0 0 2px var(--panel);border-radius:50%">${avatar(n,c,30)}</span>`).join("")}</div></div>
+    <div class="row" style="margin-top:12px;gap:8px">
+      <button class="btn small" style="flex:1;background:var(--sky);color:#13110f" data-go="host">${ICON.party} Host a game</button>
+      <button class="btn ghost small" style="flex:1" data-go="join">${ICON.qr} Join</button></div>
+  </div>
+  <div class="card hero" style="margin-top:10px;padding:18px">
+    <div class="kata">Today's round</div>
+    <div style="font-size:24px;font-weight:750;margin:6px 0 2px;letter-spacing:-.3px">Essentials + Smash Hits</div>
+    <div class="sub">10 songs · ~4 min · 6 due for review</div>
+    <div class="row" style="margin-top:16px;gap:8px">
+      <button class="btn primary" style="flex:1" data-act="start">${ICON.play} Start training</button>
+      <button class="icon-btn" style="height:54px;width:54px;border-radius:16px" data-go="setup" title="Change deck">${ICON.train}</button>
+    </div>
+  </div>
+  <div class="label">Your progress</div>
+  <div class="card">
+    <div class="row between" style="margin-bottom:12px">${award("gold","Gold record")}<span class="sub num">1,380 / 1,500 XP</span></div>
+    <div class="buckets"><i style="width:31%;background:var(--jade)"></i><i style="width:19%;background:var(--gold)"></i><i style="flex:1;background:#3a332c"></i></div>
+    <div class="legend"><span><i class="dot" style="background:var(--jade)"></i><b>124</b> mastered</span><span><i class="dot" style="background:var(--gold)"></i><b>76</b> learning</span><span><i class="dot" style="background:#5a5047"></i><b>200</b> new</span></div>
+  </div>
+  </div><div class="col">
+  <div class="label row between" style="display:flex"><span>Decades</span><span style="text-transform:none;letter-spacing:0;color:var(--hanko2);font-weight:600">Train weakest →</span></div>
+  <div class="decades">${dec.map(([d,p])=>`<button class="dec" data-act="start" style="background:color-mix(in srgb,${col(p)} 16%,var(--panel));color:${col(p)}">
+     <div class="d" style="color:var(--paper)">${d==="all"?"All":"’"+String(d).slice(2)+"s"}</div><div class="p num">${Math.round(p*100)}%</div><div class="bar"><i style="width:${p*100}%"></i></div></button>`).join("")}</div>
+  <div class="label">Decks</div>
+  ${DECKS.map(d=>`<div class="deck" data-go="setup">${deckArt(d)}<div class="meta"><div class="t">${d.t}</div><div class="s">${d.s}</div></div>
+     <div class="mini-ring">${ring(d.m,34,4,d.src==="lib"?"var(--jade)":"var(--gold)")}</div></div>`).join("")}
+  </div></div>
+  </div>${tabs("home")}`;
+}
+
+function scrSetup(){
+  const c=S.cfg, d=DIFF[c.diff];
+  const srcTabs=[["hit","Sets"],["cat","Categories"],["genre","Genres"],["lib","Library"]];
+  let picker="";
+  if(c.src==="hit") picker=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${CARDSETS.map(([n,k,span])=>`<button class="opt ${c.sets.includes(n)?"on":""}" data-set="${n}" style="margin:0;padding:11px 12px;display:block">
+       <div class="t" style="font-size:14px">${n}</div><div class="s num" style="font-size:12px;white-space:nowrap">${k} · ${span}</div></button>`).join("")}</div>
+     <div class="sub" style="margin-top:10px;font-size:12.5px">Card lists of the German editions, matched to Apple Music. The year is the one printed on the card. Pick several to mix them, like at game night.</div>`;
+  if(c.src==="cat") picker=`<div class="chips">${CATEGORIES.map(([n,k])=>`<button class="chip ${c.pick===n?"on":""}" data-pick="${n}">${n}<small>${k}</small></button>`).join("")}</div>`;
+  if(c.src==="cat") picker+=`<div class="sub" style="margin-top:10px;font-size:12.5px">Well-known songs only: a song counts if it's on most of the "best of the 60s / 80s / 2010s …" playlists for its decade.</div>`;
+  if(c.src==="genre") picker=`<div class="chips">${GENRES.map(n=>`<button class="chip ${c.genres.includes(n)?"on":""}" data-genre="${n}">${n}</button>`).join("")}</div>
+     <div class="sub" style="margin-top:10px;font-size:12.5px">General = everything, the widest span: evergreens before 1950, then the decade "best of" hits up to now. Pick one or more genres to narrow it down.</div>`;
+  if(c.src==="lib") picker=`${PLAYLISTS.map(([n,k])=>`<div class="deck" data-pick="${n}" style="${c.pick===n?"background:var(--panel);outline:1.5px solid var(--hanko)":""}">${deckArt({t:n,c:["#3dbb8c","#1f5a6a"]})}<div class="meta"><div class="t">${n}</div><div class="s">${k} songs</div></div></div>`).join("")}`;
+  const pct=v=>(v-1900)/(2025-1900)*100;
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">New session</div><div style="width:40px"></div></div>
+   <div class="cols"><div class="col">
+   <div class="label">What to listen to</div>
+   <div class="segbar">${srcTabs.map(([k,l])=>`<button class="${c.src===k?"on":""}" data-src="${k}">${l}</button>`).join("")}</div>
+   <div style="margin-top:12px">${picker}</div>
+   <div class="label row between" style="display:flex"><span>Release years</span><span class="num" style="color:var(--paper);letter-spacing:0">${c.from} – ${c.to}</span></div>
+   <div class="card" style="padding:10px 16px 14px">
+     <div class="range"><div class="track"></div><div class="fill" style="left:${pct(c.from)}%;right:${100-pct(c.to)}%"></div>
+       <div class="knob" style="left:${pct(c.from)}%"></div><div class="knob" style="left:${pct(c.to)}%"></div>
+       <div class="ticks"><span>1900</span><span>’25</span><span>’50</span><span>’75</span><span>2000</span><span>’25</span></div></div>
+     <div class="chips" style="margin-top:10px">${[["All",1900,2025],["Evergreens",1900,1949],["50s",1950,1959],["60s–80s",1960,1989],["90s–00s",1990,2009],["Recent",2010,2025]].map(([l,a,b])=>`<button class="chip ${c.from===a&&c.to===b?"on":""}" data-range="${a}-${b}" style="padding:6px 11px;font-size:13px">${l}</button>`).join("")}</div>
+   </div>
+   </div><div class="col">
+   <div class="label">Mode</div>
+   ${[["ab","⇄","Earlier · Spot on · Later","A year is shown. Is the song earlier, later — or is it exactly that year?",""],
+      ["pin","◎","Pin the year","Dial in the year yourself. ±1 counts, exact earns a bonus.",""],
+      ["line","☰","Timeline","Place each song between the ones you already got right — like game night.","soon"]]
+     .map(([k,ic,t,s,tag])=>`<button class="opt ${c.mode===k?"on":""}" data-mode="${k}"><div class="ic">${ic}</div><div><div class="t">${t}${tag?`<span class="tag">${tag}</span>`:""}</div><div class="s">${s}</div></div></button>`).join("")}
+   <div class="label">Difficulty</div>
+   <div class="segbar">${Object.entries(DIFF).map(([k,v])=>`<button class="${c.diff===k?"on":""}" data-diff="${k}">${v.label}</button>`).join("")}</div>
+   <div class="distrib">${TIERS.map((t,i)=>`<i style="width:${d.mix[i]*100}%;background:${t.col};${i===3?"color:#fff":""}">${Math.round(d.mix[i]*100)}%</i>`).join("")}</div>
+   <div class="legend" style="flex-wrap:wrap;gap:4px 12px">${TIERS.map(t=>`<span><i class="dot" style="background:${t.col}"></i>${t.r[1]===0?"exact":`±${t.r[0]}–${t.r[1]}`}</span>`).join("")}<span style="color:var(--faint)">· adapts per card</span></div>
+   <div class="sub" style="font-size:12.5px;margin-top:8px">${d.desc}</div>
+   <div class="label">Clip</div>
+   <div class="segbar">${[["intro","Before the chorus"],["random","Random spot"]].map(([k,l])=>`<button class="${c.clipStart===k?"on":""}" data-clip="${k}">${l}</button>`).join("")}</div>
+   <div class="segbar" style="margin-top:8px">${[10,20,30,60].map(n=>`<button class="${c.clipLen===n?"on":""}" data-clen="${n}">${n} s</button>`).join("")}</div>
+   <div class="label">Session length</div>
+   <div class="segbar">${[10,20,40].map(n=>`<button class="${c.len===n?"on":""}" data-len="${n}">${n} songs</button>`).join("")}</div>
+   </div></div>
+   <div style="height:10px"></div>
+  </div>
+  <div class="sticky-cta"><button class="btn primary" data-act="start">${ICON.play} Start · ${c.len} songs</button></div>`;
+}
+
+function waveBars(progress){
+  let h=""; for(let i=0;i<40;i++){const v=.25+.75*Math.abs(Math.sin(i*1.7)*Math.cos(i*.45)); h+=`<i class="${i/40<progress?"on":""}" style="height:${Math.round(v*100)}%"></i>`;} return h;
+}
+function progBar(ses){
+  return `<div class="prog">${ses.queue.map((q,i)=>{const r=i<ses.i?ses.results[i]:null;return `<i class="${r?(r.ok?"ok":"bad"):i===ses.i?"cur":""}"></i>`}).join("")}</div>`;
+}
+function counts(ses){
+  return `<div class="counts"><span><b class="num">${ses.i+ (ses.answer?1:0)}</b> / ${ses.queue.length}</span><span><i class="dot" style="background:var(--jade)"></i><b class="num">${ses.mastered}</b> right &nbsp; <i class="dot" style="background:var(--gold)"></i><b class="num">${ses.learning.size}</b> learning</span><span>${ICON.flame} <b class="num">${ses.streak}</b></span></div>`;
+}
+function scrPlay(){
+  const ses=S.ses, c=ses.queue[ses.i], clip=ses.clip, total=clip.len+clip.extra;
+  const p=Math.min(clip.pos/total,1), fmt=s=>`0:${String(Math.floor(s)).padStart(2,"0")}`;
+  const guess = S.cfg.mode==="pin" ? `
+    <div class="dial"><div class="sub" style="font-size:13px">Your year</div><div class="y" id="dialY">${ses.dial??1990}</div>
+      <input type="range" min="1955" max="2025" value="${ses.dial??1990}" id="dialIn">
+      <div class="row between sub num" style="font-size:11px"><span>1955</span><span>2025</span></div></div>
+    <button class="btn primary" style="margin-top:14px" data-act="pin">Lock it in <span class="kbd" style="margin-left:6px">⏎</span></button>`
+  : `<div class="yearcard" id="yc"><div class="tint" id="tint"></div>
+      <div class="q">${c.retry?"Second try · new year — ":""}Released …</div>
+      <div class="y">${c.proposed}</div>
+      <div class="hint">swipe ← earlier · ↑ spot on · later →</div></div>
+    <div class="choices">
+      <button class="choice" data-ans="earlier">${ICON.left}Earlier<small><span class="kbd">←</span></small></button>
+      <button class="choice mid" data-ans="exact">${ICON.target}Spot on<small><span class="kbd">space</span></small></button>
+      <button class="choice" data-ans="later">${ICON.right}Later<small><span class="kbd">→</span></small></button>
+    </div>`;
+  return `${statusBar()}<div class="scroll playscr ${clip.playing?"playing":""}">
+   <div class="playhead"><button class="icon-btn" data-go="summary" title="End session">${ICON.x}</button>${progBar(ses)}</div>
+   ${counts(ses)}
+   <div class="cols mid wide"><div class="col">
+   <div class="vinyl-wrap"><div class="vinyl ${clip.playing?"spin":""}"><div class="lbl"><span>?</span></div></div></div>
+   <div class="wave">${waveBars(p)}</div>
+   <div class="time num"><span>${fmt(clip.pos)}</span>
+     <span class="volrow" title="Volume: fades in ${FADE_IN}s, out ${FADE_OUT}s">${AUD.live?"♪ live preview":"simulated"} <span class="vb"><i id="vol" style="width:${Math.round(Math.min(1,level())*100)}%"></i></span></span>
+     <span>${clip.extra?`+${clip.extra}s · `:""}${fmt(total)}</span></div>
+   <div class="player-ctl">
+     <button data-act="toggle">${clip.playing?ICON.pause+"Pause":ICON.play+"Play"}</button>
+     <button data-act="replay">${ICON.replay}Replay</button>
+     <button data-act="more" ${clip.extra>=10?"disabled style='opacity:.4'":""}>${ICON.plus}10 s <span style="color:var(--faint)">½ XP</span></button>
+   </div>
+   </div><div class="col">
+   ${guess}
+   </div></div>
+  </div>${S.toast?`<div class="toast">${S.toast}</div>`:""}`;
+}
+
+function ruler(proposed,actual,mode){
+  const lo=Math.min(proposed,actual)-4, hi=Math.max(proposed,actual)+4, span=hi-lo, x=y=>((y-lo)/span*100).toFixed(2)+"%";
+  let t=""; for(let y=lo;y<=hi;y++){const big=y%5===0; t+=`<div class="tick ${big?"big":""}" style="left:${x(y)}"></div>${big?`<div class="tl" style="left:${x(y)}">${y}</div>`:""}`;}
+  const same=proposed===actual;
+  // the earlier year's label grows left from its dot, the later one's right, so close years never collide
+  const side=later=>later?"transform:translateX(-6px);align-items:flex-start":"transform:translateX(calc(-100% + 6px));align-items:flex-end";
+  return `<div class="ruler"><div class="line"></div>${t}
+   ${same?"":`<div class="gap" style="left:${x(Math.min(proposed,actual))};width:calc(${x(Math.max(proposed,actual))} - ${x(Math.min(proposed,actual))})"></div>`}
+   ${same?"":`<div class="mk" style="left:${x(proposed)};color:#ffffffb0;${side(proposed>actual)}">${mode==="pin"?"you":"shown"} ${proposed}<i style="background:#bbb"></i></div>`}
+   <div class="mk" style="left:${x(actual)};color:var(--paper);${same?"":side(actual>proposed)}">actual ${actual}<i style="background:var(--paper)"></i></div></div>`;
+}
+function scrReveal(){
+  const ses=S.ses, c=ses.queue[ses.i], a=ses.answer, s=c.song, y=s.y, p=c.proposed, pin=S.cfg.mode==="pin";
+  const dir = y<p?"earlier":y>p?"later":"exact";
+  const what = pin ? (a.diff===0?"Exact year!":a.ok?"Within a year":`Off by ${a.diff} years`)
+    : a.ok ? (dir==="exact"?`Spot on — it's ${y}`:`Yes, ${dir} — ${a.diff} year${a.diff>1?"s":""} ${dir==="earlier"?"before":"after"} ${p}`)
+    : (a.choice==="exact"?`Not ${p} — it's ${dir}`:dir==="exact"?`It was exactly ${p}!`:`It's ${dir}, not ${a.choice}`);
+  const xp = a.ok ? (pin&&a.diff===0||dir==="exact"?30:a.diff<=2?20:10) * (ses.clip.extra?.5:1) : 0;
+  const stamp = a.ok ? (dir==="exact"||pin&&a.diff===0?"BULLS<br>EYE":"HIT") : "MISS";
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="playhead"><button class="icon-btn" data-go="summary">${ICON.x}</button>${progBar(ses)}</div>
+   ${counts(ses)}
+   <div class="cols wide"><div class="col">
+   <div class="reveal-top"><div class="cover" style="background:${artGrad(s.t+s.a)}" title="Apple Music artwork (placeholder in the mock)"><div class="disc"></div><div class="ca">${s.a}</div><div class="cb">${s.al.replace(/\s*\(.*\)$/,"")}</div></div>
+     <div style="min-width:0;padding-bottom:4px"><div class="song-t">${s.t}</div><div class="song-a">${s.a}</div><div class="sub" style="font-size:12.5px;margin-top:6px">${s.g} · ${s.al}</div></div></div>
+   <div class="verdict ${a.ok?"ok":"bad"}">
+     <div class="stamp anim">${stamp}</div>
+     <div class="big num">${y}</div>
+     <div class="what" style="margin-top:6px">${what}</div>
+     ${!pin&&c.tier!=null?`<div style="margin-top:6px"><span class="pill" style="font-size:11px;padding:3px 8px;border-color:${TIERS[c.tier].col}">${TIERS[c.tier].label}${c.tier<3?` · ${a.diff} yr${a.diff>1?"s":""} off`:""}</span></div>`:""}
+     <div class="why">${a.ok?`+${xp} XP${ses.clip.extra?" (½ for extra clip)":""}${ses.streak>1?` · streak ${ses.streak}`:""}`:c.retry?"Still learning — it comes back next session.":"Back in a few cards with a different year."}</div>
+     ${ruler(pin?a.choice:p,y,pin?"pin":"ab")}
+   </div>
+   </div><div class="col">
+   <div class="src"><div class="ic">ⓘ</div><div>
+     ${s.h?`<b>${y} · from the card</b> <span class="m">· ${s.h}</span>`:`<b>First released ${y}</b> <span class="m">· original single/album</span>`}
+     ${s.apple?`<div class="m">Apple's album here is from <b>${s.apple}</b> (${s.al.includes("Remaster")?"remaster":"compilation"}) — we score the original.</div>`:`<div class="m">Matches Apple Music's release date.</div>`}
+     <div style="margin-top:4px"><a href="#" data-act="flag">Wrong year? Flag it</a></div></div></div>
+   <div class="actions">
+     <button class="btn ghost small" style="width:100%" data-act="listen">${ICON.play} Keep listening</button>
+     <button class="btn ghost small" style="width:100%" data-act="am"> Open in Music</button>
+   </div>
+   </div></div>
+   <div style="height:8px"></div>
+  </div>
+  <div class="sticky-cta"><button class="btn primary" data-act="next">${ses.i+1>=ses.queue.length?"See results":"Next song"} <span class="kbd" style="margin-left:4px;border-color:#fff8">⏎</span></button></div>
+  ${S.toast?`<div class="toast">${S.toast}</div>`:""}`;
+}
+
+function scrSummary(){
+  const ses=S.ses, R=ses.results, ok=R.filter(r=>r.ok).length, n=R.length||1;
+  const byDec={}; R.forEach(r=>{const d=decadeOf(r.song.y);(byDec[d]??={ok:0,n:0}).n++; if(r.ok)byDec[d].ok++;});
+  const misses=R.filter(r=>!r.ok);
+  const col=p=>p>.78?"var(--jade)":p>.55?"var(--gold)":"var(--rose)";
+  const mins=Math.max(1,Math.round((Date.now()-ses.t0)/60000));
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="row between"><div style="width:40px"></div><div style="font-weight:650">Session complete</div><button class="icon-btn" data-go="home">${ICON.x}</button></div>
+   <div class="cols"><div class="col">
+   <div class="ring">${ring(ok/n)}<div class="c"><b>${Math.round(ok/n*100)}%</b><span>${ok} of ${R.length} right</span></div></div>
+   <div class="stats3"><div class="card"><b class="num">+${ok*18}</b><span>XP</span></div><div class="card"><b class="num">${ses.best}</b><span>best streak</span></div><div class="card"><b class="num">${mins}m</b><span>time</span></div></div>
+   <div class="card" style="margin-top:10px"><div class="beltprog">${award("gold","")}<div class="b"><i style="width:${Math.min(100,92+ok)}%"></i></div><span class="sub num" style="font-size:12px">${Math.max(0,120-ok*18)} XP to platinum</span></div></div>
+   </div><div class="col">
+   <div class="label">By decade</div>
+   <div class="card">${Object.keys(byDec).sort().map(d=>{const v=byDec[d],p=v.ok/v.n;return `<div class="dbar"><span class="n">’${String(d).slice(2)}s</span><div class="b"><i style="width:${Math.max(p*100,4)}%;background:${col(p)}"></i></div><span class="v">${v.ok}/${v.n}</span></div>`}).join("")||'<div class="sub">No answers yet.</div>'}</div>
+   ${misses.length?`<div class="label">To learn (${misses.length})</div><div class="card" style="padding:4px 14px">${misses.map(r=>`<div class="miss">${art(r.song)}<div style="min-width:0"><div style="font-weight:620;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px">${r.song.t}</div><div class="sub" style="font-size:12px">${r.song.a}</div></div>
+      <div class="y"><b>${r.song.y}</b><div style="white-space:nowrap">${S.cfg.mode==="pin"?"you: "+r.choice:`${r.proposed} → ${r.choice==="exact"?"spot on":r.choice}`}</div></div></div>`).join("")}</div>`:""}
+   </div></div>
+   <div style="height:8px"></div>
+  </div>
+  <div class="sticky-cta" style="display:grid;grid-template-columns:1fr 1.4fr;gap:10px">
+   <button class="btn ghost" data-go="home">Done</button>
+   <button class="btn primary" data-act="start">${misses.length?`Drill misses (${misses.length})`:"Another round"}</button></div>`;
+}
+
+function scrSettings(){
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="h-title" style="font-size:26px">Settings</div>
+   <button class="card row" data-go="me" style="width:100%;margin-top:14px;gap:14px;text-align:left">${av(S.me.av,52)}<div style="flex:1"><div style="font-weight:700;font-size:16px">${S.me.name}</div><div class="sub" style="font-size:12.5px">Profile, avatar &amp; devices · 3 devices</div></div><span class="sub">›</span></button>
+   <div class="cols"><div class="col">
+   <div class="label">Apple Music</div>
+   <div class="card">
+     <div class="set-row"><div><div>Catalog access</div><div class="m">Web-player developer token · renews itself</div></div><span class="row" style="gap:8px;font-size:13px"><i class="ok-dot"></i>OK</span></div>
+     <div class="set-row"><div><div>Your library</div><div class="m">media-user-token · storefront CH · checked 2 h ago</div></div><span class="row" style="gap:8px;font-size:13px"><i class="ok-dot"></i>Connected</span></div>
+     <div class="field"><input placeholder="Paste media-user-token to replace…" value=""><button class="btn primary small">Save</button></div>
+     <ol class="steps"><li>Sign in at <b>music.apple.com</b></li><li>Developer tools → Application (Safari: Storage) → Cookies</li><li>Copy <b>media-user-token</b> and paste it here</li></ol>
+     <div class="sub" style="font-size:12px;margin-top:8px">Categories and genres work without it. It's only needed for your playlists.</div>
+   </div>
+   <div class="label">Release year</div>
+   <div class="card sub" style="font-size:13px;line-height:1.5">Always the <b style="color:var(--paper)">initial release</b> year. Never a remaster, re-release or compilation date. Card sets use the card's year; everything else uses the earliest release found for the song.</div>
+   </div><div class="col">
+   <div class="label">Play</div>
+   <div class="card" style="padding:4px 16px">
+     <div class="set-row"><div>Autoplay next clip</div><div class="toggle on"></div></div>
+     <div class="set-row"><div><div>Fade clips in &amp; out</div><div class="m">1.5 s in, 0.8 s out · on answer and skip too</div></div><div class="toggle on"></div></div>
+     <div class="set-row"><div>Haptics &amp; sounds</div><div class="toggle on"></div></div>
+     <div class="set-row"><div><div>Hide album art until reveal</div><div class="m">Covers can give the era away</div></div><div class="toggle on"></div></div>
+     <div class="set-row"><div><div>Daily reminder</div><div class="m">19:30 · keeps your streak</div></div><div class="toggle"></div></div>
+   </div>
+   <div class="label">Keyboard</div>
+   <div class="card sub" style="font-size:13px;line-height:1.9"><span class="kbd">←</span> earlier &nbsp; <span class="kbd">space</span> spot on &nbsp; <span class="kbd">→</span> later &nbsp; <span class="kbd">⏎</span> next &nbsp; <span class="kbd">R</span> replay &nbsp; <span class="kbd">P</span> pause</div>
+   </div></div>
+   <div style="height:10px"></div>
+  </div>${tabs("gear")}`;
+}
+
+/* ---------- party mode (main feature): entry points + lobby; in-game screens are the next mock step ---------- */
+const soonTag="";
+function scrParty(){
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="h-title" style="font-size:26px">Game night${soonTag}</div>
+   <div class="sub">One screen plays the song and shows the year. Everyone else answers on their phone. Fastest right answer takes the round.</div>
+   <div class="cols"><div class="col">
+   <button class="opt" data-go="host" style="margin-top:18px"><div class="ic" style="background:var(--sky);color:#13110f">${ICON.party}</div><div><div class="t">Host a game</div><div class="s">On the iPad, laptop or TV. It plays the music, shows the year and the scoreboard.</div></div></button>
+   <button class="opt" data-go="join"><div class="ic">${ICON.qr}</div><div><div class="t">Join a game</div><div class="s">Scan the QR on the host screen or type the 4-letter code. Your phone becomes the buzzer, no app, no account.</div></div></button>
+   </div><div class="col">
+   <div class="label">How a round works</div>
+   <div class="card sub" style="font-size:13px;line-height:1.6">
+     1. The host screen plays a clip and shows a year.<br>
+     2. Everyone taps <b style="color:var(--paper)">Earlier</b>, <b style="color:var(--paper)">Spot on</b> or <b style="color:var(--paper)">Later</b>.<br>
+     3. Fastest right answer scores; a wrong one is locked out for the round.<br>
+     4. Same year for everyone, no adapting: fair, not personal.</div>
+   </div></div>
+  </div>${tabs("party")}`;
+}
+function scrHost(){
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="row between"><button class="icon-btn" data-go="party">${ICON.back}</button><div style="font-weight:650">Host a game${soonTag}</div><div style="width:40px"></div></div>
+   <div class="cols"><div class="col" style="text-align:center">
+     <div class="label" style="text-align:center">Join on your phone</div>
+     <div style="display:flex;justify-content:center">${fakeQR("room-K7Q4")}</div>
+     <div class="sub" style="margin-top:12px">or open <b style="color:var(--paper)">reworm.your-domain</b> and type</div>
+     <div class="num" style="font-size:56px;font-weight:800;letter-spacing:10px;margin:2px 0 0">K7Q4</div>
+   </div><div class="col">
+     <div class="label">Players · ${PLAYERS.length}</div>
+     <div class="card" style="padding:6px 14px">${PLAYERS.map(([n,c],i)=>`<div class="set-row">${`<div class="row">${avatar(n,c)}<b>${n}</b>${i===0?`<span class="sub" style="font-size:12px">host</span>`:""}</div>`}<span class="row sub" style="gap:6px;font-size:12px"><i class="ok-dot"></i>ready</span></div>`).join("")}
+       <div class="set-row sub" style="font-size:13px">Waiting for more… <span>up to 8</span></div></div>
+     <div class="label">Game</div>
+     <div class="card" style="padding:4px 16px">
+       <div class="set-row"><div><div>Songs</div><div class="m">Essentials + Smash Hits</div></div><span class="sub">Change</span></div>
+       <div class="set-row"><div><div>Rounds</div><div class="m">First to 10 points</div></div><span class="sub">Change</span></div>
+       <div class="set-row"><div><div>Clip</div><div class="m">20 s · before the chorus</div></div><span class="sub">Change</span></div>
+     </div>
+   </div></div>
+   <div style="height:8px"></div>
+  </div>
+  <div class="sticky-cta"><button class="btn primary" data-act="partystart">${ICON.play} Start game · ${PLAYERS.length} players</button></div>`;
+}
+function scrJoin(){
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="row between"><button class="icon-btn" data-go="party">${ICON.back}</button><div style="font-weight:650">Join a game${soonTag}</div><div style="width:40px"></div></div>
+   <div style="max-width:420px;margin:0 auto;text-align:center">
+   <div style="margin:34px 0 8px;color:var(--muted);font-size:14px">Code on the host screen</div>
+   <div style="display:flex;gap:10px;justify-content:center">${"K7Q4".split("").map(ch=>`<div class="num" style="width:62px;height:76px;border-radius:16px;background:var(--panel);border:1.5px solid var(--line);display:grid;place-items:center;font-size:36px;font-weight:800">${ch}</div>`).join("")}</div>
+   <button class="btn ghost small" style="margin:14px auto 0;width:auto">${ICON.qr} Scan QR instead</button>
+   <div style="margin:28px 0 8px;color:var(--muted);font-size:14px">Your name</div>
+   <div class="field" style="justify-content:center"><input value="Mia" style="font-family:var(--txt);font-size:17px;text-align:center;max-width:260px"></div>
+   <div style="margin:22px 0 10px;color:var(--muted);font-size:14px">Pick your avatar</div>
+   <div style="display:flex;gap:12px;overflow-x:auto;padding:6px 4px 10px;scrollbar-width:none">${AV_KEYS.map(k=>`<button data-joinav="${k}" style="flex:none;border-radius:50%;${k===S.joinAv?`box-shadow:0 0 0 3px var(--ink),0 0 0 6px ${AVATARS[k].bg}`:"opacity:.75"}">${av(k,52)}</button>`).join("")}</div>
+   <div class="sub" style="font-size:12px">${AVATARS[S.joinAv].name}</div>
+   <div class="sub" style="margin-top:22px;font-size:12.5px">No account needed. Your phone won't play music — the host screen does.</div>
+   </div>
+  </div>
+  <div class="sticky-cta"><button class="btn primary" data-act="partyjoin">Join game</button></div>`;
+}
+/* ---------- party in-game: STAGE (iPad / laptop on the TV) and PAD (phones) ---------- */
+// demo game state; D11 rules: first correct = 1, correct "Spot on" +1, wrong = locked out, 15 s, first to 10, max 8
+const PARTY={round:7,toWin:10,shown:1983,
+  song:{t:"Like a Prayer",a:"Madonna",al:"Like a Prayer",y:1989},
+  players:[ // name, avatar, score, state during the round: thinking | out
+    {n:"Jan",av:"vinyl",s:6,st:"thinking"},{n:"Mia",av:"mic",s:8,st:"out"},{n:"Luca",av:"guitar",s:5,st:"thinking"},
+    {n:"Sarah",av:"disco",s:7,st:"thinking"},{n:"Tom",av:"drum",s:3,st:"out"},{n:"Lea",av:"note",s:4,st:"thinking"}],
+  winner:"Sarah",winTime:"3.4",gain:1,
+};
+function resetRound(){ PARTY.players.forEach((p,i)=>p.st=(i===1||i===4)?"out":"thinking"); }
+const sortedPlayers=()=>[...PARTY.players].sort((a,b)=>b.s-a.s);
+function countdownRing(sec=15,size=120){
+  const r=(size-12)/2,c=2*Math.PI*r;
+  return `<div style="position:relative;width:${size}px;height:${size}px"><svg width="${size}" height="${size}" style="transform:rotate(-90deg)">
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="var(--panel2)" stroke-width="10" fill="none"/>
+    <circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="var(--gold)" stroke-width="10" fill="none" stroke-linecap="round" stroke-dasharray="${c}" style="animation:drain ${sec}s linear forwards;--c:${c}"/></svg>
+    <div class="num" style="position:absolute;inset:0;display:grid;place-items:center;font-size:${size*.32}px;font-weight:800"><span class="cd" data-sec="${sec}">${sec}</span></div></div>`;
+}
+function playerStrip(showScore=true){
+  return `<div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">${PARTY.players.map(p=>`<div style="text-align:center;width:78px;position:relative;${p.st==="out"?"opacity:.45;filter:grayscale(.8)":""}">
+     ${av(p.av,62)}${p.st==="out"?`<span style="position:absolute;top:40px;left:50%;margin-left:12px;width:24px;height:24px;border-radius:50%;background:var(--rose);display:grid;place-items:center;font-size:13px;font-weight:900;color:#fff;box-shadow:0 0 0 3px var(--ink)">✕</span>`:""}
+     <div style="font-weight:650;font-size:13px;margin-top:4px">${p.n}</div>${showScore?`<div class="num sub" style="font-size:12px">${p.s} pt</div>`:""}</div>`).join("")}</div>`;
+}
+function stageTop(){
+  return `<div class="row between" style="margin-top:4px"><div class="row"><div class="seal" style="width:30px;height:30px">${WORM}</div><b>Re<span style="color:var(--hanko2)">worm</span></b><span class="pill">Room K7Q4</span></div>
+    <div class="row" style="gap:16px"><span class="sub">Round <b class="num" style="color:var(--paper)">${PARTY.round}</b></span><span class="sub">First to <b class="num" style="color:var(--paper)">${PARTY.toWin}</b></span>
+    <button class="icon-btn" data-act="pause" title="Pause">${ICON.pause.replace("<svg ",'<svg width="18" height="18" ')}</button></div></div>`;
+}
+function scrStage(){ // round live
+  const out=PARTY.players.filter(p=>p.st==="out").length;
+  return `${statusBar()}<div class="scroll playscr">${stageTop()}
+   <div class="cols mid"><div class="col" style="text-align:center">
+     <div class="vinyl-wrap"><div class="vinyl spin"><div class="lbl"><span>?</span></div></div></div>
+     <div class="wave" style="max-width:420px;margin:14px auto 0">${waveBars(.45)}</div>
+     <div class="sub" style="margin-top:6px">♪ clip plays here · phones are silent</div>
+   </div><div class="col" style="text-align:center">
+     <div class="yearcard" style="margin-top:0"><div class="q">Released …</div><div class="y">${PARTY.shown}</div>
+       <div class="hint" style="font-size:14px">Earlier · Spot on · Later — answer on your phone</div></div>
+     <div class="row" style="justify-content:center;gap:22px;margin-top:20px">${countdownRing(15,104)}
+       <div style="text-align:left"><div style="font-size:15px;font-weight:650">${out} locked out</div><div class="sub" style="font-size:13px">First right answer takes the round</div></div></div>
+   </div></div>
+   <div style="margin-top:8px">${playerStrip(true)}</div>
+   <div class="row" style="justify-content:center;gap:8px;margin-top:14px"><button class="btn ghost small" data-act="stagewin">Demo: Sarah answers right ›</button></div>
+  </div>`;
+}
+function scrStageResult(){
+  const s=PARTY.song, w=PARTY.players.find(p=>p.n===PARTY.winner), dir=s.y>PARTY.shown?"later":"earlier";
+  return `${statusBar()}<div class="scroll playscr fade-in">${stageTop()}
+   <div class="cols mid"><div class="col"><div class="reveal-top" style="justify-content:center">
+       <div class="cover" style="background:${artGrad(s.t+s.a)}"><div class="disc"></div><div class="ca">${s.a}</div><div class="cb">${s.al}</div></div>
+       <div><div class="song-t">${s.t}</div><div class="song-a">${s.a}</div></div></div>
+     <div class="verdict ok" style="text-align:center"><div class="big num">${s.y}</div><div class="what" style="margin-top:4px">${dir==="later"?"Later":"Earlier"} than ${PARTY.shown} — ${Math.abs(s.y-PARTY.shown)} years</div>${ruler(PARTY.shown,s.y,"ab")}</div>
+   </div><div class="col" style="text-align:center">
+     <div class="kata" style="color:var(--jade)">Round ${PARTY.round} goes to</div>
+     <div style="margin:12px 0 6px;display:inline-block;animation:stamp .5s cubic-bezier(.2,1.6,.4,1) both">${av(w.av,120)}</div>
+     <div style="font-size:30px;font-weight:800">${w.n} <span class="num" style="color:var(--jade)">+${PARTY.gain}</span></div>
+     <div class="sub">said ${dir} in ${PARTY.winTime} s</div>
+     <div class="card" style="margin-top:18px;padding:8px 16px;text-align:left">${PARTY.players.map(p=>({...p,s:p.s+(p.n===w.n?PARTY.gain:0)})).sort((a,b)=>b.s-a.s||(b.n===w.n)-(a.n===w.n)).slice(0,4).map((p,i)=>`<div class="set-row"><div class="row"><b class="num" style="width:18px;color:var(--muted)">${i+1}</b>${av(p.av,30)}<b>${p.n}</b></div><b class="num">${p.s}${p.n===w.n?` <span style="color:var(--jade)">▲</span>`:""}</b></div>`).join("")}</div>
+   </div></div>
+   <div class="row" style="justify-content:center;gap:8px;margin-top:10px"><button class="btn primary small" data-act="stagenext" style="width:auto;padding:0 22px">Next round ›</button><button class="btn ghost small" data-act="stageover">Demo: game over ›</button></div>
+  </div>`;
+}
+function scrStageOver(){
+  const P=sortedPlayers(); P[0]={...P[0],s:10};
+  const pod=[P[1],P[0],P[2]], h=[120,170,90], medal=["#cfd3d8","#f3d27a","#c98a52"];
+  return `${statusBar()}<div class="scroll playscr fade-in" style="text-align:center">${stageTop()}
+   <div class="confetti">${Array.from({length:36},(_,i)=>`<i style="left:${(i*137)%100}%;background:${["#e5482f","#e9b44c","#3dbb8c","#69aee8","#c86bd9"][i%5]};animation-delay:${(i%9)*.25}s;animation-duration:${2.6+(i%5)*.4}s"></i>`).join("")}</div>
+   <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+   <div class="kata" style="margin-top:6px">Game over</div>
+   <div style="font-size:34px;font-weight:800;margin:4px 0 0">${P[0].n} wins!</div>
+   <div style="display:flex;justify-content:center;align-items:flex-end;gap:16px;margin-top:22px">${pod.map((p,i)=>`<div style="width:150px">
+      <div style="${i===1?"animation:stamp .6s cubic-bezier(.2,1.6,.4,1) both":""}">${av(p.av,i===1?104:80)}</div><div style="font-weight:700;margin:6px 0 8px">${p.n} · <span class="num">${p.s}</span></div>
+      <div style="height:${h[i]}px;border-radius:14px 14px 0 0;background:linear-gradient(180deg,${medal[i]},color-mix(in srgb,${medal[i]} 45%,#13110f));display:grid;place-items:start center;padding-top:10px;font-size:34px;font-weight:900;color:#13110f" class="num">${[2,1,3][i]}</div></div>`).join("")}</div>
+   <div class="sub" style="margin-top:16px">${P.slice(3).map(p=>`${p.n} ${p.s}`).join(" · ")}</div>
+   <div class="row" style="justify-content:center;gap:10px;margin-top:18px"><button class="btn primary small" style="width:auto;padding:0 22px" data-act="rematch">Rematch</button><button class="btn ghost small" data-go="host">Back to lobby</button></div>
+   </div>
+  </div>`;
+}
+// ---- pad (phone) ----
+function padTop(){ const me=PARTY.players[1]; return `<div class="row between" style="margin-top:2px"><div class="row">${av(me.av,34)}<b>${me.n}</b></div><span class="pill num">${me.s} pt · #${sortedPlayers().findIndex(p=>p.n===me.n)+1}</span></div>`; }
+function scrPadLive(){
+  return `${statusBar()}<div class="scroll fade-in" style="display:flex;flex-direction:column">${padTop()}
+   <div class="sub" style="text-align:center;margin-top:18px">Round ${PARTY.round} · listen to the big screen</div>
+   <div class="num" style="text-align:center;font-size:76px;font-weight:800;letter-spacing:-2px;margin-top:6px">${PARTY.shown}</div>
+   <div class="tbar"><i style="animation:drainw 15s linear forwards"></i></div>
+   <div style="flex:1;display:flex;flex-direction:column;gap:12px;justify-content:center;margin-top:16px">
+     <button class="padbtn" data-act="padwrong" style="background:var(--sky)">${ICON.left}Earlier</button>
+     <button class="padbtn" data-act="padwrong" style="background:var(--hanko);color:#fff">${ICON.target}Spot on</button>
+     <button class="padbtn" data-act="padwin" style="background:var(--gold)">${ICON.right}Later</button>
+   </div>
+   <div class="sub" style="text-align:center;font-size:12px;margin:10px 0 4px">Wrong answer = out for this round</div>
+  </div>`;
+}
+function scrPadOut(){
+  return `${statusBar()}<div class="scroll fade-in" style="display:flex;flex-direction:column">${padTop()}
+   <div style="flex:1;display:grid;place-items:center;text-align:center"><div>
+     <div style="width:120px;height:120px;border-radius:50%;margin:0 auto;background:color-mix(in srgb,var(--rose) 22%,var(--panel));display:grid;place-items:center;font-size:56px;color:var(--rose);font-weight:900">✕</div>
+     <div style="font-size:26px;font-weight:800;margin-top:16px">Locked out</div>
+     <div class="sub" style="margin-top:4px">Wrong this time — watch the big screen.<br>Back in next round.</div></div></div>
+   <button class="btn ghost" data-act="padresult" style="margin-bottom:8px">Demo: round ends ›</button>
+  </div>`;
+}
+function scrPadResult(won){
+  const s=PARTY.song;
+  return `${statusBar()}<div class="scroll fade-in" style="display:flex;flex-direction:column">${padTop()}
+   <div style="flex:1;display:grid;place-items:center;text-align:center"><div>
+     ${won?`<div style="animation:stamp .5s cubic-bezier(.2,1.6,.4,1) both;font-size:64px;font-weight:900;color:var(--jade)" class="num">+1</div><div style="font-size:28px;font-weight:800">You got it!</div><div class="sub">Later — in 2.1 s, fastest in the room</div>`
+          :`<div style="margin:0 auto;width:fit-content">${av("disco",96)}</div><div style="font-size:24px;font-weight:800;margin-top:10px">Sarah was faster</div><div class="sub">She said later in 3.4 s</div>`}
+     <div class="card" style="margin-top:22px;padding:12px 16px;display:flex;gap:12px;align-items:center;text-align:left">
+       <div class="cover" style="width:56px;height:56px;padding:6px;border-radius:8px;background:${artGrad(s.t+s.a)}"><div class="cb" style="font-size:9px">${s.al}</div></div>
+       <div><b>${s.t}</b><div class="sub" style="font-size:13px">${s.a} · <b class="num" style="color:var(--paper)">${s.y}</b></div></div></div>
+   </div></div>
+   <div class="sub" style="text-align:center;font-size:12.5px;margin-bottom:10px">Next round starts on the big screen</div>
+   <button class="btn ghost" data-act="padagain" style="margin-bottom:8px">Demo: next round ›</button>
+  </div>`;
+}
+const scrPadWon=()=>scrPadResult(true), scrPadLost=()=>scrPadResult(false);
+
+/* ---------- profiles, avatars, paired devices ---------- */
+const DEVICES=[["iPhone","Safari · this device","now"],["iPad","Home-screen app","2 h ago"],["MacBook","Safari","3 days ago"]];
+function avatarGrid(sel,attr){
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:12px 8px">${AV_KEYS.map(k=>`<button ${attr}="${k}" style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 0">
+     <span style="border-radius:50%;${k===sel?`box-shadow:0 0 0 3px var(--ink),0 0 0 6px ${AVATARS[k].bg}`:""};transition:transform .15s;${k===sel?"transform:scale(1.06)":""}">${av(k,56)}</span>
+     <span style="font-size:11px;color:${k===sel?"var(--paper)":"var(--muted)"};font-weight:${k===sel?650:450};white-space:nowrap">${AVATARS[k].name}</span></button>`).join("")}</div>`;
+}
+function scrWho(){
+  return `${statusBar()}<div class="scroll fade-in">
+   <div style="max-width:560px;margin:0 auto;text-align:center;padding-top:40px">
+   <div class="seal" style="margin:0 auto;width:46px;height:46px;border-radius:12px">${WORM}</div>
+   <div class="h-title" style="margin-top:18px">Who's playing?</div>
+   <div class="sub">This device remembers the choice.</div>
+   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:22px 10px;margin-top:30px">
+     ${PLAYERS.map(([n,,k])=>`<button data-who="${n}" style="display:flex;flex-direction:column;align-items:center;gap:8px">${av(k,88)}<b style="font-size:15px">${n}</b></button>`).join("")}
+     <button data-act="invite" style="display:flex;flex-direction:column;align-items:center;gap:8px"><span style="width:88px;height:88px;border-radius:50%;border:2px dashed var(--line);display:grid;place-items:center;color:var(--muted)">${ICON.plus.replace("<svg ",'<svg width="30" height="30" ')}</span><span class="sub" style="font-size:14px">Add someone</span></button>
+   </div>
+   <div class="sub" style="margin-top:26px;font-size:12px">Only paired devices see this. New people join with an invite code.</div>
+   </div></div>`;
+}
+function pairPanel(kind){
+  const code=kind==="invite"?"MIA-7KQ":"H4K-9QZ";
+  return `<div class="card fade-in" style="margin-top:12px;border-color:var(--sky);text-align:center;padding:18px">
+    <div style="font-weight:700">${kind==="invite"?"Invite someone":"Add one of your devices"}</div>
+    <div class="sub" style="font-size:12.5px;margin:4px 0 14px">${kind==="invite"?"Scan on their phone: they pick a name and avatar and get their own progress.":"Scan with the new device's camera, or open the site there and type the code. It logs in as you."}</div>
+    <div style="display:flex;justify-content:center">${fakeQR("pair-"+code,150)}</div>
+    <div class="num" style="font-size:30px;font-weight:800;letter-spacing:5px;margin-top:12px">${code}</div>
+    <div class="sub" style="font-size:12px">valid 4:52 · works once</div>
+    <button class="btn ghost small" style="margin:12px auto 0;width:auto" data-act="pairclose">Done</button></div>`;
+}
+function scrMe(){
+  const me=S.me;
+  return `${statusBar()}<div class="scroll fade-in">
+   <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">Profile &amp; devices</div><div style="width:40px"></div></div>
+   <div class="cols"><div class="col">
+   <div style="text-align:center;margin-top:18px">
+     <div style="display:inline-block;animation:flipin .45s ease both" key="${me.av}">${av(me.av,112)}</div>
+     <div style="font-size:24px;font-weight:750;margin-top:10px">${me.name}</div>
+     <div class="sub" style="font-size:13px">${AVATARS[me.av].name} · admin</div>
+   </div>
+   <div class="label">Pick your avatar</div>
+   ${avatarGrid(me.av,"data-av")}
+   </div><div class="col">
+   <div class="label">Your devices</div>
+   <div class="card" style="padding:4px 16px">${DEVICES.map(([d,m,t],i)=>`<div class="set-row"><div><div>${d}</div><div class="m">${m} · ${t}</div></div>${i===0?`<span class="sub" style="font-size:12px">this one</span>`:`<span style="color:var(--rose);font-size:13px">Remove</span>`}</div>`).join("")}</div>
+   ${S.pair?pairPanel(S.pair):`<div class="row" style="gap:8px;margin-top:12px">
+     <button class="btn small" style="flex:1;background:var(--sky);color:#13110f" data-act="pairdev">${ICON.qr} Add a device</button>
+     <button class="btn ghost small" style="flex:1" data-act="invite">${ICON.plus} Invite someone</button></div>`}
+   <div class="sub" style="font-size:12px;margin-top:10px">No passwords: each device keeps a login cookie for a year. Remove a lost phone here.</div>
+   <div class="label">Profiles on this server</div>
+   <div class="card" style="padding:6px 14px">${PLAYERS.map(([n,,k])=>`<div class="set-row"><div class="row">${av(k,34)}<b>${n}</b></div><span class="sub" style="font-size:12px">${n===me.name?"you":"1 device"}</span></div>`).join("")}</div>
+   <button class="btn ghost small" style="margin-top:12px" data-go="who">Switch profile on this device</button>
+   </div></div>
+   <div style="height:10px"></div>
+  </div>${tabs("gear")}`;
+}
+const SCREENS={home:scrHome,setup:scrSetup,play:scrPlay,reveal:scrReveal,summary:scrSummary,settings:scrSettings,party:scrParty,host:scrHost,join:scrJoin,who:scrWho,me:scrMe,
+  stage:scrStage,stageResult:scrStageResult,stageOver:scrStageOver,padLive:scrPadLive,padOut:scrPadOut,padWon:scrPadWon,padLost:scrPadLost};
+
+/* ======================= board (static states) ======================= */
+function demoSession(i,answer,mode){
+  const q=SONGS.slice(0,9).map((s,k)=>({song:s,proposed:[1979,1980,1975,1971,1984,1989,1987,1987,1993][k],retry:false}));
+  const res=q.slice(0,i).map((c,k)=>({song:c.song,proposed:c.proposed,choice:"later",ok:k%3!==1}));
+  return {queue:q,i,results:res,learning:new Set(["a","b"]),mastered:res.filter(r=>r.ok).length,t0:Date.now()-260000,
+    clip:{pos:8,playing:true,len:20,extra:0},answer,dial:1993,streak:2,best:4};
+}
+function renderBoard(){
+  const save={...S,cfg:{...S.cfg}}, items=[];
+  const shot=(cap,desc,fn)=>items.push(`<figure><div class="phone"><div class="app">${fn()}</div></div><figcaption><b>${cap}</b>${desc}</figcaption></figure>`);
+  shot("1 · Home","Daily round up front, one tap to train. Quizlet-style mastered / learning / new, record-award progress, decade heat map (tap a weak decade to drill it).",scrHome);
+  S.cfg={...save.cfg,src:"hit",sets:["Essentials","Mega Mix"]}; shot("2 · New session — card sets","The real card lists (German editions), multi-select to mix. Year = the card's year. Then year range, mode, difficulty with the distribution shown, clip.",scrSetup);
+  S.cfg={...save.cfg,src:"cat",pick:"Smash Hits"}; shot("2b · New session — categories","Smash Hits and other categories, filtered from the well-known pool (songs on most \"best of the 80s\"-style playlists of their decade).",scrSetup);
+  S.cfg={...save.cfg,src:"genre",genres:["Rock","Schlager & Deutschpop"],from:1960,to:1989,mode:"pin",diff:"hard"}; shot("2c · New session — genres","General (widest span) or one or more genres, combined with a year range. Hard + Pin the year selected.",scrSetup);
+  S.cfg={...save.cfg,mode:"ab"}; S.ses=demoSession(7,null); shot("3 · Listen & guess","The clip spins, no title, no cover. Big year card: tap a button, swipe the card or use ← space →. +10 s more clip costs half the XP.",scrPlay);
+  S.cfg={...save.cfg,mode:"pin"}; S.ses=demoSession(7,null); shot("3b · Pin the year (mode)","Harder variant: dial the year. ±1 counts as a hit, exact is a bullseye.",scrPlay);
+  S.cfg={...save.cfg,mode:"ab"}; S.ses=demoSession(7,{choice:"later",ok:true,diff:4}); shot("4 · Reveal — hit","Stamp, real year, ruler showing shown vs. actual. Year source line explains when Apple's date differs.",scrReveal);
+  S.ses=demoSession(1,{choice:"later",ok:false,diff:4}); shot("4b · Reveal — miss (remaster trap)","Apple says 1992 for ABBA Gold; game scores 1976. Missed cards come back 3 cards later with a new year.",scrReveal);
+  S.ses=demoSession(0,{choice:"later",ok:false,diff:16}); S.ses.queue[0]={song:SONGS.find(s=>s.a.startsWith("Joseíto")),proposed:1945,retry:false};
+  shot("4c · Reveal — card set","Card sets score the year printed on the card (Guantanamera 1929), even when Apple only has a 2004 compilation.",scrReveal);
+  S.ses=demoSession(9,null); S.ses.i=9; shot("5 · Session summary","Score ring, XP, streak, record-award progress, accuracy by decade, misses with the right year and a one-tap drill.",scrSummary);
+  shot("6 · Settings — Apple Music","Same token model as loom: dev token scraped + renewed, media-user-token pasted. Release year is always the initial one, no option.",scrSettings);
+  shot("7 · Party","Entry from the Party tab or the Game night card on Home: host or join.",scrParty);
+  shot("7b · Join on the phone","Scan the QR or type the 4-letter code, pick a name and avatar. No app, no account.",scrJoin);
+  shot("8 · Who's playing?","Profile picker on a shared device (the family iPad). Only paired devices get here.",scrWho);
+  resetRound();
+  shot("P1 · Pad: round live","The phone during a round: the shown year, a draining 15 s bar, three big buttons. No audio on phones.",scrPadLive);
+  shot("P2 · Pad: locked out","Wrong answer: out for this round. The stage shows the ✕ but never what you answered.",scrPadOut);
+  shot("P3 · Pad: you got it","First right answer: +1 (+2 for a right Spot on), with your time.",scrPadWon);
+  shot("P4 · Pad: someone was faster","Who took it and how fast, plus the song and its year.",scrPadLost);
+  S.pair="device"; shot("8b · Profile & devices","Avatar picker, your devices, \"Add a device\" shows a QR + code (5 min, single use).",scrMe); S.pair=null;
+  // iPad: same screens, two-column layout from 760px
+  const tItems=[], shotT=(cap,desc,fn,portrait)=>tItems.push(`<figure><div class="tablet ${portrait?"portrait":""}" style="zoom:${portrait?.42:.5}"><div class="app">${fn()}</div></div><figcaption><b>${cap}</b>${desc}</figcaption></figure>`);
+  S.cfg={...save.cfg,mode:"ab"};
+  shotT("iPad · Home","Hero and progress left, decades and decks right.",scrHome);
+  S.ses=demoSession(7,null); shotT("iPad · Listen & guess","Stage left (record, clip), year card and big answer buttons right — the split party mode reuses.",scrPlay);
+  S.ses=demoSession(7,{choice:"later",ok:true,diff:4}); S.ses.queue[7].tier=1; shotT("iPad · Reveal","Cover, year and ruler left; year source and actions right.",scrReveal);
+  S.ses=demoSession(9,null); S.ses.i=9; shotT("iPad · Summary","Score left, decades and misses right.",scrSummary);
+  S.cfg={...save.cfg,src:"hit",sets:["Essentials","Mega Mix"]}; shotT("iPad · New session","What to listen to left, how to play right.",scrSetup);
+  shotT("iPad · Host lobby","QR + room code left, players and game settings right. The iPad / TV is the stage.",scrHost);
+  shotT("Stage · Round live","Clip plays here; the year, a 15 s countdown, all players — locked-out ones greyed with ✕.",scrStage);
+  shotT("Stage · Round result","Song, cover, real year and ruler left; who took the round, in how many seconds, and the standings right.",scrStageResult);
+  shotT("Stage · Game over","First to 10: podium, confetti, rematch.",scrStageOver);
+  S.cfg={...save.cfg,mode:"ab"}; S.ses=demoSession(7,null); shotT("iPad portrait · Listen & guess","820 px wide: still two columns.",scrPlay,true);
+  Object.assign(S,save);
+  const gallery=`<div class="board" style="display:block;border-top:1px solid #221e1a"><h2 style="font-size:16px;margin:0 0 18px">Avatar set · 12 comic music objects (own SVG)</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:26px 14px">${AV_KEYS.map(k=>`<div style="text-align:center">${av(k,128)}<div style="margin-top:8px;font-weight:650">${AVATARS[k].name}</div></div>`).join("")}</div></div>`;
+  return `<div class="board">${items.join("")}</div><div class="board board-t">${tItems.join("")}</div>${gallery}`;
+}
+function renderNotes(){
+  return `<div class="notes">
+  <h2>Party mode (the main feature)</h2>
+  <p>The stage (iPad, laptop on the TV) plays the clip and shows a year; everyone answers on their phone. First correct answer = 1 point, +1 if it's a correct "Spot on"; a wrong answer locks you out for the round (the stage shows the ✕, never the answer); 15 s per round; first to 10 wins; max 8 players. Join by QR or 4-letter code, no account. Screens: Party tab → Host a game → Start game (stage, iPad frame) and Join (pad, iPhone frame).</p>
+  <h2>Training (side feature)</h2>
+  <p>Clip plays (Apple Music 90 s preview) → a year is shown → <b>Earlier</b> / <b>Spot on</b> / <b>Later</b> → reveal with stamp, real year and a ruler → next. Missed songs re-enter the queue ~3 cards later with a <i>different</i> proposed year, so you learn the year itself, not the button (Quizlet "learn" style). Across sessions: spaced repetition per song (new → learning → mastered), decade accuracy, XP, record awards (bronze → diamond), daily streak.</p>
+  <h2>Proposed year (training mode)</h2>
+  <p>The shown year scatters around the real one: mostly clearly off, sometimes close, rarely exact. Four tiers: easy ±10–25 (other era), clear ±4–9, tight ±1–3, exact. Base mix (easy/clear/tight/exact): Easy 55/25/8/12 · Medium 35/30/20/15 · Hard 12/28/38/22. Per card it shifts: first two cards and the card after a miss lean easy; a streak of 3+ and mastered songs lean tight; a "learning" song leans easy; the re-ask of a song missed this session leans tight/exact (the year was just shown, so it tests recall). Measured on Medium, 4000 draws: 36% ±10+, 29% ±4–9, 20% ±1–3, 15% exact; after a miss 47/35/8/11; on a streak 22/28/29/21. Direction is 50/50 unless one side runs past 1900 or the current year. The reveal labels the card (Easy one / Tight one · 2 yrs off).</p>
+  <p>Party mode (the main feature) uses no adaptation: every player sees the same year, so it must be fair, not personal.</p>
+  <h2>Audio</h2>
+  <p>Spike-verified: catalog songs carry <code>previews[].url</code>, a <b>90 s</b> AAC m4a (".plus.aac.ep"), with the developer token only. Served from audio-ssl.itunes.apple.com with CORS <code>*</code> and range requests, so the browser plays it directly, no proxy. The 90 s are not the song's start: checked by ear on Dancing Queen, the preview starts ~10 s before the chorus (Apple picks the hook). The intro can't be played without full-track playback. "Before the chorus" plays the preview from 0, "Random spot" seeks inside the 90 s. Every clip fades in (~1.5 s) and fades out at its end, on an answer and on skip; matters most for "Random spot", which lands mid-word. Done with Web Audio (GainNode ramp): iOS Safari ignores <code>audio.volume</code>, and Apple's CORS <code>*</code> lets Web Audio read the stream. The mock plays the real previews (mocks/previews.js, 30 of the 31 sample songs) with these fades; songs without a preview fall back to a simulated clip.</p>
+  <h2>Song sources</h2>
+  <p><b>Card sets</b>: community card lists of the German editions (artist, title, card year), ~3,000 cards, under our own names: Essentials 308 (1908–2021), Mega Mix 500, Rock Anthems, Schlager Fest, Sunshine, Cheesy Classics, Party Starters, Crowd Pleasers 226, Screen Hits 154, Christmas Hits 154, Radio Gold 154. Matched once to Apple Music for the preview, scored with the card year.</p>
+  <p><b>Categories</b> (Smash Hits, Number ones, Summer, Party, Guilty pleasures, Movie &amp; TV, Christmas, One-hit wonders, Eurovision, Swiss charts, Evergreens) and <b>Genres</b> (General = widest span, Pop, Rock, Schlager &amp; Deutschpop, …): built on one well-known pool, dev token only.</p>
+  <p><b>Well-known pool.</b> 1950s–2020s: for each decade, collect the Apple Music "best of the 1950s … 2020s" playlists (editorial + top catalog search hits); a song is in when it's on at least half of its decade's lists. Before 1950: no "best of the 1940s" lists, since nobody alive heard those as hits. Only <b>evergreens</b> count: songs still played today, i.e. on today's Christmas, film-classics and standards playlists, plus the pre-1950 card-set songs (all 16 in the German editions are that kind: White Christmas, Over the Rainbow, As Time Goes By, In the Mood, Guantanamera, La donna è mobile …). Categories and genres then filter that pool. <b>Library</b>: your playlists via media-user-token. Year-range filter on top of everything.</p>
+  <h2>Spike facts (2026-11-03)</h2>
+  <p>
+  · Dev token: web player bundle JWT (iss AMPWebPlay), same as tunewire; API calls need <code>Origin: https://music.apple.com</code>.<br>
+  · <code>songs?filter[isrc]=</code> works but pages at 25: Dancing Queen has 25+ versions and <i>Arrival</i> wasn't on page 1. Original version = MusicBrainz release-group title + date → Apple album search → track with the same ISRC (Arrival 1976-10-11 and A Night At The Opera 1975-11-21 both exist with previews).<br>
+  · Apple song-level <code>releaseDate</code> is the original on major-label tracks even on compilations (Dancing Queen 1976-01-01, Bohemian Rhapsody 1975-10-31); the album date is the compilation's. Wrong for old/indie material (Guantanamera 1960). Cross-check only, never the source.<br>
+  · MusicBrainz: one ISRC can map to several recordings (Dancing Queen: 1976-08-15 and a bogus 2023-12-01) → take the minimum first-release-date. 1 req/s; generic User-Agent gets 503 "busy" → real app name + contact in the UA.<br>
+  · Guantanamera: earliest MusicBrainz recording 1940, Apple 1960, card 1929. Card decks use the card year; elsewhere "initial" = earliest MusicBrainz date.<br>
+  · Cover Art Archive <code>release-group/{id}/front-500</code> → 307 to archive.org, real original scan (Arrival verified).<br>
+  · Apple API bodies sometimes arrived truncated (IncompleteRead), maybe the sandbox proxy; the import retries regardless.
+  </p>
+  <h2>Cover art</h2>
+  <p>Always the original cover, never a compilation or remaster sleeve. Source, in order: Apple's artwork when the matched Apple version is the original album, else the Cover Art Archive image of the first release (MusicBrainz, fetched by the offline import), else a neutral record placeholder.</p>
+  <h2>Year accuracy (the open risk)</h2>
+  <p>Rule: always the initial release year, never a re-release date. Apple's <code>releaseDate</code> is the version's date (Bohemian Rhapsody → 2011 remaster, Dancing Queen → 1992 ABBA Gold), so it never counts on its own. Card sets: card year. Everything else: earliest release across sources. A song with no trustworthy initial year stays out of the deck. "Flag wrong year" catches what slips through.</p>
+  </div>`;
+}
+
+/* ======================= render + events ======================= */
+let timer=null;
+function render(){
+  document.querySelectorAll("#viewSeg button").forEach(b=>b.classList.toggle("on",b.dataset.view===S.view));
+  document.querySelectorAll("#frameSeg button").forEach(b=>b.classList.toggle("on",b.dataset.frame===S.frame));
+  $("#frameSeg").style.visibility=S.view==="proto"?"visible":"hidden";
+  if(S.view==="board"){ $("#root").innerHTML=renderBoard(); return; }
+  if(S.view==="notes"){ $("#root").innerHTML=renderNotes(); return; }
+  const scr=(SCREENS[S.screen]||scrHome)();
+  const cls={phone:"phone",ipad:"tablet",ipadp:"tablet portrait",full:"full"}[S.frame];
+  $("#root").innerHTML=`<div class="stage"><div class="${cls}" style="${fitZoom()}"><div class="app" id="app">${scr}</div></div></div>`;
+  bindDynamic();
+}
+/* ---------- audio: real Apple previews (previews.js) through Web Audio, with fades ----------
+   Volume goes through a GainNode, not audio.volume: iOS Safari ignores audio.volume.
+   Apple serves previews with CORS *, so a crossOrigin element can feed Web Audio. */
+const FADE_IN=1.5, FADE_OUT=0.8, PREVIEW_LEN=90;
+const AUD={ctx:null,gain:null,el:null,node:null,url:null,live:false,fading:false,stopT:null};
+function audioUrl(song){ return typeof PREVIEWS!=="undefined" && PREVIEWS[song.t]?.p || null; }
+function level(){ return AUD.gain? AUD.gain.gain.value : (S.ses?.clip.playing?1:0); }
+function ensureCtx(){
+  if(!AUD.ctx){ AUD.ctx=new (window.AudioContext||window.webkitAudioContext)(); AUD.gain=AUD.ctx.createGain(); AUD.gain.gain.value=0; AUD.gain.connect(AUD.ctx.destination); }
+  if(AUD.ctx.state==="suspended") AUD.ctx.resume();
+}
+function load(url){
+  if(AUD.url===url) return;
+  if(AUD.el){ AUD.el.pause(); AUD.node?.disconnect(); }
+  const el=new Audio(); el.crossOrigin="anonymous"; el.preload="auto"; el.src=url;
+  AUD.el=el; AUD.url=url; AUD.node=AUD.ctx.createMediaElementSource(el); AUD.node.connect(AUD.gain);
+}
+function fadeIn(from){ // start (or resume) playback at `from` seconds with a gain ramp 0 → 1
+  clearTimeout(AUD.stopT); AUD.fading=false;
+  const g=AUD.gain.gain, now=AUD.ctx.currentTime;
+  g.cancelScheduledValues(now); g.setValueAtTime(0.0001,now); g.linearRampToValueAtTime(1,now+FADE_IN);
+  if(from!=null) AUD.el.currentTime=from;
+  AUD.el.play().catch(()=>{});
+}
+function fadeOut(d=FADE_OUT){ // ramp current gain → 0, then pause
+  if(!AUD.el||AUD.el.paused||AUD.fading) return;
+  AUD.fading=true;
+  const g=AUD.gain.gain, now=AUD.ctx.currentTime;
+  g.cancelScheduledValues(now); g.setValueAtTime(g.value,now); g.linearRampToValueAtTime(0.0001,now+d);
+  clearTimeout(AUD.stopT); AUD.stopT=setTimeout(()=>{ AUD.el.pause(); AUD.fading=false; },d*1000+30);
+}
+function startCardAudio(){ // called when a card enters the play screen
+  const ses=S.ses, song=ses.queue[ses.i].song, url=audioUrl(song), total=ses.clip.len+ses.clip.extra;
+  ses.clip.from = S.cfg.clipStart==="random" ? Math.floor(Math.random()*Math.max(1,PREVIEW_LEN-total-1)) : 0;
+  ses.clip.pos=0; ses.clip.playing=true;
+  AUD.live=!!url;
+  if(!url){ if(AUD.el) fadeOut(.3); return; } // no preview → simulated clip
+  ensureCtx(); load(url); fadeIn(ses.clip.from);
+}
+function audioOnScreen(prev,screen){
+  if(screen==="play" && S.ses) startCardAudio();
+  else if(prev==="play"||prev==="reveal"||prev==="summary") fadeOut(screen==="reveal"?.6:.4);
+}
+function fitZoom(){ // scale the iPad frame down to the window, never up
+  if(S.frame!=="ipad"&&S.frame!=="ipadp") return "";
+  const [w,h]=S.frame==="ipad"?[1180,820]:[820,1180];
+  const z=Math.min(1,(innerWidth-40)/w,(innerHeight-110)/h);
+  return `zoom:${z.toFixed(3)}`;
+}
+addEventListener("resize",()=>{ if(S.view==="proto"&&S.frame.startsWith("ipad")) render(); });
+function rerenderPlay(){ // light refresh for the clip ticker without killing drag state
+  if(S.view!=="proto"||S.screen!=="play"||dragging) return;
+  const ses=S.ses, total=ses.clip.len+ses.clip.extra, p=Math.min(ses.clip.pos/total,1);
+  const w=document.querySelector(".wave"); if(!w) return;
+  w.innerHTML=waveBars(p); w.style.opacity=(0.25+0.75*Math.min(1,level())).toFixed(2); // the fade, visible
+  const t=document.querySelector(".time span"); if(t) t.textContent=`0:${String(Math.floor(ses.clip.pos)).padStart(2,"0")}`;
+  const v=document.querySelector("#vol"); if(v) v.style.width=Math.round(Math.min(1,level())*100)+"%";
+}
+setInterval(()=>{ const ses=S.ses; if(!ses||S.screen!=="play"||!ses.clip.playing) return;
+  const total=ses.clip.len+ses.clip.extra;
+  if(AUD.live&&AUD.el){ ses.clip.pos=Math.max(0,Math.min(AUD.el.currentTime-ses.clip.from,total));
+    if(ses.clip.pos>=total-FADE_OUT) fadeOut(); }       // fade out into the clip's end
+  else ses.clip.pos=Math.min(ses.clip.pos+.1,total);
+  if(ses.clip.pos>=total-.05){ ses.clip.playing=false; render(); } else rerenderPlay(); },100);
+setInterval(()=>{ document.querySelectorAll(".cd").forEach(el=>{ const v=Math.max(0,(+el.textContent)-1); el.textContent=v; }); },1000);
+function togglePlay(){
+  const ses=S.ses, total=ses.clip.len+ses.clip.extra;
+  if(ses.clip.pos>=total-.05){ replay(); return; }
+  ses.clip.playing=!ses.clip.playing;
+  if(AUD.live){ if(ses.clip.playing){ ensureCtx(); fadeIn(null); } else fadeOut(.3); }
+}
+function replay(){ const ses=S.ses; ses.clip.pos=0; ses.clip.playing=true; if(AUD.live){ ensureCtx(); fadeIn(ses.clip.from); } }
+
+function toast(msg){ S.toast=msg; render(); clearTimeout(timer); timer=setTimeout(()=>{S.toast=null;render();},1600); }
+
+document.addEventListener("click",e=>{
+  const v=e.target.closest("[data-view]"); if(v){ if(v.dataset.view!=="proto"){ fadeOut(.3); if(S.ses) S.ses.clip.playing=false; }
+    S.view=v.dataset.view;render();window.scrollTo(0,0);return;}
+  const f=e.target.closest("[data-frame]"); if(f){S.frame=f.dataset.frame;render();return;}
+  if(S.view!=="proto") return;
+  const el=e.target.closest("[data-go],[data-act],[data-ans],[data-src],[data-pick],[data-set],[data-genre],[data-mode],[data-diff],[data-clip],[data-clen],[data-len],[data-range],[data-av],[data-who],[data-joinav]");
+  if(!el) return; e.preventDefault();
+  const d=el.dataset, c=S.cfg;
+  if(d.go){ if((d.go==="summary")&&!S.ses){go("home");return;} go(d.go); return; }
+  if(d.ans){ flashCard(d.ans); return; }
+  if(d.src){ c.src=d.src; if(d.src==="lib")c.pick="Road Trip 2024"; if(d.src==="cat")c.pick="Smash Hits"; }
+  if(d.set){ c.sets=c.sets.includes(d.set)?(c.sets.length>1?c.sets.filter(s=>s!==d.set):c.sets):[...c.sets,d.set]; }
+  if(d.genre){ if(d.genre==="General") c.genres=["General"]; else { const g=c.genres.filter(x=>x!=="General"); c.genres=g.includes(d.genre)?g.filter(x=>x!==d.genre):[...g,d.genre]; if(!c.genres.length)c.genres=["General"]; } }
+  if(d.pick) c.pick=d.pick;
+  if(d.av){ S.me.av=d.av; PLAYERS[0][2]=d.av; }
+  if(d.joinav) S.joinAv=d.joinav;
+  if(d.who){ const p=PLAYERS.find(x=>x[0]===d.who); S.me={name:p[0],av:p[2]}; go("home"); return; }
+  if(d.mode){ if(d.mode==="line"){toast("Timeline mode: later");return;} c.mode=d.mode; }
+  if(d.diff) c.diff=d.diff;
+  if(d.clip) c.clipStart=d.clip;
+  if(d.clen) c.clipLen=+d.clen;
+  if(d.len) c.len=+d.len;
+  if(d.range){ const [a,b]=d.range.split("-").map(Number); c.from=a; c.to=b; }
+  if(d.act){
+    const ses=S.ses;
+    switch(d.act){
+      case "start": startSession(); return;
+      case "next": next(); return;
+      case "toggle": togglePlay(); break;
+      case "replay": replay(); break;
+      case "more": if(ses.clip.extra<10){ const ended=!ses.clip.playing||AUD.fading; ses.clip.extra+=10; ses.clip.playing=true; if(AUD.live&&ended){ ensureCtx(); fadeIn(null); } } break;
+      case "pin": answer(+($("#dialIn")?.value||1990)); return;
+      case "flag": toast("Thanks — year flagged for review"); return;
+      case "partystart": resetRound(); if(S.frame==="phone") S.frame="ipad"; go("stage"); return;
+      case "partyjoin": resetRound(); S.frame="phone"; go("padLive"); return;
+      case "stagewin": go("stageResult"); return;
+      case "stagenext": resetRound(); PARTY.round++; go("stage"); return;
+      case "stageover": go("stageOver"); return;
+      case "rematch": resetRound(); PARTY.round=1; go("stage"); return;
+      case "pause": toast("Paused — clip and timer stop for everyone"); return;
+      case "padwrong": go("padOut"); return;
+      case "padwin": go("padWon"); return;
+      case "padresult": go("padLost"); return;
+      case "padagain": resetRound(); go("padLive"); return;
+      case "pairdev": S.pair="device"; if(S.screen!=="me") go("me"); break;
+      case "invite": S.pair="invite"; if(S.screen!=="me"){ go("me"); return; } break;
+      case "pairclose": S.pair=null; break;
+      case "listen": if(AUD.live&&AUD.el){ ensureCtx(); fadeIn(null); toast("Playing on — rest of the 90 s preview"); } else toast("No preview for this song in the mock"); return;
+      case "am": toast("Opens the song in Apple Music"); return;
+    }
+  }
+  render();
+});
+function flashCard(choice){
+  const yc=$("#yc");
+  if(yc){ const dx=choice==="earlier"?-420:choice==="later"?420:0, dy=choice==="exact"?-260:0;
+    yc.style.transform=`translate(${dx}px,${dy}px) rotate(${dx/30}deg)`; yc.style.opacity=".0"; yc.style.transition="transform .22s ease-in,opacity .22s";
+    setTimeout(()=>answer(choice),180); }
+  else answer(choice);
+}
+
+/* swipe on the year card */
+let dragging=false;
+function bindDynamic(){
+  const dial=$("#dialIn"); if(dial) dial.oninput=()=>{ S.ses.dial=+dial.value; $("#dialY").textContent=dial.value; };
+  const yc=$("#yc"); if(!yc) return;
+  const tint=$("#tint"); let sx=0,sy=0;
+  yc.onpointerdown=e=>{dragging=true;sx=e.clientX;sy=e.clientY;yc.classList.add("drag");yc.setPointerCapture(e.pointerId);};
+  yc.onpointermove=e=>{ if(!dragging) return; const dx=e.clientX-sx, dy=Math.min(0,e.clientY-sy);
+    yc.style.transform=`translate(${dx}px,${dy}px) rotate(${dx/22}deg)`;
+    const up=-dy>Math.abs(dx), mag=Math.min(1,Math.max(Math.abs(dx),-dy)/110);
+    tint.style.opacity=mag; yc.querySelector(".q").style.opacity=1-mag; tint.style.background=up?"rgba(229,72,47,.85)":dx<0?"rgba(105,174,232,.85)":"rgba(233,180,76,.9)";
+    tint.innerHTML=`<span>${up?"↑ SPOT ON":dx<0?"← EARLIER":"LATER →"}</span>`; };
+  yc.onpointerup=e=>{ if(!dragging) return; dragging=false; yc.classList.remove("drag");
+    const dx=e.clientX-sx, dy=e.clientY-sy;
+    if(dx<-90) flashCard("earlier"); else if(dx>90) flashCard("later"); else if(dy<-90) flashCard("exact");
+    else { yc.style.transform=""; tint.style.opacity=0; yc.querySelector(".q").style.opacity=1; } };
+}
+document.addEventListener("keydown",e=>{
+  if(S.view!=="proto"||e.target.tagName==="INPUT"&&e.target.type!=="range") return;
+  if(S.screen==="play"){
+    if(S.cfg.mode==="pin"){ if(e.key==="Enter"){answer(+$("#dialIn").value);} return; }
+    if(e.key==="ArrowLeft"){e.preventDefault();flashCard("earlier");}
+    else if(e.key==="ArrowRight"){e.preventDefault();flashCard("later");}
+    else if(e.key===" "||e.key==="ArrowUp"){e.preventDefault();flashCard("exact");}
+    else if(e.key==="r"){replay();render();}
+    else if(e.key==="p"){togglePlay();render();}
+  } else if(S.screen==="reveal" && (e.key==="Enter"||e.key===" ")){ e.preventDefault(); next(); }
+  else if(S.screen==="home" && e.key==="Enter"){ startSession(); }
+});
+render();
+</script>
+</body>
+</html>

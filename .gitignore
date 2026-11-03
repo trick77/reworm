@@ -1,0 +1,23 @@
+# Local secrets and config (the API keys and the card-list source live here, never committed)
+.env.local
+.env
+
+# Build output, the import's HTTP cache, the local database (make run)
+/bin/
+/data/cache/
+/data/dev/
+*.db
+*.db-*
+
+# macOS
+.DS_Store
+
+# ship:begin (owned by ship init; the repo's own lines go above the begin marker)
+# What the gate and the UI build write into the tree.
+coverage/ui/
+ui/node_modules/
+ui/*.tsbuildinfo
+# The UI build the Go binary embeds; .gitkeep stays tracked so go:embed's dir exists in a fresh clone.
+backend/web/dist/*
+!backend/web/dist/.gitkeep
+# ship:end
