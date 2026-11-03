@@ -1,0 +1,235 @@
+/* App shell and layout, from the mock. Imported last: the container queries at the bottom must win over the
+   phone rules (same specificity). The .app is the container; iPhone single column, from 560px a centered
+   column, from 760px two columns (.cols), 760–999 (iPad portrait) play + reveal stack centered (.cols.wide). */
+
+.app {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--ink);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  container-type: inline-size;
+  container-name: app;
+}
+/* the notch / status bar: the mock's fake status row, as the real safe area */
+.status-safe {
+  flex: none;
+  height: max(14px, env(safe-area-inset-top));
+}
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 18px 18px;
+  scrollbar-width: none;
+}
+.scroll::-webkit-scrollbar {
+  display: none;
+}
+.scroll.column {
+  display: flex;
+  flex-direction: column;
+}
+.tabs {
+  flex: none;
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 10px max(14px, env(safe-area-inset-bottom));
+  border-top: 1px solid #241f1b;
+  background: var(--ink);
+}
+.tabs button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--faint);
+  padding: 4px 16px;
+}
+.tabs button.on {
+  color: var(--paper);
+}
+.tabs svg {
+  width: 24px;
+  height: 24px;
+}
+.sticky-cta {
+  flex: none;
+  padding: 12px 18px max(18px, env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, var(--ink) 30%);
+}
+.cols {
+  display: block;
+}
+
+/* stage (party host): a fixed 1180×820 design box scaled to the screen, so a TV across the room sees the
+   iPad layout, only bigger (StageScale sets the zoom) */
+.stage-fit {
+  position: fixed;
+  inset: 0;
+  background: #0b0a09;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.stage-box {
+  width: 1180px;
+  height: 820px;
+}
+.stage-box.portrait {
+  width: 100%;
+  height: 100%;
+}
+.stage-box > .app {
+  height: 100%;
+}
+
+.stage-top .sub {
+  white-space: nowrap;
+}
+.stage-wave {
+  max-width: 420px;
+  margin: 14px auto 0;
+}
+.yearcard.stage-card {
+  margin-top: 0;
+}
+.yearcard.stage-card .hint {
+  font-size: 14px;
+}
+.over {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* pad (phone in party mode): one column, buttons fill the rest */
+.pad-song {
+  margin-top: 22px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+}
+.pad-year {
+  text-align: center;
+  font-size: 76px;
+  font-weight: 800;
+  letter-spacing: -2px;
+  margin-top: 6px;
+}
+.pad-center {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.pad-out {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  margin: 0 auto;
+  background: color-mix(in srgb, var(--rose) 22%, var(--panel));
+  display: grid;
+  place-items: center;
+  font-size: 56px;
+  color: var(--rose);
+  font-weight: 900;
+}
+.pad-big {
+  font-size: 26px;
+  font-weight: 800;
+  margin-top: 16px;
+}
+
+@container app (min-width: 560px) {
+  .scroll {
+    padding-left: max(18px, calc((100% - 560px) / 2));
+    padding-right: max(18px, calc((100% - 560px) / 2));
+  }
+}
+@container app (min-width: 760px) {
+  .scroll {
+    padding: 10px 40px 24px;
+  }
+  .cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0 36px;
+    align-items: start;
+  }
+  .cols.mid {
+    align-items: center;
+  }
+  .cols > .col > .label:first-child {
+    margin-top: 8px;
+  }
+  .vinyl {
+    width: 280px;
+    height: 280px;
+  }
+  .yearcard .y {
+    font-size: 118px;
+    letter-spacing: -4px;
+  }
+  .choice {
+    height: 92px;
+    font-size: 17px;
+  }
+  .wave {
+    height: 44px;
+  }
+  .reveal-top .cover {
+    width: 180px;
+    height: 180px;
+  }
+  .song-t {
+    font-size: 26px;
+  }
+  .verdict .big {
+    font-size: 96px;
+  }
+  .sticky-cta {
+    display: flex;
+    justify-content: flex-end;
+    padding: 12px 40px 20px;
+  }
+  .sticky-cta > .btn {
+    max-width: 420px;
+  }
+  .tabs {
+    justify-content: center;
+    gap: 40px;
+  }
+  .scroll.playscr {
+    display: flex;
+    flex-direction: column;
+  }
+  .scroll.playscr > .cols.mid {
+    flex: 1;
+    min-height: 0;
+    align-content: center;
+  }
+}
+/* iPad portrait (760–999): list screens keep two columns, play + reveal stack centered */
+@container app (min-width: 760px) and (max-width: 999px) {
+  .cols.wide {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .cols.wide > .col {
+    width: 100%;
+    max-width: 580px;
+    margin: 0 auto;
+  }
+  .cols.wide .yearcard {
+    margin-top: 28px;
+  }
+}

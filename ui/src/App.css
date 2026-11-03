@@ -15,25 +15,16 @@
   gap: 10px;
 }
 
-.seal {
+/* the landing's big wordmark; .seal and .brand themselves are in styles/components.css */
+.shell .seal {
   width: 46px;
   height: 46px;
   border-radius: 12px;
-  background: var(--hanko);
-  display: grid;
-  place-items: center;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.18);
-  transform: rotate(-4deg);
 }
 
-.brand {
-  font-weight: 750;
+.shell .brand {
   font-size: 30px;
   letter-spacing: -0.5px;
-}
-
-.brand span {
-  color: var(--hanko2);
 }
 
 .version {
