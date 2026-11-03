@@ -4,7 +4,7 @@ Reworm is a **party game**: one screen (iPad, laptop on the TV) plays a song cli
 on their phone — earlier, spot on, later — and the fastest right answer takes the round. **Training** (solo, adaptive,
 progress per song) is a side feature on the same engine.
 
-Status: draft for review. Nothing built yet. Mock: `docs/mock/index.html` (Notes tab = decisions + spike facts).
+Status: agreed. Mock: `docs/mock/index.html` (Notes tab = decisions + spike facts).
 
 ## Scope and order
 

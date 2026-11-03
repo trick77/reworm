@@ -2,9 +2,6 @@
 .env.local
 .env
 
-# Local agent tooling and worktrees
-.claude/
-
 # Build output, the import's HTTP cache, the local database (make run)
 /bin/
 /data/cache/

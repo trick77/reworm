@@ -14,6 +14,10 @@ import (
 
 var static = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("SPA")) })
 
+func newHandler(checks ...httpx.Check) http.Handler {
+	return New(Options{Static: static, Checks: checks})
+}
+
 func get(h http.Handler, path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.RemoteAddr = "127.0.0.1:40000" // the probes answer loopback only
@@ -23,7 +27,7 @@ func get(h http.Handler, path string) *httptest.ResponseRecorder {
 }
 
 func TestVersion(t *testing.T) {
-	rec := get(New(static), "/api/version")
+	rec := get(newHandler(), "/api/version")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -40,35 +44,40 @@ func TestVersion(t *testing.T) {
 }
 
 func TestProbes(t *testing.T) {
-	if rec := get(New(static), "/healthz"); rec.Code != http.StatusOK {
+	if rec := get(newHandler(), "/healthz"); rec.Code != http.StatusOK {
 		t.Errorf("/healthz = %d, want 200", rec.Code)
 	}
 	down := httpx.Check{Name: "database", Run: func(context.Context) error { return errors.New("gone") }}
-	if rec := get(New(static, down), "/readyz"); rec.Code != http.StatusServiceUnavailable {
+	if rec := get(newHandler(down), "/readyz"); rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("/readyz with a failing check = %d, want 503", rec.Code)
 	}
 }
 
 func TestStaticGetsTheRest(t *testing.T) {
-	if rec := get(New(static), "/party/K7Q4"); rec.Code != http.StatusOK || rec.Body.String() != "SPA" {
+	if rec := get(newHandler(), "/party/K7Q4"); rec.Code != http.StatusOK || rec.Body.String() != "SPA" {
 		t.Errorf("/party/K7Q4 = %d %q, want the SPA", rec.Code, rec.Body.String())
 	}
 }
 
 func TestWrongMethodIs405(t *testing.T) {
 	rec := httptest.NewRecorder()
-	New(static).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/version", nil))
+	newHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/version", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /api/version = %d, want 405", rec.Code)
 	}
 }
 
-func TestClientIP_behindOneProxy(t *testing.T) {
+func TestClientIP(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "172.18.0.2:40000" // Traefik
 	req.Header.Set("X-Forwarded-For", "6.6.6.6, 203.0.113.7")
-	if got := ClientIP(req); got != "203.0.113.7" {
-		t.Errorf("ClientIP = %q, want the entry Traefik appended", got)
+	// Reached directly: the header is the caller's to forge, only the TCP peer counts.
+	if got := ClientIP(0)(req); got != "172.18.0.2" {
+		t.Errorf("ClientIP(0) = %q, want the TCP peer", got)
+	}
+	// Behind one Traefik: the entry it appended, never the forgeable leftmost.
+	if got := ClientIP(1)(req); got != "203.0.113.7" {
+		t.Errorf("ClientIP(1) = %q, want the entry Traefik appended", got)
 	}
 }
 
@@ -76,7 +85,7 @@ func TestCrossOriginMutationRefused(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/version", nil)
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	rec := httptest.NewRecorder()
-	New(static).ServeHTTP(rec, req)
+	newHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("cross-site POST = %d, want 403", rec.Code)
 	}

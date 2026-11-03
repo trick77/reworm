@@ -22,7 +22,7 @@ make check     # the gate: lint, tests, coverage floors, conform
 ## Run
 
 `compose.yaml` runs a released image behind Traefik, so it works from the first release on (`0.1.0`): set
-`PUBLIC_FQDN` in `.env`, `chown -R 65532:65532 data`, then `docker compose up -d`. Settings are `BACKEND_*`
+`PUBLIC_FQDN` in `.env`, `mkdir -p data && sudo chown -R 65532:65532 data`, then `docker compose up -d`. Settings are `BACKEND_*`
 variables (`BACKEND_ADDR`, `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
 
 ## Licence

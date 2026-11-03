@@ -15,6 +15,8 @@ services:
       BACKEND_DATA_DIR: "/data"
       BACKEND_LOG_LEVEL: "${BACKEND_LOG_LEVEL:-info}"
       PUBLIC_FQDN: "${PUBLIC_FQDN:-}"
+      # Traefik is the one proxy in front: its X-Forwarded-For entry is the client.
+      BACKEND_TRUSTED_PROXIES: "1"
     healthcheck:
       test: ["CMD", "/reworm", "healthcheck"]
       interval: 60s

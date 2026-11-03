@@ -1,7 +1,7 @@
 # reworm
 
-Self-hosted music party game: Go backend + embedded React SPA. Plan: `docs/plan.md`; UI spec: `docs/mock/index.html`;
-PR stack: `docs/progress.md`. Party mode is the product, training a side feature on the same round engine.
+Self-hosted music party game: Go backend + embedded React SPA. Plan: `docs/plan.md`; UI spec: `docs/mock/index.html`.
+Party mode is the product, training a side feature on the same round engine.
 
 ## Working conventions
 - Docs, specs, code comments English only. TDD. YAML is `.yaml`, container builds `Containerfile`.
@@ -20,7 +20,7 @@ PR stack: `docs/progress.md`. Party mode is the product, training a side feature
 - Before every commit: case-insensitive grep of the tree and the commit message for the name.
 
 ## Config and secrets
-- Env prefix is `BACKEND_`, never `REWORM_` (user rule, as loom): `BACKEND_ADDR` (`:8080`), `BACKEND_DATA_DIR`
+- Env prefix is `BACKEND_`, never `REWORM_` (as loom): `BACKEND_ADDR` (`:8080`), `BACKEND_DATA_DIR`
   (`/data`), `BACKEND_LOG_LEVEL`, via kit/env (empty = unset). The host is plain `PUBLIC_FQDN` only: the Traefik
   rule reads it too, one name so app and router never disagree.
 - Secrets only via env / `.env.local` (import: `LASTFM_API_KEY`), never committed.

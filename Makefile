@@ -6,14 +6,18 @@ tidy:
 test:
 	cd backend && go test ./...
 
-ui-test:
+# npm ci only when the lockfile is newer than the last install (npm rewrites node_modules/.package-lock.json).
+ui/node_modules/.package-lock.json: ui/package-lock.json
+	cd ui && npm ci
+
+ui-test: ui/node_modules/.package-lock.json
 	cd ui && npm run test
 
 # vite builds into backend/web/dist and does not empty it (emptyOutDir: false): the old hashed bundles would be
 # embedded too.
-ui-build:
+ui-build: ui/node_modules/.package-lock.json
 	find backend/web/dist -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
-	cd ui && npm ci && npm run build
+	cd ui && npm run build
 
 # No version stamp: unstamped, kit's version.String reports dev-<commit>[-dirty]; releases stamp it in the image.
 build: ui-build
@@ -21,10 +25,9 @@ build: ui-build
 
 # The server on :8080 with its database in data/dev (ignored); `make ui-dev` beside it for vite's dev server.
 run:
-	mkdir -p data/dev
 	cd backend && BACKEND_DATA_DIR=../data/dev go run ./cmd/reworm
 
-ui-dev:
+ui-dev: ui/node_modules/.package-lock.json
 	cd ui && npm run dev
 
 # ship:begin (owned by ship init)

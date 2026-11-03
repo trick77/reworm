@@ -11,6 +11,8 @@ RUN npm run build
 # --- Stage 2: build the Go binary (pure-Go, no cgo) with the embedded SPA ---
 FROM golang:1.27-alpine AS build
 WORKDIR /app/backend
+# The runtime's empty /data (distroless has no shell to make one).
+RUN mkdir -p /out/data
 COPY backend/go.mod backend/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY backend/ ./
@@ -27,6 +29,8 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
 # --- Stage 3: minimal runtime, distroless nonroot (uid/gid 65532) ---
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/reworm /reworm
+# Owned by the runtime user: `docker run` without a volume works, and a fresh named volume takes this owner.
+COPY --from=build --chown=65532:65532 /out/data /data
 USER 65532:65532
 EXPOSE 8080
 ENTRYPOINT ["/reworm"]
