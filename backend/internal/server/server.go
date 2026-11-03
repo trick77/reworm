@@ -17,6 +17,13 @@ type Options struct {
 	TrustedProxies int
 	// Checks gate /readyz.
 	Checks []httpx.Check
+	// API are the route groups under /api (accounts, decks, covers, rooms, training).
+	API []Routes
+}
+
+// Routes is a group of API routes.
+type Routes interface {
+	Mount(mux *http.ServeMux)
 }
 
 // New returns the handler.
@@ -24,6 +31,9 @@ func New(o Options) http.Handler {
 	mux := http.NewServeMux()
 	httpx.Health(mux, slog.Default(), o.Checks...)
 	mux.HandleFunc("GET /api/version", handleVersion)
+	for _, r := range o.API {
+		r.Mount(mux)
+	}
 	// GET (HEAD included) only: a wrong method on an API route is a 405, not the SPA's 404.
 	mux.Handle("GET /", o.Static)
 	// Access log outermost, so a panic's line and its 500 carry the request id; the security headers outside

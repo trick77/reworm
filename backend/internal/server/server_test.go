@@ -67,6 +67,19 @@ func TestWrongMethodIs405(t *testing.T) {
 	}
 }
 
+type pingRoutes struct{}
+
+func (pingRoutes) Mount(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("pong")) })
+}
+
+func TestAPIRoutesMounted(t *testing.T) {
+	h := New(Options{Static: static, API: []Routes{pingRoutes{}}})
+	if rec := get(h, "/api/ping"); rec.Code != http.StatusOK || rec.Body.String() != "pong" {
+		t.Errorf("/api/ping = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
 func TestClientIP(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "172.18.0.2:40000" // Traefik
