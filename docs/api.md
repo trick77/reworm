@@ -13,7 +13,9 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   token is printed in the server log on boot (`/setup/<token>` link) while no profile exists. Sets the cookie; that
   profile is the admin. 403 `invalid_token`, 410 `setup_done` once a profile exists.
 - `GET  /api/profiles` → `[{id,name,avatar}]` (paired devices only; "Who's playing?")
-- `POST /api/profiles/switch` `{profileId}` → `/api/me` body; moves this device to that profile, re-issues the cookie
+- `POST /api/profiles/switch` `{profileId}` → `/api/me` body; moves this device to that profile, re-issues the cookie.
+  Never into the admin profile (403 `admin_profile`) unless the device is on it already: admin only by pairing from
+  an admin device ("Add a device").
 - `PATCH /api/me` `{name?, avatar?}` → `/api/me` body. Names: 1–24 printable characters (400 `invalid_name`).
 - `GET  /api/devices` → `[{id,label,lastSeen,current}]` (this profile's devices, last seen first; `lastSeen` is
   refreshed at most every 5 min); `DELETE /api/devices/{id}` → 204 (own profile's devices; the admin: any). Removing
@@ -41,29 +43,38 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - `POST /api/rooms` (paired device = host) `{mode: "years"|"buzzer", deck, toWin: 10, clip: {length: 20, start:
   "chorus"|"random"}, difficulty: "easy"|"medium"|"hard"}` → 201 `{code: "K7Q4"}`. Every field optional (defaults as
   shown; toWin 1–50, clip length 5–60 s). 400 `invalid_settings`.
-- Codes are 4 symbols, case-insensitive. A room expires after 2 h without any action.
+- Codes are 4 symbols, case-insensitive. A room expires after 2 h without any action. Every room route meters
+  unknown codes per client address (20, then 10 a minute; 429), so codes cannot be guessed cheaply; a known room
+  costs nothing there. Reads (`GET` state, events, me) are limited to 5/s per address (burst 60).
 - `GET  /api/rooms/{code}` → `RoomState` (snapshot; also used after SSE reconnect) | 404 `unknown_room`
 - `GET  /api/rooms/{code}/events` → SSE, event `state` with the full `RoomState` on every change, the current one
-  first (small payload; simplest correct). `: keepalive` comments every 25 s. 503 `too_many_streams` past 64.
+  first (small payload; simplest correct). `: keepalive` comments every 25 s. 503 `too_many_streams` past 64 per
+  room or 12 per client address (a party shares one router).
+- `GET  /api/rooms/{code}/me` → `{playerId}` the guest cookie or paired profile plays as | 401 `not_in_room` (no
+  session for this room) | 403 `kicked`. The pad asks this instead of trusting its own storage.
 - `POST /api/rooms/{code}/join` `{name, avatar}` → guest cookie, `{playerId}` (paired profiles join with their
   profile, body optional; max 8 players, 409 `room_full`). The same cookie or profile joining again gets the same
-  player (reconnect). A player joining during a round sits that round out (`state: "out"`). Rate-limited.
+  player (reconnect). A player joining during a round is `late` and plays from the next round. A kicked player or
+  profile cannot rejoin the room (403 `kicked`). Rate-limited.
 - host only (the profile that created the room; 403 `not_host`, 401 unpaired), each answers the new `RoomState`:
   `POST …/start` (lobby; 409 `no_players`, 422 `deck_empty`), `…/next` (after a result; no song left → `over`),
   `…/pause` / `…/resume` (during a round; paused time extends every deadline), `…/rematch` (over → lobby, scores 0),
-  `…/kick {playerId}`, `…/settings {…same as create}` (lobby only). Wrong phase → 409 `wrong_phase`.
+  `…/kick {playerId}` (for the room's lifetime; during a pause the round is settled on resume), `…/settings {…same
+  as create}` (lobby only). Wrong phase → 409 `wrong_phase`.
 - years mode: `POST …/answer {round, choice: "earlier"|"exact"|"later"}` → `{accepted: true}`; correctness only via state
 - buzzer mode: `POST …/buzz {round}`, `POST …/reveal {round}`, `POST …/judge {round, points: 0|1|2}` → `{accepted: true}`
-- Player actions are rate-limited per client address (generous: a party shares one router). Refusals: 403
-  `not_a_player`, 409 `wrong_mode`, `wrong_round` (not the running round, or over), `already_answered`,
-  `already_buzzed`, `wrong_phase` (paused).
-- `start`, `next` and training need preview URLs: 503 `previews_unavailable` while no preview source is configured.
+- Player actions are rate-limited per client address (generous: a party shares one router). Refusals: 401
+  `not_in_room` (no guest cookie / profile player for this room — never silent), 403 `kicked`, 409 `wrong_mode`,
+  `wrong_round` (not the running round, or over), `already_answered`, `already_buzzed`, `late` (joined mid-round),
+  `wrong_phase` (paused).
+- `start`, `next` and training need preview URLs: 503 `previews_unavailable` while no preview source is configured
+  or when it fails (retry); a song the source has no preview for is skipped.
 
 ### RoomState
 ```
-{ code, mode, phase: "lobby"|"playing"|"buzzed"|"judging"|"result"|"paused"|"over", hostId, toWin,
+{ code, seq, now, mode, phase: "lobby"|"playing"|"buzzed"|"judging"|"result"|"paused"|"over", hostId, toWin,
   settings: {deck, clip, difficulty},
-  players: [{ id, name, avatar, score, connected, state: "thinking"|"out"|"buzzed"|"answered" }],
+  players: [{ id, name, avatar, score, connected, state: "thinking"|"out"|"late"|"buzzed"|"answered" }],
   round: null | {
     n, startedAt, endsAt,                    // 15 s answer window; paused time extends endsAt
     proposedYear,                            // years mode only
@@ -71,15 +82,21 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
     buzz: null | { playerId, at, answerEndsAt },        // buzzer mode: clip+timer paused, 10 s to say it
     revealVotes: [playerIds],                // buzzer: buzzer + one other must press Reveal
     judgeVotes: { [playerId]: 0|1|2 },       // buzzer: buzzer + one other must agree; tie → rest of room
-    result: null | { song: {id, artist, title, year, coverUrl}, winnerId, points,
+    judgeEndsAt: null | ms,                  // buzzer: from the reveal on, when the votes so far decide (20 s)
+    result: null | { song: {id, artist, title, year, coverUrl}, winnerId, winnerMs, points,
                      photoFinish: [{ playerId, deltaMs }] }   // D15: later presses within 1 s
   },
   nextClip: null | { previewUrl, from, length } }  // prefetch for the stage
 ```
+- `seq` grows by one with every change of the room: keep the state with the highest, drop older snapshots/events.
+  `now` is the server clock (unix ms) when the state was written: clients derive their clock offset for countdowns.
+- `winnerMs` is the winning press (years: the answer, buzzer: the buzz) in ms after `startedAt`, paused time left
+  out; null without a winner.
 - `hostId` is the host's profile id. `connected` = the player has an event stream open. `clip.from` is seconds into
   the 90 s preview (0 for `chorus`). `coverUrl` is `/api/covers/{id}` or null. `winnerId` is null when nobody scored.
   `nextClip` is null when the deck has nothing left. `round` stays after the result (and in `over`) until the next one.
-- `answered` = gave a correct answer (years); `out` = wrong (years), or joined mid-round.
+- `answered` = gave a correct answer (years); `out` = wrong answer this round (years); `late` = joined mid-round,
+  plays from the next round.
 
 Rules (D11/D14/D15): years mode — first CORRECT answer scores 1 (+1 if "exact" and right), wrong → that player "out"
 for the round (stage shows ✕, never the choice), round ends on first correct / all out / timer. Buzzer — first buzz
@@ -92,13 +109,16 @@ server; years: other correct answers only; buzzer: all buzzes; < 50 ms shown as 
 "over" (the last result stays in `round`). The song (artist/title/year) is never sent before `result` exists.
 
 ## Training (side feature)
-- `POST /api/train/sessions` `{deck, mode: "years"|"pin", difficulty, clip, length}` → 201 `{id, card}` (paired
-  device; length 1–50, default 10; 422 `deck_empty`)
-- `GET  /api/train/sessions/{id}` → `{id, index, total, card, stats}` (resume; `card` null when done; `stats` =
+- `POST /api/train/sessions` `{deck, mode: "years"|"pin", difficulty, clip, length, songIds?}` → 201 `{id, card,
+  now}` (paired device; length 1–50, default 10). Filled to `length` with songs that have a preview; 422
+  `deck_empty` only when none has. `songIds` (≤ 50, e.g. a summary's misses) drills those songs instead of the deck;
+  length defaults to their count, unknown ids are skipped.
+- `GET  /api/train/sessions/{id}` → `{id, index, total, card, stats, now}` (resume; `card` null when done; `stats` =
   `{correct, answered, streak, bestStreak, learning, xp}`; 404 `unknown_session`, also for another profile's)
+- `now` (server unix ms) in create, resume and answer responses, for the client's clock offset.
 - card = `{ id, retry, proposedYear?, clip: {previewUrl, from, length} }` (`proposedYear` in years mode only)
 - `POST /api/train/sessions/{id}/answer` `{cardId, choice? | year?}` → `{correct, tier: "easy"|"clear"|"tight"|"exact",
-  xp, song, next: card|null}`. 409 `wrong_card` (not the current card), 409 `conflict` (answered twice at once).
+  xp, song, next: card|null, now}`. 409 `wrong_card` (not the current card), 409 `conflict` (answered twice at once).
   Pin mode: right within ±1 year; `tier` is how far the pin was. XP for a right answer: 30 exact, 20 within 2
   years (years mode: of the proposed year; pin: ±1), else 10. A first miss comes back 3 cards later with another year
   (`retry: true`, `total` grows).
@@ -107,5 +127,5 @@ server; years: other correct answers only; buzzer: all buzzes; < 50 ms shown as 
   `proposedYear` is null)
 - `GET  /api/train/stats` → `{award: "bronze"|"silver"|"gold"|"platinum"|"diamond", xp, nextAt, mastered, learning,
   new, streakDays, decades: [{decade, accuracy}]}`. Awards at 0 / 250 / 750 / 1500 / 3000 XP; `nextAt` is the next
-  one's XP, null at diamond. Mastered = three first-try hits in a row (spaced days apart); a miss sets a song back to
-  learning. `streakDays` = consecutive days with an answer, 0 once a day was skipped. `accuracy` 0–1 over all answers.
+  one's XP, null at diamond. Mastered = three first-try hits in a row, each when the song was due (rests of 1, 3, 7,
+  16, 35 days); a hit before it is due moves nothing; a miss sets a song back to learning, due at once. `streakDays` = consecutive days with an answer, 0 once a day was skipped. `accuracy` 0–1 over all answers.
