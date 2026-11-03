@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/trick77/reworm/internal/deck"
 )
@@ -98,6 +100,76 @@ func TestCover_notFound(t *testing.T) {
 	}
 	if rec := get(h, "dberr"); rec.Code != http.StatusNotFound {
 		t.Errorf("db error = %d, want 404 (the UI draws the record)", rec.Code)
+	}
+}
+
+func TestCover_oneFetchAtATimeAndFailuresRemembered(t *testing.T) {
+	var hits atomic.Int32
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path == "/gone.jpg" {
+			http.NotFound(w, r)
+			return
+		}
+		<-release
+		_, _ = w.Write(png)
+	}))
+	defer upstream.Close()
+	lookup := func(_ context.Context, id string) (string, error) { return upstream.URL + "/" + id + ".jpg", nil }
+	h := New(lookup, filepath.Join(t.TempDir(), "covers"), nil)
+	now := time.Unix(1_790_000_000, 0)
+	var mu sync.Mutex
+	h.now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+
+	// Eight reveals at once: one upstream fetch.
+	var wg sync.WaitGroup
+	codes := make([]int, 8)
+	for i := range codes {
+		wg.Go(func() { codes[i] = get(h, "dq").Code })
+	}
+	for hits.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond) // let the others join the flight
+	close(release)
+	wg.Wait()
+	for _, c := range codes {
+		if c != http.StatusOK {
+			t.Errorf("codes = %v", codes)
+			break
+		}
+	}
+	if n := hits.Load(); n != 1 {
+		t.Errorf("upstream hits = %d, want 1", n)
+	}
+
+	// A 404 is remembered for an hour.
+	hits.Store(0)
+	for range 3 {
+		if rec := get(h, "gone"); rec.Code != http.StatusNotFound {
+			t.Fatalf("gone = %d", rec.Code)
+		}
+	}
+	if n := hits.Load(); n != 1 {
+		t.Errorf("hits for a missing cover = %d, want 1", n)
+	}
+	mu.Lock()
+	now = now.Add(badCoverTTL)
+	mu.Unlock()
+	get(h, "gone")
+	if n := hits.Load(); n != 2 {
+		t.Errorf("hits after the hour = %d, want 2", n)
+	}
+}
+
+func TestCover_failuresBounded(t *testing.T) {
+	h := New(nil, t.TempDir(), nil)
+	for i := range maxFailures + 1 {
+		h.fail(string(rune(i)), time.Hour)
+	}
+	if len(h.failed) > maxFailures {
+		t.Errorf("failures = %d", len(h.failed))
 	}
 }
 

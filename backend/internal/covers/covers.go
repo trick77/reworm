@@ -15,10 +15,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/trick77/ship/kit/fsx"
 	"github.com/trick77/ship/kit/logging"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/trick77/reworm/internal/api"
 	"github.com/trick77/reworm/internal/deck"
@@ -33,6 +35,14 @@ const maxBytes = 5 << 20
 // cacheControl lets the browser keep a cover for good: a song's original cover does not change.
 const cacheControl = "public, max-age=31536000, immutable"
 
+// How long a failed fetch is not tried again: an answer from the image host (404, not an image, too big) for an
+// hour; a transport failure (host unreachable) a few minutes. Every reveal of the song would refetch otherwise.
+const (
+	badCoverTTL  = time.Hour
+	downCoverTTL = 5 * time.Minute
+	maxFailures  = 10_000
+)
+
 // Lookup is the stored cover URL of a song, "" when it has none, deck.ErrNotFound for an unknown id.
 type Lookup func(ctx context.Context, songID string) (string, error)
 
@@ -41,6 +51,12 @@ type Handler struct {
 	lookup Lookup
 	dir    string
 	client *http.Client
+	now    func() time.Time
+
+	// fetches lets one upstream fetch per song run; concurrent requests for it share the result.
+	fetches singleflight.Group
+	mu      sync.Mutex
+	failed  map[string]time.Time // song id → no fetch before then
 }
 
 // New serves covers cached in dir, fetching with client (nil: a client with a 15 s timeout, following redirects).
@@ -48,7 +64,7 @@ func New(lookup Lookup, dir string, client *http.Client) *Handler {
 	if client == nil {
 		client = &http.Client{Timeout: 15 * time.Second}
 	}
-	return &Handler{lookup: lookup, dir: dir, client: client}
+	return &Handler{lookup: lookup, dir: dir, client: client, now: time.Now, failed: map[string]time.Time{}}
 }
 
 // Mount adds the route.
@@ -75,7 +91,7 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, fs.ErrNotExist) {
 			slog.WarnContext(r.Context(), "cover cache unreadable", "song", id, logging.Err(err))
 		}
-		b, err = h.fetch(r.Context(), id, p)
+		b, err = h.get(r.Context(), id, p)
 	}
 	if err != nil {
 		var pr *api.Problem
@@ -91,6 +107,34 @@ func (h *Handler) serve(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
+// get is the cover from upstream: one fetch per song at a time, none while a recent failure stands.
+func (h *Handler) get(ctx context.Context, id, p string) ([]byte, error) {
+	h.mu.Lock()
+	until, failed := h.failed[id]
+	h.mu.Unlock()
+	if failed && h.now().Before(until) {
+		return nil, api.ErrNotFound
+	}
+	// The shared fetch must not end with the one client that happened to start it.
+	v, err, _ := h.fetches.Do(id, func() (any, error) {
+		return h.fetch(context.WithoutCancel(ctx), id, p)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]byte), nil
+}
+
+// fail remembers a failed fetch for ttl.
+func (h *Handler) fail(id string, ttl time.Duration) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.failed) >= maxFailures {
+		clear(h.failed)
+	}
+	h.failed[id] = h.now().Add(ttl)
+}
+
 // fetch downloads a song's cover and caches it at p.
 func (h *Handler) fetch(ctx context.Context, id, p string) ([]byte, error) {
 	stored, err := h.lookup(ctx, id)
@@ -102,24 +146,30 @@ func (h *Handler) fetch(ctx context.Context, id, p string) ([]byte, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, SourceURL(stored), nil)
 	if err != nil {
+		h.fail(id, badCoverTTL)
 		return nil, err
 	}
 	resp, err := h.client.Do(req) //nolint:gosec // the URL comes from our own dataset
 	if err != nil {
+		h.fail(id, downCoverTTL)
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
+		h.fail(id, badCoverTTL)
 		return nil, fmt.Errorf("cover fetch: %s", resp.Status)
 	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
+		h.fail(id, downCoverTTL)
 		return nil, err
 	}
 	if len(b) > maxBytes {
+		h.fail(id, badCoverTTL)
 		return nil, fmt.Errorf("cover over %d bytes", maxBytes)
 	}
 	if ct := http.DetectContentType(b); !strings.HasPrefix(ct, "image/") {
+		h.fail(id, badCoverTTL)
 		return nil, fmt.Errorf("cover is %s, not an image", ct)
 	}
 	// A cache that cannot be written still serves this request; the next one fetches again.
