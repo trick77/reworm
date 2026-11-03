@@ -15,7 +15,7 @@ func TestOpen_migratesAndReopens(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	var name string
-	if err := db.QueryRowContext(ctx, `SELECT name FROM schema_migrations`).Scan(&name); err != nil || name != "0001_init.sql" {
+	if err := db.QueryRowContext(ctx, `SELECT name FROM schema_migrations ORDER BY name LIMIT 1`).Scan(&name); err != nil || name != "0001_init.sql" {
 		t.Fatalf("schema_migrations = %q, %v; want 0001_init.sql", name, err)
 	}
 	rows, err := db.QueryContext(ctx, `SELECT name FROM pragma_table_info('songs') ORDER BY cid`)
@@ -45,8 +45,36 @@ func TestOpen_migratesAndReopens(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	var n int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 1 {
-		t.Errorf("schema_migrations rows = %d, %v; want 1", n, err)
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 4 {
+		t.Errorf("schema_migrations rows = %d, %v; want 4", n, err)
+	}
+}
+
+func TestDevices_cascadeWithTheProfile(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "reworm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, q := range []string{
+		`INSERT INTO profiles (id, name, avatar, created_at) VALUES ('p', 'Jan', 'vinyl', 1)`,
+		`INSERT INTO devices (id, profile_id, label, created_at, last_seen) VALUES ('d', 'p', 'iPhone', 1, 1)`,
+		`DELETE FROM profiles WHERE id = 'p'`,
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM devices`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("devices after the profile went = %d, %v; want 0", n, err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO profiles (id, name, avatar, created_at) VALUES ('q', 'Mia', 'mic', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO pairing_codes (code, kind, profile_id, expires_at) VALUES ('X', 'other', 'q', 1)`); err == nil {
+		t.Error("pairing code of an unknown kind accepted")
 	}
 }
 
