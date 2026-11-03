@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -96,6 +98,36 @@ func TestSongs_yearIsRequired(t *testing.T) {
 	var active int
 	if err := db.QueryRowContext(ctx, `SELECT sets, active FROM songs WHERE id = 'a'`).Scan(&sets, &active); err != nil || sets != "[]" || active != 1 {
 		t.Errorf("sets, active = %q, %d, %v; want [], 1", sets, active, err)
+	}
+}
+
+func TestInTx(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "reworm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	insert := func(id string) func(*sql.Tx) error {
+		return func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `INSERT INTO profiles (id, name, avatar, created_at) VALUES (?, 'x', 'mic', 1)`, id)
+			return err
+		}
+	}
+	if err := InTx(ctx, db, insert("a")); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("boom")
+	if err := InTx(ctx, db, func(tx *sql.Tx) error { _ = insert("b")(tx); return boom }); !errors.Is(err, boom) {
+		t.Errorf("err = %v", err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM profiles`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("profiles = %d, %v; want the rolled-back one gone", n, err)
+	}
+	_ = db.Close()
+	if err := InTx(ctx, db, insert("c")); err == nil {
+		t.Error("InTx on a closed db succeeded")
 	}
 }
 

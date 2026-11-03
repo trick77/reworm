@@ -11,6 +11,7 @@ import (
 	"github.com/trick77/ship/kit/secret"
 
 	"github.com/trick77/reworm/internal/api"
+	"github.com/trick77/reworm/internal/store"
 )
 
 // Mount adds the profile, device and pairing routes.
@@ -107,7 +108,7 @@ func (s *Service) handleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	var deviceID string
 	if err == nil {
-		err = s.inTx(r.Context(), func(tx *sql.Tx) error {
+		err = store.InTx(r.Context(), s.db, func(tx *sql.Tx) error {
 			// Inside the write transaction: two setups at once cannot both make an admin.
 			var n int
 			if err := tx.QueryRowContext(r.Context(), `SELECT count(*) FROM profiles`).Scan(&n); err != nil {
@@ -200,10 +201,16 @@ func (s *Service) handleSwitch(w http.ResponseWriter, r *http.Request, id Identi
 	if !api.Decode(w, r, &req) {
 		return
 	}
-	res, err := s.db.ExecContext(r.Context(), `UPDATE devices SET profile_id = ?
-WHERE id = ? AND EXISTS (SELECT 1 FROM profiles WHERE id = ?)`, req.ProfileID, id.DeviceID, req.ProfileID)
-	if err == nil {
-		err = oneRow(res, api.Fail(http.StatusNotFound, "unknown_profile", "no such profile"))
+	// Switching never grants admin: the admin profile is reached only by pairing from an admin device.
+	var admin bool
+	err := s.db.QueryRowContext(r.Context(), `SELECT admin FROM profiles WHERE id = ?`, req.ProfileID).Scan(&admin)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		err = api.Fail(http.StatusNotFound, "unknown_profile", "no such profile")
+	case err == nil && admin && req.ProfileID != id.ProfileID:
+		err = api.Fail(http.StatusForbidden, "admin_profile", "pair this device from an admin device instead")
+	case err == nil:
+		_, err = s.db.ExecContext(r.Context(), `UPDATE devices SET profile_id = ? WHERE id = ?`, req.ProfileID, id.DeviceID)
 	}
 	if err != nil {
 		api.WriteError(w, r, err)
@@ -294,7 +301,7 @@ func (s *Service) handlePair(w http.ResponseWriter, r *http.Request, id Identity
 	}
 	now := s.now()
 	code, exp := api.Code(6), now.Add(PairTTL)
-	err := s.inTx(r.Context(), func(tx *sql.Tx) error {
+	err := store.InTx(r.Context(), s.db, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(r.Context(), `DELETE FROM pairing_codes WHERE expires_at <= ? OR used_at IS NOT NULL`, now.UnixMilli()); err != nil {
 			return err
 		}
@@ -330,7 +337,7 @@ func (s *Service) handleClaim(w http.ResponseWriter, r *http.Request) {
 	// The device this browser was paired as, if any: claiming replaces it rather than leave it listed.
 	prev, prevErr := s.Identify(r)
 	var deviceID string
-	err := s.inTx(r.Context(), func(tx *sql.Tx) error {
+	err := store.InTx(r.Context(), s.db, func(tx *sql.Tx) error {
 		var kind, profileID string
 		err := tx.QueryRowContext(r.Context(), `UPDATE pairing_codes SET used_at = ?
 WHERE code = ? AND used_at IS NULL AND expires_at > ? RETURNING kind, profile_id`,

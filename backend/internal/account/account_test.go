@@ -258,6 +258,16 @@ func TestPairDeviceAndInvite(t *testing.T) {
 	if got := decode[meJSON](t, phone.do(http.MethodGet, "/api/me", nil)); got.Profile.Name != "Mia" || got.Device.ID != pm.Device.ID {
 		t.Errorf("after switch = %+v", got)
 	}
+	// No way into the admin profile by switching, not even back: only pairing from an admin device.
+	if rec := phone.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: me.Profile.ID}); rec.Code != http.StatusForbidden || errCode(t, rec) != "admin_profile" {
+		t.Errorf("switch into admin = %d", rec.Code)
+	}
+	if got := decode[meJSON](t, phone.do(http.MethodGet, "/api/me", nil)); got.Profile.Admin {
+		t.Error("escalated to admin")
+	}
+	if rec := host.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: me.Profile.ID}); rec.Code != http.StatusOK {
+		t.Errorf("admin staying on its own profile = %d", rec.Code)
+	}
 }
 
 func TestClaimReplacesThePreviousDevice(t *testing.T) {

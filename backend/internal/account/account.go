@@ -240,16 +240,3 @@ func Label(userAgent string) string {
 	}
 	return "Browser"
 }
-
-// inTx runs f in a transaction, committing when it returns nil.
-func (s *Service) inTx(ctx context.Context, f func(*sql.Tx) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	if err := f(tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
