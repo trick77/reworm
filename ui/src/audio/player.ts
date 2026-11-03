@@ -143,13 +143,18 @@ export class PreviewPlayer {
   // over with fresh elements; call unlock() from the same tap.
   setEngine(e: Engine) {
     if (e === this._engine) return;
+    this.dispose();
+    this._engine = e;
+    this.emit();
+  }
+
+  // dispose stops the clip and lets go of the elements (their downloads too).
+  dispose() {
     this.stopNow();
     this.els.forEach(release);
     this.els = [];
     this.srcs = [];
     this.active = 0;
-    this._engine = e;
-    this.emit();
   }
 
   // unlock runs inside a user gesture: audio session, the AudioContext, and one muted play of every element,
@@ -300,6 +305,12 @@ export class PreviewPlayer {
       return;
     }
     this.start(el, !takeBack);
+  }
+
+  // replay starts the current clip again from its start.
+  replay() {
+    const url = this.srcs[this.active];
+    if (url) this.play(url, { from: this.from, length: this.length });
   }
 
   // level is the current fade, 0–1.
@@ -563,9 +574,30 @@ export function saveEngine(e: Engine) {
   }
 }
 
-// defaultPrefetch: on, unless ?prefetch=off (the single-element fallback, should iOS refuse a second element).
+const PREFETCH_KEY = "reworm.prefetch";
+
+// defaultPrefetch: ?prefetch=off|on, else the saved choice (Settings), else on. Off is the single-element
+// fallback, should iOS refuse a second element.
 export function defaultPrefetch(): boolean {
-  return query("prefetch") !== "off";
+  const q = query("prefetch");
+  if (q === "off" || q === "on") return q === "on";
+  try {
+    return window.localStorage.getItem(PREFETCH_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+// savePrefetch keeps the choice and drops the shared player: the next player() is built with it (call it
+// from a tap and unlock() again, as the engine switch does).
+export function savePrefetch(on: boolean) {
+  try {
+    window.localStorage.setItem(PREFETCH_KEY, on ? "on" : "off");
+  } catch {
+    // not saved; the default applies next time
+  }
+  shared?.dispose();
+  shared = null;
 }
 
 let shared: PreviewPlayer | null = null;

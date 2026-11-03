@@ -1,57 +1,81 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import { fetchVersion } from "./api";
-import { WormLogo } from "./WormLogo";
-import "./App.css";
+import { lazy, Suspense } from "react";
+import { Route, Switch, useLocation } from "wouter";
+import type { Api } from "./api/client";
+import { ApiProvider, useApi } from "./api/context";
+import { Button } from "./components/Controls";
+import { Screen } from "./screens/common";
+import { Home } from "./screens/Home";
+import { Join } from "./screens/party/Join";
+import { Host, Party, Room } from "./screens/party/Party";
+import { MePage, Pair, Setup, Who } from "./screens/Profile";
+import { Settings } from "./screens/Settings";
+import { Training } from "./screens/train/Training";
+import { TrainSetup } from "./screens/train/TrainSetup";
 
 // The component gallery is for the dev server only; a production build leaves it out.
 const Gallery = import.meta.env.DEV
   ? lazy(() => import("./gallery/Gallery"))
   : null;
 
-function useHash() {
-  const [hash, setHash] = useState(() => window.location.hash);
-  useEffect(() => {
-    const on = () => setHash(window.location.hash);
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
-  }, []);
-  return hash;
-}
-
-export default function App({ dev = import.meta.env.DEV }: { dev?: boolean }) {
-  const hash = useHash();
-  if (dev && Gallery && hash === "#gallery") {
-    return (
-      <Suspense fallback={null}>
-        <Gallery />
-      </Suspense>
-    );
-  }
-  return <Landing />;
-}
-
-function Landing() {
-  const [version, setVersion] = useState<string | null>(null);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    fetchVersion(ctrl.signal).then(setVersion, () => {
-      // An unreachable server leaves the version out; the shell still renders.
-    });
-    return () => ctrl.abort();
-  }, []);
-
+function NotFound() {
+  const [, go] = useLocation();
   return (
-    <main className="shell">
-      <div className="wordmark">
-        <div className="seal">
-          <WormLogo />
+    <Screen>
+      <div className="empty">
+        <div className="h-title">Nothing here</div>
+        <div className="sub" style={{ margin: "6px 0 18px" }}>
+          This page doesn't exist.
         </div>
-        <div className="brand">
-          Re<span>worm</span>
-        </div>
+        <Button small style={{ margin: "0 auto" }} onClick={() => go("/")}>
+          Home
+        </Button>
       </div>
-      {version && <div className="version num">{version}</div>}
-    </main>
+    </Screen>
+  );
+}
+
+function Routes({ dev }: { dev: boolean }) {
+  return (
+    <Switch>
+      <Route path="/" component={Home} />
+      <Route path="/party" component={Party} />
+      <Route path="/host" component={Host} />
+      <Route path="/room/:code">
+        {(p) => <Room key={p.code} code={p.code.toUpperCase()} />}
+      </Route>
+      <Route path="/join/:code?">{(p) => <Join code={p.code} />}</Route>
+      <Route path="/pair/:code?">{(p) => <Pair code={p.code} />}</Route>
+      <Route path="/setup" component={Setup} />
+      <Route path="/who" component={Who} />
+      <Route path="/me" component={MePage} />
+      <Route path="/train" component={TrainSetup} />
+      <Route path="/train/:id">
+        {(p) => <Training key={p.id} id={p.id} />}
+      </Route>
+      <Route path="/settings" component={Settings} />
+      {dev && Gallery && (
+        <Route path="/gallery">
+          <Suspense fallback={null}>
+            <Gallery />
+          </Suspense>
+        </Route>
+      )}
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+export default function App({
+  api,
+  dev = import.meta.env.DEV,
+}: {
+  api?: Api;
+  dev?: boolean;
+}) {
+  const fallback = useApi();
+  return (
+    <ApiProvider api={api ?? fallback}>
+      <Routes dev={dev} />
+    </ApiProvider>
   );
 }
