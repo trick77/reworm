@@ -4,7 +4,7 @@ Reworm is a **party game**: one screen (iPad, laptop on the TV) plays a song cli
 on their phone — earlier, spot on, later — and the fastest right answer takes the round. **Training** (solo, adaptive,
 progress per song) is a side feature on the same engine.
 
-Status: draft for review. Nothing built yet. Mock: `mocks/index.html` (Notes tab = decisions + spike facts).
+Status: draft for review. Nothing built yet. Mock: `docs/mock/index.html` (Notes tab = decisions + spike facts).
 
 ## Scope and order
 
@@ -46,7 +46,7 @@ rooms, pairing, the UI. A kit gap found on the way → raise it for kit rather t
 
 ## Milestone 0 — device check (before anything else)
 
-The mock's audio only ran in headless desktop Chromium. Serve `mocks/` on the LAN, test on a real iPhone and iPad:
+The mock's audio only ran in headless desktop Chromium. Serve `docs/mock/` on the LAN, test on a real iPhone and iPad:
 - clips audible with the **silent switch on and off** (Web Audio may follow it; candidate fix
   `navigator.audioSession.type = "playback"`, Safari 17+ — verify);
 - the next clip starts by itself after the first tap (party host plays dozens of rounds unattended);

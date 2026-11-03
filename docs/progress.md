@@ -4,7 +4,7 @@ PR stack per `docs/plan.md` milestones. Each PR branches off its parent; review 
 
 | milestone | PR | branch | parent | review | merged |
 |---|---|---|---|---|---|
-| bootstrap | | bootstrap | master | | |
+| bootstrap | #1 | bootstrap | master | | |
 | import-v1 | | | | | |
 | ui-foundation | | | | | |
 | import-v2 | | | | | |
