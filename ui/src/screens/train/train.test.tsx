@@ -95,8 +95,14 @@ describe("training", () => {
     expect(screen.getByText("To learn (1)")).toBeInTheDocument();
     expect(screen.getByText(second.song.title)).toBeInTheDocument();
     expect(await screen.findByText(/XP to platinum/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Another round" }));
+    // drill the misses: exactly those songs, the saved defaults stay
+    const defaults = localStorage.getItem("reworm.train");
+    fireEvent.click(screen.getByRole("button", { name: "Drill misses (1)" }));
     await waitFor(() => expect(world.sessions.size).toBe(2));
+    const drill = [...world.sessions.values()][1];
+    expect(drill.settings.songIds).toEqual([second.song.id]);
+    expect(drill.queue.map((q) => q.song.id)).toEqual([second.song.id]);
+    expect(localStorage.getItem("reworm.train")).toBe(defaults);
   });
 
   it("pins the year, resumes a session on reload, and runs to its end", async () => {
@@ -136,6 +142,31 @@ describe("training", () => {
     expect(
       screen.getByText(`you: ${world.songs[1].year + 5}`),
     ).toBeInTheDocument();
+  });
+
+  it("offers another round after a session without misses", async () => {
+    const world = new FakeWorld();
+    world.songs = FAKE_SONGS.slice(0, 1);
+    const api = world.device("p-jan");
+    const settings = {
+      deck: { sets: [], categories: [], genres: [], from: 1900, to: 2100 },
+      mode: "pin" as const,
+      difficulty: "medium" as const,
+      clip: { length: 20, start: "chorus" as const },
+      length: 1,
+    };
+    localStorage.setItem("reworm.train", JSON.stringify(settings));
+    const { id } = await api.startTraining(settings);
+    renderApp(`/train/${id}`, api);
+    fireEvent.change(await screen.findByLabelText("Your year"), {
+      target: { value: String(world.songs[0].year) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Lock it in/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /See results/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Another round" }),
+    );
+    await waitFor(() => expect(world.sessions.size).toBe(2));
   });
 
   it("plays, pauses and replays the clip by buttons and keys", async () => {
@@ -178,6 +209,10 @@ describe("training", () => {
     await waitFor(() => expect(r2.path()).toMatch(/^\/train\/t-/));
     const ses = [...world.sessions.values()].at(-1)!;
     expect(ses.settings.deck).toMatchObject({ from: 1970, to: 1979 });
+    // a decade is a one-off: the saved defaults are still today's round
+    expect(
+      JSON.parse(localStorage.getItem("reworm.train")!).deck.from,
+    ).not.toBe(1970);
     r2.unmount();
     renderApp("/train", world.device());
     expect(

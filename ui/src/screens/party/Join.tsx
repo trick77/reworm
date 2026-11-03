@@ -1,9 +1,9 @@
 // /join/:code? — the phone's way in: the room code (from the QR or typed), a name and an avatar. Once
 // joined, the same route is the pad.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import type { ApiError } from "../../api/client";
-import { toApiError, useApi, useMe } from "../../api/context";
+import { toApiError, useApi, useAsync, useMe } from "../../api/context";
 import { avatarInfo } from "../../avatars";
 import { Button } from "../../components/Controls";
 import { load, playerKey, save } from "../../lib/prefs";
@@ -14,6 +14,7 @@ type Guest = { name: string; avatar: string };
 
 function joinError(e: ApiError, code: string): string {
   if (e.status === 404) return `No game with the code ${code}.`;
+  if (e.code === "kicked") return "The host removed you from this game.";
   if (e.code === "room_full" || e.status === 409)
     return "This game is full (8 players).";
   return e.message;
@@ -32,10 +33,11 @@ function JoinForm({
   const { me } = useMe();
   const saved = load<Guest>("guest");
   const [code, setCode] = useState(given ?? "");
-  const [name, setName] = useState(me?.profile.name ?? saved?.name ?? "");
-  const [avatar, setAvatar] = useState(
-    me?.profile.avatar ?? saved?.avatar ?? "mic",
-  );
+  // null: untouched, so the profile (loaded later) or the last guest name fills in
+  const [typed, setName] = useState<string | null>(null);
+  const [picked, setAvatar] = useState<string | null>(null);
+  const name = typed ?? me?.profile.name ?? saved?.name ?? "";
+  const avatar = picked ?? me?.profile.avatar ?? saved?.avatar ?? "mic";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(note ?? null);
   const ready = code.length === 4 && name.trim().length > 0 && !busy;
@@ -127,7 +129,17 @@ export function Join({ code: raw }: { code?: string }) {
   // the player id per room lives in storage (a reload, the QR again); bump re-reads it
   const [, bump] = useState(0);
   const [note, setNote] = useState<string | undefined>();
-  const id = code ? load<string>(playerKey(code)) : null;
+  const api = useApi();
+  const stored = code ? load<string>(playerKey(code)) : null;
+  // nothing stored (storage cleared, another tab): the server may still know this browser's player
+  const asked = useAsync(code && !stored && !note ? `me:${code}` : null, () =>
+    api.roomMe(code!),
+  );
+  const found = code && !stored && !note ? (asked.data ?? null) : null;
+  useEffect(() => {
+    if (code && found) save(playerKey(code), found);
+  }, [code, found]);
+  const id = stored ?? found;
   if (code && id)
     return (
       <Pad

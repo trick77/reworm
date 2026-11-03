@@ -381,9 +381,13 @@ export function YearRange({
           onChange={(e) => onChange(from, Math.max(+e.target.value, from))}
         />
         <div className="ticks" aria-hidden="true">
-          {["1900", "’25", "’50", "’75", "2000", "’25"].map((t, i) => (
-            <span key={i}>{t}</span>
-          ))}
+          {[1900, 1925, 1950, 1975, 2000, 2025]
+            .filter((y) => y <= YEAR_MAX)
+            .map((y) => (
+              <span key={y} style={{ left: `${pct(y)}%` }}>
+                {y % 100 ? `’${String(y).slice(2)}` : y}
+              </span>
+            ))}
         </div>
       </div>
       <div className="chips" style={{ marginTop: 10 }}>
@@ -491,5 +495,4 @@ export function useNow(ms = 1000): number {
   return now;
 }
 
-export const secondsLeft = (at: number, now = Date.now()) =>
-  Math.max(0, Math.ceil((at - now) / 1000));
+export { secondsLeft } from "../api/clock";

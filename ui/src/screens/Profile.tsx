@@ -157,7 +157,7 @@ export function MePage() {
   const api = useApi();
   const [, go] = useLocation();
   const [params] = useSearchParams();
-  const { me, unpaired, reload } = useMe();
+  const { me, unpaired, error: meError, reload } = useMe();
   const devices = useAsync(me ? "devices" : null, () => api.devices());
   const profiles = useAsync(me ? "profiles" : null, () => api.profiles());
   const [pair, setPair] = useState<{ kind: PairKind; code: PairCode } | null>(
@@ -194,7 +194,7 @@ export function MePage() {
     return (
       <Screen tab="settings">
         <ScreenHead back="/" title="Profile & devices" />
-        <Loading />
+        {meError ? <Problem error={meError} retry={reload} /> : <Loading />}
       </Screen>
     );
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ApiError } from "./client";
+import { syncServerClock } from "./clock";
 import { useApi } from "./context";
 import type { RoomState } from "./types";
 
@@ -19,8 +20,10 @@ export function useRoom(code: string | null) {
     const mine = (p: Feed): Feed =>
       p.code === code ? p : { code, live: false };
     return api.subscribeRoom(code, {
-      onState: (state) =>
-        setFeed((p) => ({ ...mine(p), state, error: undefined })),
+      onState: (state) => {
+        syncServerClock(state.now);
+        setFeed((p) => ({ ...mine(p), state, error: undefined }));
+      },
       onError: (error) => setFeed((p) => ({ ...mine(p), error })),
       onLive: (live) => setFeed((p) => ({ ...mine(p), live })),
     });

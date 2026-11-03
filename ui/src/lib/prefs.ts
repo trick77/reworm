@@ -23,7 +23,8 @@ export function save(key: string, v: unknown) {
 }
 
 export const YEAR_MIN = 1900;
-export const YEAR_MAX = 2025;
+// the newest songs are from this year
+export const YEAR_MAX = new Date().getFullYear();
 
 export const allYears = (deck: Partial<Deck> = {}): Deck => ({
   sets: [],

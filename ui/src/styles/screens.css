@@ -330,10 +330,15 @@
   left: 0;
   right: 0;
   top: 34px;
-  display: flex;
-  justify-content: space-between;
   font-size: 11px;
   color: var(--faint);
+}
+.years .ticks span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+.years .ticks span:first-child {
+  transform: none;
 }
 
 /* play: session progress, counts, pin dial */

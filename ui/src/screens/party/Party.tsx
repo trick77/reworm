@@ -107,8 +107,9 @@ function openRoom(api: Api, decks: Decks): Promise<{ code: string }> {
       try {
         const s = await api.room(hosting);
         if (s.phase !== "over") return { code: s.code };
-      } catch {
-        // gone: a new one
+      } catch (e) {
+        // only a room that is gone gets replaced; any other failure must not open a second one
+        if (!(e instanceof ApiError && e.status === 404)) throw e;
       }
     }
     const first = decks.sets[0]?.id;
@@ -127,26 +128,36 @@ function openRoom(api: Api, decks: Decks): Promise<{ code: string }> {
 export function Host() {
   const api = useApi();
   const [, go] = useLocation();
-  const { me, unpaired } = useMe();
+  const { me, unpaired, error: meError, reload } = useMe();
   const decks = useAsync(me ? "decks" : null, () => api.decks());
-  const [error, setError] = useState<ApiError | null>(null);
+  const [failed, setFailed] = useState<{ e: ApiError; try: number } | null>(
+    null,
+  );
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!decks.data) return;
     let live = true;
     openRoom(api, decks.data).then(
       (r) => live && go(`/room/${r.code}`, { replace: true }),
-      (e: unknown) => live && setError(toApiError(e)),
+      (e: unknown) => live && setFailed({ e: toApiError(e), try: attempt }),
     );
     return () => {
       live = false;
     };
-  }, [api, decks.data, go]);
+  }, [api, decks.data, go, attempt]);
+  const error =
+    meError ?? decks.error ?? (failed?.try === attempt ? failed.e : null);
+  const retry = () => {
+    if (meError) reload();
+    else if (decks.error) decks.reload();
+    else setAttempt((n) => n + 1);
+  };
   return (
     <Screen>
       <ScreenHead back="/party" title="Host a game" />
       {unpaired && <Unpaired what="Hosting a game" />}
-      {(error ?? decks.error) && <Problem error={(error ?? decks.error)!} />}
-      {!unpaired && !error && !decks.error && <Loading />}
+      {error && <Problem error={error} retry={retry} />}
+      {!unpaired && !error && <Loading />}
     </Screen>
   );
 }
@@ -362,7 +373,8 @@ export function Room({ code }: { code: string }) {
   const { me } = useMe();
   const { state, error, live } = useRoom(code);
   const [, go] = useLocation();
-  if (error && !state)
+  // a 404 ends the room even when a state was showing
+  if (error && (error.status === 404 || !state))
     return (
       <Screen>
         <ScreenHead back="/party" title="Host a game" />

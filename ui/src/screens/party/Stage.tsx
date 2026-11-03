@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useApi } from "../../api/context";
-import type { RoomPlayer, RoomState, RoundResult } from "../../api/types";
+import type {
+  RoomPlayer,
+  RoomState,
+  Round,
+  RoundResult,
+} from "../../api/types";
 import { player } from "../../audio/player";
 import { audioUnlocked, unlockAudio } from "../../audio/unlock";
 import { usePlayer } from "../../audio/usePlayer";
@@ -35,7 +40,26 @@ export const toPlayers = (ps: RoomPlayer[]): Player[] =>
     out: p.state === "out",
   }));
 
-const PHOTO_MS = 50;
+export const PHOTO_MS = 50;
+
+// roundKey identifies a round across a rematch (which counts from 1 again): number + start time.
+export const roundKey = (r: Round) => `${r.n}:${r.startedAt}`;
+
+// winTime: " in 3.4 s" when the server sends the winner's time.
+export const winTime = (res: RoundResult) =>
+  res.winnerMs != null ? ` in ${(res.winnerMs / 1000).toFixed(1)} s` : null;
+
+// roundView: what the round shows. Paused keeps what was on screen: the round has a result → the
+// result, unless it is a buzzer round still being judged (its result holds the song, no winner yet).
+export function roundView(s: RoomState): "live" | "judging" | "result" {
+  const r = s.round;
+  if (!r) return "live";
+  if (s.phase === "result") return "result";
+  if (s.phase === "judging") return r.result ? "judging" : "live";
+  if (s.phase !== "paused" || !r.result) return "live";
+  const open = s.mode === "buzzer" && r.buzz && r.result.winnerId == null;
+  return open ? "judging" : "result";
+}
 
 // photoLine: a later press in the 1 s window, "+0.18 s", or "photo finish" under 50 ms.
 export const photoLine = (deltaMs: number) =>
@@ -48,9 +72,9 @@ export function direction(shown: number, year: number) {
 // useStageAudio plays each new round's clip (fade in), pauses with the room, fades out on a buzz and on
 // the result, and keeps the next round's clip preloaded.
 function useStageAudio(s: RoomState) {
-  const played = useRef<number | null>(null);
+  const played = useRef<string | null>(null);
   const prev = useRef<string | null>(null);
-  const n = s.round?.n ?? null;
+  const n = s.round ? roundKey(s.round) : null;
   const url = s.round?.clip.previewUrl;
   const from = s.round?.clip.from ?? 0;
   const length = s.round?.clip.length;
@@ -173,7 +197,7 @@ function YearsLive({ s }: { s: RoomState }) {
         style={{ justifyContent: "center", gap: 22, marginTop: 20 }}
       >
         <CountdownRing
-          key={`r${r.n}`}
+          key={`r${roundKey(r)}`}
           seconds={secondsLeft(r.endsAt)}
           size={104}
           paused={s.phase === "paused"}
@@ -206,7 +230,7 @@ function BuzzerLive({ s }: { s: RoomState }) {
           style={{ justifyContent: "center", gap: 22, marginTop: 18 }}
         >
           <CountdownRing
-            key={`b${r.n}`}
+            key={`b${roundKey(r)}`}
             seconds={secondsLeft(r.buzz.answerEndsAt)}
             size={96}
             paused={s.phase === "paused"}
@@ -239,7 +263,7 @@ function BuzzerLive({ s }: { s: RoomState }) {
       </div>
       <div className="row" style={{ justifyContent: "center", marginTop: 22 }}>
         <CountdownRing
-          key={`r${r.n}`}
+          key={`r${roundKey(r)}`}
           seconds={secondsLeft(r.endsAt)}
           size={104}
           paused={s.phase === "paused"}
@@ -310,6 +334,19 @@ function Judging({ s }: { s: RoomState }) {
         players={s.players}
         label={(p) => `${p.name}: ${r.judgeVotes[p.id]}`}
       />
+      {r.judgeEndsAt != null && (
+        <div
+          className="row"
+          style={{ justifyContent: "center", marginTop: 14 }}
+        >
+          <CountdownRing
+            key={`j${roundKey(r)}`}
+            seconds={secondsLeft(r.judgeEndsAt)}
+            size={72}
+            paused={s.phase === "paused"}
+          />
+        </div>
+      )}
       <div className="sub" style={{ marginTop: 12, fontSize: 13 }}>
         {buzzer?.name ?? "The buzzer"} and one more must agree; otherwise the
         room's middle vote decides.
@@ -344,7 +381,7 @@ function Winner({ s, res }: { s: RoomState; res: RoundResult }) {
             {s.mode === "years" && shown != null
               ? direction(shown, res.song.year) === "exact"
                 ? "said spot on — bonus point"
-                : `said ${direction(shown, res.song.year)}, fastest in the room`
+                : `said ${direction(shown, res.song.year)}${winTime(res) ?? ", fastest in the room"}`
               : `knew ${JUDGE_LABEL[res.points] ?? "it"}`}
           </div>
         </>
@@ -437,10 +474,9 @@ export function Stage({
   const [sound, setSound] = useState(audioUnlocked);
   const r = s.round;
   const res = r?.result;
-  const judging = s.phase === "judging" && res;
-  const showResult =
-    res &&
-    (s.phase === "result" || (s.phase === "paused" && res.winnerId != null));
+  const view = roundView(s);
+  const judging = view === "judging";
+  const showResult = view === "result";
   const enableSound = () => {
     unlockAudio();
     setSound(true);

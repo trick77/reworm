@@ -1,4 +1,4 @@
-// Dev-only component gallery (#gallery on the dev server): every component in its states, the party
+// Dev-only component gallery (/gallery on the dev server): every component in its states, the party
 // screens composed from them, and a hand test of both audio engines with real previews.
 import { useState, type ReactNode } from "react";
 import { usePlayer } from "../audio/usePlayer";

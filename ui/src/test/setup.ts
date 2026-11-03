@@ -10,16 +10,7 @@ vi.mock("../audio/player", async (orig) => {
   return {
     ...mod,
     player: () =>
-      (p ??= new mod.PreviewPlayer({
-        engine: "webaudio",
-        prefetch: mod.defaultPrefetch(),
-        env: audio.env,
-      })),
-    savePrefetch: (on: boolean) => {
-      mod.savePrefetch(on);
-      p?.dispose();
-      p = null;
-    },
+      (p ??= new mod.PreviewPlayer({ engine: "webaudio", env: audio.env })),
   };
 });
 

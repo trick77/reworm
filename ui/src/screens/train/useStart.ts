@@ -12,9 +12,10 @@ export function useStartTraining() {
   const [, go] = useLocation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
-  const start = (s: TrainSettings) => {
+  // remember: keep s as the training defaults (false: a one-off, a decade tile or a drill)
+  const start = (s: TrainSettings, remember = true) => {
     unlockAudio();
-    save("train", s);
+    if (remember) save("train", s);
     setBusy(true);
     setError(null);
     api.startTraining(s).then(

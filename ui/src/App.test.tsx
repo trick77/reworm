@@ -3,6 +3,8 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { render } from "@testing-library/react";
 import App from "./App";
+import { ApiError } from "./api/client";
+import { player } from "./audio/player";
 import { audio } from "./test/audio";
 import { FakeWorld } from "./test/fakeApi";
 import { renderApp } from "./test/render";
@@ -97,13 +99,50 @@ describe("Settings", () => {
     const sw = screen.getByRole("switch", { name: "Preload the next clip" });
     expect(sw).toHaveAttribute("aria-checked", "true");
     const before = audio.audios.length;
+    const p = player();
     fireEvent.click(sw);
     expect(sw).toHaveAttribute("aria-checked", "false");
     expect(localStorage.getItem("reworm.prefetch")).toBe("off");
+    // in place: the same player, one fresh element, the AudioContext kept
+    expect(player()).toBe(p);
+    expect(p.prefetching).toBe(false);
     await waitFor(() => expect(audio.audios.length).toBe(before + 1));
+    const ctxs = audio.ctxs.length;
     fireEvent.click(sw);
     expect(localStorage.getItem("reworm.prefetch")).toBe("on");
+    expect(p.prefetching).toBe(true);
+    expect(audio.audios.length).toBe(before + 3);
+    expect(audio.ctxs.length).toBe(ctxs);
     fireEvent.click(screen.getByRole("button", { name: /Profile, avatar/ }));
     expect(r.path()).toBe("/me");
+  });
+});
+
+describe("a server that fails /api/me (not 401)", () => {
+  it("shows the error with a retry instead of a spinner, and recovers", async () => {
+    const world = new FakeWorld();
+    const api = world.device("p-jan");
+    const real = api.me;
+    let down = true;
+    api.me = () =>
+      down ? Promise.reject(new ApiError(503, "down", "server down")) : real();
+    renderApp("/train", api);
+    expect(await screen.findByText("server down")).toBeInTheDocument();
+    down = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(
+      await screen.findByRole("button", { name: /Mega Mix/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("on home and the profile page too", async () => {
+    const world = new FakeWorld();
+    const api = world.device("p-jan");
+    api.me = () => Promise.reject(new ApiError(503, "down", "server down"));
+    const r = renderApp("/", api);
+    expect(await screen.findByText("server down")).toBeInTheDocument();
+    r.unmount();
+    renderApp("/me", api);
+    expect(await screen.findByText("server down")).toBeInTheDocument();
   });
 });

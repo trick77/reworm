@@ -31,14 +31,11 @@ export class ApiError extends Error {
   }
 }
 
-export const isStatus = (e: unknown, status: number) =>
-  e instanceof ApiError && e.status === status;
-
 export type HostAction = "start" | "next" | "pause" | "resume" | "rematch";
 
 export type RoomHandlers = {
   onState: (s: RoomState) => void;
-  // onError: the snapshot could not be fetched (a room that is gone answers 404)
+  // onError: the snapshot could not be fetched. A 404 (the room is gone) ends the subscription.
   onError?: (e: ApiError) => void;
   // onLive: the event stream is connected (true) or dropped and reconnecting (false)
   onLive?: (live: boolean) => void;
@@ -70,6 +67,8 @@ export interface Api {
     code: string,
     body: { name: string; avatar: string },
   ): Promise<{ playerId: string }>;
+  // roomMe: this browser's player in the room (guest cookie or profile); null when it has none
+  roomMe(code: string): Promise<string | null>;
   host(code: string, action: HostAction): Promise<void>;
   kick(code: string, playerId: string): Promise<void>;
   roomSettings(code: string, settings: RoomSettings): Promise<void>;
@@ -133,7 +132,12 @@ export class HttpApi implements Api {
     } catch (e) {
       throw new ApiError(0, "network", (e as Error).message || "offline");
     }
-    const text = await res.text();
+    let text: string;
+    try {
+      text = await res.text();
+    } catch (e) {
+      throw new ApiError(0, "network", (e as Error).message || "cut off");
+    }
     let data: unknown = undefined;
     try {
       data = text ? JSON.parse(text) : undefined;
@@ -187,6 +191,16 @@ export class HttpApi implements Api {
   room = (code: string) => this.get<RoomState>(room(code));
   joinRoom = (code: string, b: { name: string; avatar: string }) =>
     this.post<{ playerId: string }>(`${room(code)}/join`, b);
+  roomMe = async (code: string) => {
+    try {
+      const r = await this.get<{ playerId?: string }>(`${room(code)}/me`);
+      return r?.playerId ?? null;
+    } catch (e) {
+      if (e instanceof ApiError && [401, 403, 404].includes(e.status))
+        return null;
+      throw e;
+    }
+  };
   host = (code: string, action: HostAction) =>
     this.post(`${room(code)}/${action}`);
   kick = (code: string, playerId: string) =>
@@ -228,16 +242,39 @@ export class HttpApi implements Api {
     let es: EventSourceLike | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
+    // order: a state older than the last applied one is dropped (by seq when the server sends it)
+    let events = 0;
+    let lastSeq = -Infinity;
+    const apply = (s: RoomState) => {
+      if (s.seq != null) {
+        if (s.seq <= lastSeq) return;
+        lastSeq = s.seq;
+      }
+      h.onState(s);
+    };
+    const stop = () => {
+      closed = true;
+      clearTimeout(timer);
+      es?.close();
+      es = null;
+    };
 
-    const snapshot = () =>
-      this.room(code).then(
+    const snapshot = () => {
+      const at = events;
+      return this.room(code).then(
         (s) => {
-          if (!closed) h.onState(s);
+          if (closed) return;
+          // without seq: a stream event that came in meanwhile is newer than this snapshot
+          if (s.seq == null && events !== at) return;
+          apply(s);
         },
         (e: ApiError) => {
-          if (!closed) h.onError?.(e);
+          if (closed) return;
+          if (e.status === 404) stop(); // the room is gone: nothing to reconnect to
+          h.onError?.(e);
         },
       );
+    };
 
     const open = () => {
       const src = this.env.eventSource(`${room(code)}/events`);
@@ -250,7 +287,9 @@ export class HttpApi implements Api {
         if (closed) return;
         attempt = 0;
         try {
-          h.onState(JSON.parse(e.data as string) as RoomState);
+          const s = JSON.parse(e.data as string) as RoomState;
+          events++;
+          apply(s);
         } catch {
           // a garbled event: the next one (or the snapshot after a reconnect) is whole
         }
@@ -272,11 +311,6 @@ export class HttpApi implements Api {
 
     void snapshot();
     open();
-    return () => {
-      closed = true;
-      clearTimeout(timer);
-      es?.close();
-      es = null;
-    };
+    return stop;
   }
 }

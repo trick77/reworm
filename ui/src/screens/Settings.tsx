@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useApi, useAsync, useMe } from "../api/context";
-import {
-  defaultPrefetch,
-  player,
-  saveEngine,
-  savePrefetch,
-  type Engine,
-} from "../audio/player";
+import { player, saveEngine, savePrefetch, type Engine } from "../audio/player";
 import { usePlayer } from "../audio/usePlayer";
 import { Avatar } from "../components/Avatar";
 import { Card, Segmented } from "../components/Controls";
@@ -20,7 +14,7 @@ export function Settings() {
   const devices = useAsync(me ? "devices" : null, () => api.devices());
   const version = useAsync("version", () => api.version());
   const clip = usePlayer();
-  const [prefetch, setPrefetch] = useState(defaultPrefetch);
+  const [prefetch, setPrefetch] = useState(() => clip.player.prefetching);
 
   // a tap: the fresh elements unlock inside it
   const setEngine = (e: Engine) => {
@@ -30,8 +24,9 @@ export function Settings() {
   };
   const togglePrefetch = (on: boolean) => {
     setPrefetch(on);
-    savePrefetch(on);
+    player().setPrefetch(on);
     player().unlock();
+    savePrefetch(on);
   };
 
   return (

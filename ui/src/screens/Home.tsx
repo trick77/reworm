@@ -129,7 +129,7 @@ function Progress({ stats }: { stats: TrainStats }) {
 export function Home() {
   const api = useApi();
   const [, go] = useLocation();
-  const { me, unpaired, loading } = useMe();
+  const { me, unpaired, loading, error: meError, reload } = useMe();
   const paired = !!me;
   const stats = useAsync(paired ? "stats" : null, () => api.trainStats());
   const decks = useAsync(paired ? "decks" : null, () => api.decks());
@@ -142,7 +142,7 @@ export function Home() {
       d == null
         ? { ...today.deck, from: allYears().from, to: allYears().to }
         : { ...today.deck, from: d, to: d + 9 };
-    training.start({ ...today, deck });
+    training.start({ ...today, deck }, false);
   };
   const weakest = stats.data?.decades.length
     ? [...stats.data.decades].sort((a, b) => a.accuracy - b.accuracy)[0]
@@ -192,6 +192,7 @@ export function Home() {
             }
           />
           {unpaired && <Unpaired what="Training, hosting and progress" />}
+          {meError && <Problem error={meError} retry={reload} />}
           {paired && (
             <Card className="hero" style={{ marginTop: 10, padding: 18 }}>
               <div className="kata">Today's round</div>
@@ -326,7 +327,7 @@ export function Home() {
               ))}
             </>
           )}
-          {loading && !me && !unpaired && (
+          {loading && !me && !unpaired && !meError && (
             <div className="sub" style={{ marginTop: 18 }} role="status">
               Loading…
             </div>

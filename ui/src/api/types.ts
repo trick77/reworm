@@ -60,7 +60,8 @@ export type RoomSettings = {
 };
 export type Phase =
   "lobby" | "playing" | "buzzed" | "judging" | "result" | "paused" | "over";
-export type PlayerState = "thinking" | "out" | "buzzed" | "answered";
+// late: joined mid-round, sits it out (servers without it say "out")
+export type PlayerState = "thinking" | "out" | "late" | "buzzed" | "answered";
 export type RoomPlayer = {
   id: string;
   name: string;
@@ -76,11 +77,13 @@ export type RoundResult = {
   winnerId: string | null;
   points: number;
   photoFinish: { playerId: string; deltaMs: number }[];
+  winnerMs?: number | null; // the winner's time after startedAt, pauses excluded (optional)
 };
 export type Round = {
   n: number;
   startedAt: number;
   endsAt: number;
+  judgeEndsAt?: number | null; // buzzer: the judging window's end, null before the reveal (optional)
   proposedYear?: number;
   clip: Clip;
   buzz: Buzz | null;
@@ -98,6 +101,8 @@ export type RoomState = {
   players: RoomPlayer[];
   round: Round | null;
   nextClip: Clip | null;
+  seq?: number; // monotonic per room: an older state is dropped (optional)
+  now?: number; // server ms when serialized: the countdowns' clock (optional)
 };
 
 // ---- training ----
@@ -108,6 +113,7 @@ export type TrainSettings = {
   difficulty: Difficulty;
   clip: ClipSettings;
   length: number;
+  songIds?: string[]; // drill exactly these songs (optional)
 };
 export type Card = {
   id: string;

@@ -101,7 +101,7 @@ const GESTURES = ["pointerdown", "keydown", "touchend"] as const;
 export class PreviewPlayer {
   private env: AudioEnv;
   private _engine: Engine;
-  private readonly buffers: number;
+  private buffers: number;
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
   // A/B: els[active] plays, the other preloads; srcs[i] is the clip URL element i holds (null: none/silence)
@@ -145,6 +145,19 @@ export class PreviewPlayer {
     if (e === this._engine) return;
     this.dispose();
     this._engine = e;
+    this.emit();
+  }
+
+  get prefetching(): boolean {
+    return this.buffers > 1;
+  }
+
+  // setPrefetch switches between A/B elements and the single one, in place: like setEngine it starts
+  // over with fresh elements (the AudioContext stays); call unlock() from the same tap.
+  setPrefetch(on: boolean) {
+    if (on === this.buffers > 1) return;
+    this.dispose();
+    this.buffers = on ? 2 : 1;
     this.emit();
   }
 
@@ -588,16 +601,13 @@ export function defaultPrefetch(): boolean {
   }
 }
 
-// savePrefetch keeps the choice and drops the shared player: the next player() is built with it (call it
-// from a tap and unlock() again, as the engine switch does).
+// savePrefetch keeps the choice for the next start (setPrefetch switches the running player).
 export function savePrefetch(on: boolean) {
   try {
     window.localStorage.setItem(PREFETCH_KEY, on ? "on" : "off");
   } catch {
     // not saved; the default applies next time
   }
-  shared?.dispose();
-  shared = null;
 }
 
 let shared: PreviewPlayer | null = null;

@@ -52,7 +52,6 @@ export function useAsync<T>(key: string | null, fn: () => Promise<T>) {
     error: current ? state.error : undefined,
     loading: key != null && !current,
     reload: () => setTick((t) => t + 1),
-    set: (data: T) => setState({ key: `${key}#${tick}`, data }),
   };
 }
 
@@ -60,6 +59,8 @@ type MeState = {
   me: Me | null;
   // unpaired: the server answered 401, this device has no profile
   unpaired: boolean;
+  // error: any other failure (server down): screens that need a profile show it with a retry
+  error: ApiError | null;
   loading: boolean;
   reload: () => void;
 };
@@ -72,6 +73,7 @@ function MeLoader({ children }: { children: ReactNode }) {
   const value: MeState = {
     me: r.error ? null : (r.data ?? null),
     unpaired: r.error?.status === 401,
+    error: r.error && r.error.status !== 401 ? r.error : null,
     loading: r.loading,
     reload: r.reload,
   };

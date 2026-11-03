@@ -42,7 +42,7 @@ const MODES = [
 
 export function TrainSetup() {
   const api = useApi();
-  const { me, unpaired } = useMe();
+  const { me, unpaired, error: meError, reload } = useMe();
   const decks = useAsync(me ? "decks" : null, () => api.decks());
   const [cfg, setCfg] = useState<TrainSettings | null>(null);
   const training = useStartTraining();
@@ -54,11 +54,14 @@ export function TrainSetup() {
         <Unpaired what="Training" />
       </Screen>
     );
-  if (decks.error)
+  if (meError || decks.error)
     return (
       <Screen tab="train">
         <ScreenHead back="/" title="New session" />
-        <Problem error={decks.error} retry={decks.reload} />
+        <Problem
+          error={(meError ?? decks.error)!}
+          retry={meError ? reload : decks.reload}
+        />
       </Screen>
     );
   if (!decks.data)

@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { ApiError } from "../../api/client";
 import { audio } from "../../test/audio";
 import { FakeWorld, type FakeApi } from "../../test/fakeApi";
 import { renderApp } from "../../test/render";
@@ -127,6 +128,53 @@ describe("party: lobby and join", () => {
     expect(await s.findByText("Players · 0")).toBeInTheDocument();
     // the pad finds itself gone and offers to join again
     expect(await p.findByText(/not in this game any more/)).toBeInTheDocument();
+    fireEvent.click(p.getByRole("button", { name: "Join game" }));
+    expect(
+      await p.findByText("The host removed you from this game."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not open a second room when the hosted one can't be read, and retries", async () => {
+    const world = new FakeWorld();
+    const { stage, stageApi } = await hostRoom(world);
+    stage.unmount();
+    const real = stageApi.room;
+    let down = true;
+    stageApi.room = (code: string) =>
+      down
+        ? Promise.reject(new ApiError(500, "boom", "server error"))
+        : real(code);
+    const again = renderApp("/host", stageApi);
+    const a = within(again.container);
+    expect(await a.findByText("server error")).toBeInTheDocument();
+    expect(world.rooms.size).toBe(1);
+    down = false;
+    fireEvent.click(a.getByRole("button", { name: "Try again" }));
+    await a.findByLabelText("Room code");
+    expect(again.path()).toBe("/room/K7Q4");
+    expect(world.rooms.size).toBe(1);
+  });
+
+  it("finds this phone's player from the server when storage lost it", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    const { pad, padApi } = await joinPad(world, "Mia");
+    pad.unmount();
+    localStorage.removeItem("reworm.player.K7Q4");
+    const again = renderApp("/join/K7Q4", padApi);
+    expect(
+      await within(again.container).findByText("You're in!"),
+    ).toBeInTheDocument();
+    expect(localStorage.getItem("reworm.player.K7Q4")).not.toBeNull();
+  });
+
+  it("shows a room that is gone even after it was showing", async () => {
+    const world = new FakeWorld();
+    const { s } = await hostRoom(world);
+    // the room expires while the lobby shows: a reconnect's snapshot answers 404
+    act(() => world.close("K7Q4"));
+    expect(await s.findByText("Room K7Q4 is gone")).toBeInTheDocument();
+    expect(s.queryByLabelText("Room code")).toBeNull();
   });
 
   it("resumes the room this device hosts", async () => {
@@ -195,7 +243,10 @@ describe("party: years mode", () => {
     });
     await world.answerAs("K7Q4", luca, 1, right);
     expect(await s.findByText("Round 1 goes to")).toBeInTheDocument();
-    expect(s.getByText(/fastest in the room|spot on/)).toBeInTheDocument();
+    // the winner's time comes from the server (winnerMs)
+    expect(
+      s.getByText(/said (later|earlier) in \d+\.\d s|spot on/),
+    ).toBeInTheDocument();
     expect(await p.findByText("Luca was faster")).toBeInTheDocument();
     expect(p.getByText(world.song("K7Q4")!.title)).toBeInTheDocument();
 
@@ -253,6 +304,13 @@ describe("party: years mode", () => {
     await world.answerAs("K7Q4", luca, 2, wrong);
     expect(await s.findByText("Nobody got it")).toBeInTheDocument();
     expect(await p.findByText("Nobody got it")).toBeInTheDocument();
+    // a pause over a result without a winner keeps the result on both screens
+    await world.hostAction("K7Q4", "pause");
+    expect(await p.findByText("Paused by the host")).toBeInTheDocument();
+    expect(s.getByText("Nobody got it")).toBeInTheDocument();
+    expect(p.getByText("Nobody got it")).toBeInTheDocument();
+    await world.hostAction("K7Q4", "resume");
+    await waitFor(() => expect(world.room("K7Q4").state.phase).toBe("result"));
 
     // someone faster by a hair, as seen on the pad
     world.set("K7Q4", {
@@ -277,6 +335,14 @@ describe("party: years mode", () => {
     await waitFor(() => expect(world.room("K7Q4").state.phase).toBe("playing"));
     expect(world.room("K7Q4").state.players.every((x) => x.score === 0)).toBe(
       true,
+    );
+    // the rematch's round 1 is a new round: this pad answered a round 1 before, its buttons are live
+    expect(await p.findByRole("button", { name: "Earlier" })).toBeEnabled();
+    fireEvent.click(p.getByRole("button", { name: "Earlier" }));
+    await waitFor(() =>
+      expect(
+        world.room("K7Q4").state.players.find((x) => x.id === mia)!.state,
+      ).not.toBe("thinking"),
     );
   });
 });

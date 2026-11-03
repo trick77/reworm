@@ -6,6 +6,7 @@ import type {
   Points,
   RoomPlayer,
   RoomState,
+  Round,
   RoundResult,
 } from "../../api/types";
 import { useRoom } from "../../api/useRoom";
@@ -15,7 +16,7 @@ import { Button, Card, Pill } from "../../components/Controls";
 import { CountdownRing, TimerBar } from "../../components/Countdown";
 import { Cover } from "../../components/Cover";
 import { Loading, Problem, Screen, secondsLeft } from "../common";
-import { direction } from "./Stage";
+import { direction, PHOTO_MS, roundKey, roundView, winTime } from "./Stage";
 
 const ord = (n: number) =>
   n +
@@ -106,7 +107,7 @@ function Result({ s, me }: { s: RoomState; me: RoomPlayer }) {
           {said
             ? said === "exact"
               ? "Spot on — bonus point"
-              : `${said === "later" ? "Later" : "Earlier"} — fastest in the room`
+              : `${said === "later" ? "Later" : "Earlier"}${winTime(res) ?? " — fastest in the room"}`
             : res.points === 2
               ? "Artist + title"
               : "One of them"}
@@ -124,7 +125,7 @@ function Result({ s, me }: { s: RoomState; me: RoomPlayer }) {
         </div>
         <div className="sub">
           {mine
-            ? mine.deltaMs < 50
+            ? mine.deltaMs < PHOTO_MS
               ? "Photo finish! You were right behind."
               : `You were ${(mine.deltaMs / 1000).toFixed(2)} s behind`
             : said
@@ -179,8 +180,11 @@ function Over({ s, me }: { s: RoomState; me: RoomPlayer }) {
   );
 }
 
-// sent: this pad's last press, per round, so a double tap goes up once and the buttons dim at once.
-type Sent = { n: number; what: string } | null;
+// sent: this pad's last press, per round (roundKey: a rematch's round 1 is a new one), so a double tap
+// goes up once and the buttons dim at once.
+type Sent = { key: string; what: string } | null;
+const sentIn = (sent: Sent, r: Round) =>
+  sent?.key === roundKey(r) ? sent.what : null;
 
 function YearsLive({
   s,
@@ -195,8 +199,12 @@ function YearsLive({
 }) {
   const api = useApi();
   const r = s.round!;
-  // out: a wrong answer, or joined mid-round (the server sits that round out)
-  if (me.state === "out" && sent?.n !== r.n)
+  const mine = sentIn(sent, r);
+  // late: joined mid-round. A server without "late" says "out" for it too (and sends no seq): then an
+  // out without a press here is taken as late.
+  const late =
+    me.state === "late" || (me.state === "out" && s.seq == null && !mine);
+  if (late)
     return (
       <Center>
         <div className="pad-big">You're in from the next round</div>
@@ -217,7 +225,7 @@ function YearsLive({
         </div>
       </Center>
     );
-  const done = me.state === "answered" || sent?.n === r.n;
+  const done = me.state === "answered" || !!mine;
   return (
     <>
       <div className="sub center" style={{ marginTop: 18 }}>
@@ -225,7 +233,7 @@ function YearsLive({
       </div>
       <div className="pad-year num">{r.proposedYear}</div>
       <TimerBar
-        key={r.n}
+        key={roundKey(r)}
         seconds={secondsLeft(r.endsAt)}
         paused={s.phase === "paused"}
       />
@@ -260,9 +268,10 @@ function BuzzerLive({
   const api = useApi();
   const r = s.round!;
   const buzz = r.buzz;
-  if (s.phase === "judging" && r.result && buzz) {
+  const mine = sentIn(sent, r);
+  if (roundView(s) === "judging" && r.result && buzz) {
     const buzzer = s.players.find((p) => p.id === buzz.playerId);
-    const voted = r.judgeVotes[me.id] != null || sent?.what === `judge${r.n}`;
+    const voted = r.judgeVotes[me.id] != null || mine === "judge";
     return (
       <>
         <div className="sub center" style={{ marginTop: 18 }}>
@@ -284,7 +293,7 @@ function BuzzerLive({
                 type="button"
                 className={`p${j.points}`}
                 onClick={() =>
-                  send(`judge${r.n}`, () => api.judge(s.code, r.n, j.points))
+                  send("judge", () => api.judge(s.code, r.n, j.points))
                 }
               >
                 <b>{j.points}</b>
@@ -297,14 +306,13 @@ function BuzzerLive({
     );
   }
   if (buzz) {
-    const mine = buzz.playerId === me.id;
+    const isBuzzer = buzz.playerId === me.id;
     const buzzer = s.players.find((p) => p.id === buzz.playerId);
-    const pressed =
-      r.revealVotes.includes(me.id) || sent?.what === `reveal${r.n}`;
+    const pressed = r.revealVotes.includes(me.id) || mine === "reveal";
     return (
       <>
         <Center>
-          {mine ? (
+          {isBuzzer ? (
             <>
               <div className="pad-big" style={{ marginTop: 0 }}>
                 Say artist + title!
@@ -314,7 +322,7 @@ function BuzzerLive({
                 style={{ justifyContent: "center", margin: "16px 0" }}
               >
                 <CountdownRing
-                  key={`b${r.n}`}
+                  key={`b${roundKey(r)}`}
                   seconds={secondsLeft(buzz.answerEndsAt)}
                   size={120}
                   paused={s.phase === "paused"}
@@ -339,7 +347,7 @@ function BuzzerLive({
         <Button
           variant={pressed ? "ghost" : "primary"}
           disabled={pressed || s.phase !== "buzzed"}
-          onClick={() => send(`reveal${r.n}`, () => api.reveal(s.code, r.n))}
+          onClick={() => send("reveal", () => api.reveal(s.code, r.n))}
           style={{ marginBottom: 6 }}
         >
           {pressed ? "Waiting for one more Reveal…" : "Reveal the song"}
@@ -353,14 +361,23 @@ function BuzzerLive({
       </>
     );
   }
-  const done = sent?.what === `buzz${r.n}`;
+  if (me.state === "late")
+    return (
+      <Center>
+        <div className="pad-big">You're in from the next round</div>
+        <div className="sub" style={{ marginTop: 4 }}>
+          Watch the big screen meanwhile.
+        </div>
+      </Center>
+    );
+  const done = mine === "buzz";
   return (
     <>
       <div className="sub center" style={{ marginTop: 18 }}>
         Round {r.n} · listen to the big screen
       </div>
       <TimerBar
-        key={r.n}
+        key={roundKey(r)}
         seconds={secondsLeft(r.endsAt)}
         paused={s.phase === "paused"}
       />
@@ -368,7 +385,7 @@ function BuzzerLive({
         type="button"
         className="buzz"
         disabled={done || s.phase !== "playing"}
-        onClick={() => send(`buzz${r.n}`, () => api.buzz(s.code, r.n))}
+        onClick={() => send("buzz", () => api.buzz(s.code, r.n))}
       >
         BUZZ
       </button>
@@ -414,8 +431,8 @@ export function Pad({
 
   const r = s.round;
   const send = (what: string, f: () => Promise<void>) => {
-    if (!r || (sent?.n === r.n && sent.what === what)) return;
-    setSent({ n: r.n, what });
+    if (!r || sentIn(sent, r) === what) return;
+    setSent({ key: roundKey(r), what });
     f().catch(() => {
       // refused (too late, already out): the room state says what happened
     });
@@ -458,11 +475,7 @@ export function Pad({
         <div className="sub">Waiting for the next round…</div>
       </Center>
     );
-  else if (
-    s.phase === "result" ||
-    (r.result && r.result.winnerId != null && s.phase === "paused")
-  )
-    body = <Result s={s} me={me} />;
+  else if (roundView(s) === "result") body = <Result s={s} me={me} />;
   else if (s.mode === "years")
     body = <YearsLive s={s} me={me} sent={sent} send={send} />;
   else body = <BuzzerLive s={s} me={me} sent={sent} send={send} />;

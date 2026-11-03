@@ -1,10 +1,5 @@
-import {
-  ApiError,
-  BACKOFF_MS,
-  HttpApi,
-  isStatus,
-  type EventSourceLike,
-} from "./client";
+import { ApiError, BACKOFF_MS, HttpApi, type EventSourceLike } from "./client";
+import { secondsLeft, serverNow, syncServerClock } from "./clock";
 import type { RoomState } from "./types";
 
 type Call = { url: string; method: string; body?: unknown };
@@ -106,8 +101,42 @@ describe("HttpApi calls", () => {
       code: "room_full",
       message: "room is full",
     });
-    expect(isStatus(e, 409)).toBe(true);
-    expect(isStatus(new Error("x"), 409)).toBe(false);
+  });
+
+  it("words a rate limit, and turns a cut-off body into a network error", async () => {
+    const { fetch } = fetchStub(() =>
+      Response.json({ error: "rate limited" }, { status: 429 }),
+    );
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    await expect(api.pair("device")).rejects.toMatchObject({
+      status: 429,
+      message: "Too many tries. Wait a moment and try again.",
+    });
+    const cut = {
+      ok: true,
+      status: 200,
+      text: () => Promise.reject(new TypeError("aborted")),
+    } as unknown as Response;
+    const api2 = new HttpApi({
+      fetch: () => Promise.resolve(cut),
+      eventSource: (u) => new FakeES(u),
+    });
+    await expect(api2.decks()).rejects.toMatchObject({
+      status: 0,
+      code: "network",
+    });
+  });
+
+  it("asks the room for this browser's player, null when it has none", async () => {
+    let reply = Response.json({ playerId: "pl1" });
+    const { fetch, calls } = fetchStub(() => reply);
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    expect(await api.roomMe("K7Q4")).toBe("pl1");
+    expect(calls[0].url).toBe("/api/rooms/K7Q4/me");
+    reply = Response.json({ error: "not_joined" }, { status: 404 });
+    expect(await api.roomMe("K7Q4")).toBeNull();
+    reply = Response.json({ error: "boom" }, { status: 500 });
+    await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ status: 500 });
   });
 
   it("names a non-JSON error by its status", async () => {
@@ -194,6 +223,20 @@ describe("HttpApi calls", () => {
   });
 });
 
+describe("server clock", () => {
+  it("counts down by the server's time once a state carried `now`", () => {
+    const local = Date.now();
+    expect(secondsLeft(local + 10_000, local)).toBe(10);
+    syncServerClock(local + 5_000, local); // the server is 5 s ahead
+    expect(secondsLeft(serverNow() + 10_000)).toBe(10);
+    expect(secondsLeft(local + 10_000)).toBeLessThanOrEqual(5);
+    syncServerClock(undefined); // a state without `now` keeps the offset
+    expect(serverNow() - Date.now()).toBeGreaterThanOrEqual(4_990);
+    syncServerClock(Date.now());
+    expect(secondsLeft(local - 1_000)).toBe(0);
+  });
+});
+
 describe("HttpApi.subscribeRoom", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
@@ -245,17 +288,80 @@ describe("HttpApi.subscribeRoom", () => {
     expect(seen.at(-1)).toBe("result1");
   });
 
-  it("reports a room that is gone", async () => {
-    const { fetch } = fetchStub(() =>
-      Response.json({ error: "no_room" }, { status: 404 }),
+  it("ends on a room that is gone: no reconnects, the stream closed", async () => {
+    let gone = false;
+    const { fetch, calls } = fetchStub(() =>
+      gone
+        ? Response.json({ error: "no_room" }, { status: 404 })
+        : Response.json(state("playing", 1)),
     );
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     const onError = vi.fn();
-    const stop = api.subscribeRoom("ZZZZ", { onState: vi.fn(), onError });
+    const onState = vi.fn();
+    const stop = api.subscribeRoom("K7Q4", { onState, onError });
     await vi.advanceTimersByTimeAsync(0);
+    expect(onState).toHaveBeenCalledTimes(1);
+    gone = true;
+    FakeES.all[0].fire("error");
+    await vi.advanceTimersByTimeAsync(BACKOFF_MS);
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ status: 404 }),
     );
+    expect(FakeES.all[1].closed).toBe(true);
+    FakeES.all[1].fire("error");
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(FakeES.all).toHaveLength(2);
+    expect(calls).toHaveLength(2);
+    stop();
+  });
+
+  it("drops a state older than the last applied one", async () => {
+    // with seq: the reconnect's snapshot (seq 5) lands after the stream's seq 6 and is dropped
+    let snap: RoomState = { ...state("lobby"), seq: 1 };
+    let release: () => void = () => {};
+    const { fetch } = fetchStub(async () => {
+      const s = snap;
+      if (s.seq === 5) await new Promise<void>((r) => (release = r));
+      return Response.json(s);
+    });
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    const seen: string[] = [];
+    const stop = api.subscribeRoom("K7Q4", {
+      onState: (s) => seen.push(`${s.phase}${s.seq ?? ""}`),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    FakeES.all[0].fire("state", { ...state("playing", 1), seq: 3 });
+    FakeES.all[0].fire("state", { ...state("lobby"), seq: 2 });
+    snap = { ...state("playing", 1), seq: 5 };
+    FakeES.all[0].fire("error");
+    await vi.advanceTimersByTimeAsync(BACKOFF_MS);
+    FakeES.all[1].fire("state", { ...state("result", 1), seq: 6 });
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seen).toEqual(["lobby1", "playing3", "result6"]);
+    stop();
+  });
+
+  it("without seq, applies a snapshot only if no event came in meanwhile", async () => {
+    let release: () => void = () => {};
+    let first = true;
+    const { fetch } = fetchStub(async () => {
+      if (first) {
+        first = false;
+        await new Promise<void>((r) => (release = r));
+      }
+      return Response.json(state("lobby"));
+    });
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    const seen: string[] = [];
+    const stop = api.subscribeRoom("K7Q4", {
+      onState: (s) => seen.push(s.phase),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    FakeES.all[0].fire("state", state("playing", 1));
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seen).toEqual(["playing"]);
     stop();
   });
 });

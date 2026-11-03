@@ -23,7 +23,13 @@ import { Vinyl } from "../../components/Vinyl";
 import { ClipTime, Waveform } from "../../components/Waveform";
 import { YearCard } from "../../components/YearCard";
 import { cx } from "../../lib/cx";
-import { load, YEAR_MAX, YEAR_MIN } from "../../lib/prefs";
+import {
+  allYears,
+  defaultTraining,
+  load,
+  YEAR_MAX,
+  YEAR_MIN,
+} from "../../lib/prefs";
 import {
   Loading,
   Problem,
@@ -297,12 +303,30 @@ function Summary({ id, t0 }: { id: string; t0: number }) {
           <Button variant="ghost" onClick={() => go("/")}>
             Done
           </Button>
-          <Button
-            disabled={!settings || again.busy}
-            onClick={() => settings && again.start(settings)}
-          >
-            Another round
-          </Button>
+          {s && s.misses.length > 0 ? (
+            <Button
+              disabled={again.busy}
+              onClick={() =>
+                again.start(
+                  {
+                    ...(settings ?? defaultTraining(allYears())),
+                    songIds: [...new Set(s.misses.map((m) => m.song.id))],
+                    length: s.misses.length,
+                  },
+                  false,
+                )
+              }
+            >
+              Drill misses ({s.misses.length})
+            </Button>
+          ) : (
+            <Button
+              disabled={!settings || again.busy}
+              onClick={() => settings && again.start(settings)}
+            >
+              Another round
+            </Button>
+          )}
         </div>
       }
       scrollClassName="fade-in"

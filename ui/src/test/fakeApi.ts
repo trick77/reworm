@@ -200,6 +200,7 @@ type FakeRoom = {
   song: FakeSong | null;
   pausedFrom: string | null;
   pausedAt: number;
+  kicked: Set<string>;
   subs: Set<RoomHandlers>;
   timer?: ReturnType<typeof setTimeout>;
 };
@@ -324,7 +325,7 @@ export class FakeWorld {
       score: 0,
       connected: true,
       // joining mid-round sits that round out
-      state: r.state.round && !r.state.round.result ? "out" : "thinking",
+      state: r.state.round && !r.state.round.result ? "late" : "thinking",
     });
     this.emit(code);
     return id;
@@ -387,9 +388,19 @@ export class FakeWorld {
     return y === p ? "exact" : y < p ? "earlier" : "later";
   }
 
+  // close drops a room: every subscriber hears the 404 a reconnect would get.
+  close(code: string) {
+    const r = this.room(code);
+    this.rooms.delete(code);
+    for (const h of r.subs)
+      h.onError?.(new ApiError(404, "no_room", "room not found"));
+  }
+
   emit(code: string) {
     const r = this.rooms.get(code);
     if (!r) return;
+    r.state.seq = (r.state.seq ?? 0) + 1;
+    r.state.now = Date.now();
     for (const h of r.subs) h.onState(clone(r.state));
   }
 
@@ -414,6 +425,7 @@ export class FakeWorld {
       song: null,
       pausedFrom: null,
       pausedAt: 0,
+      kicked: new Set(),
       subs: new Set(),
       state: {
         code,
@@ -458,6 +470,7 @@ export class FakeWorld {
       clip: clipOf(song, len),
       buzz: null,
       revealVotes: [],
+      judgeEndsAt: null,
       judgeVotes: {},
       result: null,
     };
@@ -484,6 +497,7 @@ export class FakeWorld {
       winnerId: w ? w.id : null,
       points: w ? points : 0,
       photoFinish: st.round.result?.photoFinish ?? [],
+      winnerMs: w ? Date.now() - st.round.startedAt : null,
     };
     st.phase = w && w.score >= st.toWin ? "over" : "result";
     this.emit(code);
@@ -553,6 +567,7 @@ export class FakeWorld {
       rd.revealVotes.some((v) => v !== buzzer)
     ) {
       st.phase = "judging";
+      rd.judgeEndsAt = Date.now() + 20_000;
       const s = r.song!;
       // judging needs the song in view: the fake hands it out with the result still open
       rd.result = {
@@ -649,9 +664,9 @@ export class FakeWorld {
 
   startTraining(s: TrainSettings): { id: string; card: Card } {
     const id = nextId("t-");
-    const songs = this.songs.filter(
-      (x) => x.year >= s.deck.from && x.year <= s.deck.to,
-    );
+    const songs = s.songIds
+      ? this.songs.filter((x) => s.songIds!.includes(x.id))
+      : this.songs.filter((x) => x.year >= s.deck.from && x.year <= s.deck.to);
     const pool = (songs.length ? songs : this.songs).slice(0, s.length);
     const queue = pool.map((song, i) => ({
       song,
@@ -950,6 +965,7 @@ export class FakeApi implements Api {
       const r = this.world.rooms.get(code);
       if (!r) return fail(404, "no_room", "room not found");
       const had = this.dev.players[code];
+      if (had && r.kicked.has(had)) return fail(403, "kicked", "kicked");
       if (had && r.state.players.some((p) => p.id === had))
         return ok({ playerId: had });
       if (r.state.players.length >= 8)
@@ -962,6 +978,14 @@ export class FakeApi implements Api {
       );
       this.dev.players[code] = id;
       return ok({ playerId: id });
+    });
+  roomMe = (code: string) =>
+    this.log("roomMe", () => {
+      const r = this.world.rooms.get(code);
+      const id = this.dev.players[code];
+      return ok(
+        r && id && r.state.players.some((p) => p.id === id) ? id : null,
+      );
     });
   private hostOnly(name: string, code: string, f: () => Promise<void>) {
     return this.log(name, () => {
@@ -977,6 +1001,7 @@ export class FakeApi implements Api {
     this.hostOnly("kick", code, () => {
       const st = this.world.room(code).state;
       st.players = st.players.filter((p) => p.id !== playerId);
+      this.world.room(code).kicked.add(playerId);
       this.world.emit(code);
       return Promise.resolve();
     });
