@@ -169,13 +169,14 @@ func TestThrottle_spacesRequests(t *testing.T) {
 	}
 }
 
-func TestSleep(t *testing.T) {
-	if err := Sleep(context.Background(), time.Millisecond); err != nil {
+func TestThrottle_defaultSleepStopsOnCancel(t *testing.T) {
+	th := &Throttle{}
+	if err := th.sleep(context.Background(), time.Millisecond); err != nil {
 		t.Error(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := Sleep(ctx, time.Hour); !errors.Is(err, context.Canceled) {
+	if err := th.sleep(ctx, time.Hour); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v", err)
 	}
 }

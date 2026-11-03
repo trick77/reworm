@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/trick77/ship/kit/fsx"
+	"github.com/trick77/ship/kit/run"
 )
 
 // HitHeader is set on a response served from disk.
@@ -200,17 +201,8 @@ func (t *Throttle) sleep(ctx context.Context, d time.Duration) error {
 	if t.Sleep != nil {
 		return t.Sleep(ctx, d)
 	}
-	return Sleep(ctx, d)
-}
-
-// Sleep waits d or until ctx ends.
-func Sleep(ctx context.Context, d time.Duration) error {
-	tm := time.NewTimer(d)
-	defer tm.Stop()
-	select {
-	case <-tm.C:
-		return nil
-	case <-ctx.Done():
+	if !run.Sleep(ctx, d) {
 		return ctx.Err()
 	}
+	return nil
 }

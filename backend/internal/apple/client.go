@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/trick77/ship/kit/fsx"
+	"github.com/trick77/ship/kit/run"
 )
 
 // APIURL is the API host the web player talks to.
@@ -298,14 +299,10 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 	if c.Sleep != nil {
 		return c.Sleep(ctx, d)
 	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
+	if !run.Sleep(ctx, d) {
 		return ctx.Err()
 	}
+	return nil
 }
 
 func retryAfter(h string) time.Duration {

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trick77/ship/kit/run"
+
 	"github.com/trick77/reworm/internal/song"
 )
 
@@ -206,14 +208,10 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 	if c.Sleep != nil {
 		return c.Sleep(ctx, d)
 	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
+	if !run.Sleep(ctx, d) {
 		return ctx.Err()
 	}
+	return nil
 }
 
 // escape makes s safe inside a Lucene phrase.
