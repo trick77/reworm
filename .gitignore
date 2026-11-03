@@ -8,6 +8,9 @@
 /data/dev/
 *.db
 *.db-*
+# The build's copy of data/songs.jsonl (go:embed cannot reach outside backend/); .gitkeep keeps the dir.
+backend/internal/dataset/files/*
+!backend/internal/dataset/files/.gitkeep
 
 # macOS
 .DS_Store

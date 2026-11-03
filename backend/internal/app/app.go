@@ -13,6 +13,7 @@ import (
 	"github.com/trick77/ship/kit/logging"
 	"github.com/trick77/ship/kit/version"
 
+	"github.com/trick77/reworm/internal/dataset"
 	"github.com/trick77/reworm/internal/server"
 	"github.com/trick77/reworm/internal/store"
 	"github.com/trick77/reworm/web"
@@ -57,6 +58,9 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
+	if err := loadDataset(ctx, db, dataset.Songs); err != nil {
+		return err
+	}
 
 	handler := server.New(server.Options{
 		Static:         web.SPAHandler(),
