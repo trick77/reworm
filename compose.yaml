@@ -1,5 +1,6 @@
 services:
   reworm:
+    # A release tag (exists from the first release on); Dependabot moves it.
     image: ghcr.io/trick77/reworm:0.1.0
     # distroless nonroot's own uid, never 1000 (the host's first user). Host ./data must belong to it:
     # sudo chown -R 65532:65532 data
@@ -10,10 +11,12 @@ services:
       - path: .env
         required: false
     environment:
-      REWORM_ADDR: ":8080"
-      REWORM_DATA_DIR: "/data"
-      REWORM_LOG_LEVEL: "${REWORM_LOG_LEVEL:-info}"
-      REWORM_PUBLIC_FQDN: "${PUBLIC_FQDN:-}"
+      BACKEND_ADDR: ":8080"
+      BACKEND_DATA_DIR: "/data"
+      BACKEND_LOG_LEVEL: "${BACKEND_LOG_LEVEL:-info}"
+      PUBLIC_FQDN: "${PUBLIC_FQDN:-}"
+      # Traefik is the one proxy in front: its X-Forwarded-For entry is the client.
+      BACKEND_TRUSTED_PROXIES: "1"
     healthcheck:
       test: ["CMD", "/reworm", "healthcheck"]
       interval: 60s

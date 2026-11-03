@@ -32,7 +32,7 @@ func TestOpen_migratesAndReopens(t *testing.T) {
 	}
 	_ = rows.Close()
 	want := []string{"id", "mbid", "artist", "title", "year", "year_source", "isrc", "apple_id", "storefront",
-		"apple_album", "cover_url", "cover_source", "genres", "categories", "sets", "listeners"}
+		"apple_album", "cover_url", "cover_source", "genres", "categories", "sets", "listeners", "active"}
 	if !slices.Equal(cols, want) {
 		t.Errorf("songs columns = %v, want %v", cols, want)
 	}
@@ -65,8 +65,9 @@ func TestSongs_yearIsRequired(t *testing.T) {
 		t.Errorf("insert: %v", err)
 	}
 	var sets string
-	if err := db.QueryRowContext(ctx, `SELECT sets FROM songs WHERE id = 'a'`).Scan(&sets); err != nil || sets != "[]" {
-		t.Errorf("sets = %q, %v; want []", sets, err)
+	var active int
+	if err := db.QueryRowContext(ctx, `SELECT sets, active FROM songs WHERE id = 'a'`).Scan(&sets, &active); err != nil || sets != "[]" || active != 1 {
+		t.Errorf("sets, active = %q, %d, %v; want [], 1", sets, active, err)
 	}
 }
 
