@@ -4,7 +4,9 @@ import { WormLogo } from "./WormLogo";
 import "./App.css";
 
 // The component gallery is for the dev server only; a production build leaves it out.
-const Gallery = lazy(() => import("./gallery/Gallery"));
+const Gallery = import.meta.env.DEV
+  ? lazy(() => import("./gallery/Gallery"))
+  : null;
 
 function useHash() {
   const [hash, setHash] = useState(() => window.location.hash);
@@ -18,7 +20,7 @@ function useHash() {
 
 export default function App({ dev = import.meta.env.DEV }: { dev?: boolean }) {
   const hash = useHash();
-  if (dev && hash === "#gallery") {
+  if (dev && Gallery && hash === "#gallery") {
     return (
       <Suspense fallback={null}>
         <Gallery />
