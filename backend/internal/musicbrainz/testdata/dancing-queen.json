@@ -1,0 +1,21 @@
+{"created":"2026-11-03T21:54:20.446Z","count":5,"offset":0,"recordings":[
+{"id":"33044d7d-10f6-4e67-9ad5-571e6e7f4a3c","score":100,"title":"Dancing Queen","disambiguation":"live, Europe","first-release-date":"1986-08-18","isrcs":["SEAYD8603010"],
+ "artist-credit":[{"name":"ABBA","artist":{"id":"d87e52c5-bb8d-4da8-b941-9f4928627dc8","name":"ABBA"}}],
+ "releases":[{"id":"r-live","title":"ABBA Live","status":"Official","date":"1986-08-18","release-group":{"id":"rg-live","title":"ABBA Live","primary-type":"Album","secondary-types":["Live"]}}]},
+{"id":"a502f559-f70c-4e0d-a5e5-e0cc319d0bd7","score":100,"title":"Dancing Queen","disambiguation":"single/LP/12″ version","first-release-date":"1976-08-15","isrcs":["SEA017600030","SEAYD7601020"],
+ "artist-credit":[{"name":"ABBA","artist":{"id":"d87e52c5-bb8d-4da8-b941-9f4928627dc8","name":"ABBA"}}],
+ "releases":[
+  {"id":"r-gold","title":"Gold: Greatest Hits","status":"Official","date":"1992-09-21","release-group":{"id":"rg-gold","title":"Gold: Greatest Hits","primary-type":"Album","secondary-types":["Compilation"]}},
+  {"id":"r-arrival-de","title":"Arrival","status":"Official","date":"1976-10-11","release-group":{"id":"rg-arrival","title":"Arrival","primary-type":"Album","secondary-types":[]}},
+  {"id":"r-arrival-boot","title":"Arrival","status":"Bootleg","date":"1976-09","release-group":{"id":"rg-boot","title":"Arrival bootleg","primary-type":"Album"}},
+  {"id":"r-single","title":"Dancing Queen","status":"Official","date":"1976-08-15","release-group":{"id":"rg-single","title":"Dancing Queen","primary-type":"Single"}},
+  {"id":"r-arrival-se","title":"Arrival","status":"Official","date":"1976-10-11","release-group":{"id":"rg-arrival","title":"Arrival","primary-type":"Album","secondary-types":[]}},
+  {"id":"r-nodate","title":"Arrival","status":"Official","date":"","release-group":{"id":"rg-arrival","title":"Arrival","primary-type":"Album"}}
+ ]},
+{"id":"f0531a90-9da6-459b-bd52-115a2227c640","score":99,"title":"Dancing Queen","disambiguation":"part of a DJ-mix","first-release-date":"1977","isrcs":["SEA017600030","XXDJ00000001"],
+ "artist-credit":[{"name":"ABBA","artist":{"id":"d87e52c5-bb8d-4da8-b941-9f4928627dc8","name":"ABBA"}}],"releases":[]},
+{"id":"2437e940-e919-48e1-8df1-60710d4452b7","score":87,"title":"Dancing Queen","first-release-date":"1970",
+ "artist-credit":[{"name":"Abba Revival Band"}],"releases":[]},
+{"id":"392e1538-8ede-495b-8e2b-b816cbb24660","score":79,"title":"The Queen and I (Dancing Queen)","first-release-date":"1960",
+ "artist-credit":[{"name":"ABBA"}],"releases":[]}
+]}

@@ -1,0 +1,216 @@
+// Package httpcache keeps the import's HTTP responses on disk, keyed by method and URL, so a re-run is cheap and
+// resumes where a blocked or interrupted one stopped. Only answers that will not change on a retry are kept: 2xx,
+// 3xx and 404. A 401/403 (a replayed refusal would discard every fresh Apple token), 429 and 5xx always go out again.
+package httpcache
+
+import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/trick77/ship/kit/fsx"
+)
+
+// HitHeader is set on a response served from disk.
+const HitHeader = "X-Httpcache-Hit"
+
+// maxBody bounds one stored response (a MusicBrainz search of 100 recordings is ~1 MB).
+const maxBody = 64 << 20
+
+// kept are the response headers a cached answer carries: what the import reads.
+var kept = []string{"Content-Type", "Location"}
+
+// Transport answers GET and HEAD from Dir when it can, else asks Next (http.DefaultTransport when nil) and stores
+// the answer. Other methods pass through.
+type Transport struct {
+	Dir  string
+	Next http.RoundTripper
+}
+
+type meta struct {
+	Method string              `json:"method"`
+	URL    string              `json:"url"`
+	Status int                 `json:"status"`
+	Header map[string][]string `json:"header,omitempty"`
+}
+
+// RoundTrip implements http.RoundTripper.
+func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Method != http.MethodGet && req.Method != http.MethodHead {
+		return t.next().RoundTrip(req)
+	}
+	path := t.path(req)
+	if resp, ok := load(path, req); ok {
+		return resp, nil
+	}
+	resp, err := t.next().RoundTrip(req)
+	if err != nil {
+		return nil, err
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("httpcache: read %s: %w", req.URL.Redacted(), err)
+	}
+	// A body shorter than announced (Apple cuts some off) goes to the caller, who retries, but never to disk.
+	complete := req.Method == http.MethodHead || resp.ContentLength < 0 || resp.ContentLength == int64(len(body))
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	if complete && cacheable(resp.StatusCode) {
+		if err := store(path, req, resp, body); err != nil {
+			return nil, err
+		}
+	}
+	return resp, nil
+}
+
+func (t *Transport) next() http.RoundTripper {
+	if t.Next != nil {
+		return t.Next
+	}
+	return http.DefaultTransport
+}
+
+func cacheable(status int) bool {
+	return (status >= 200 && status < 400) || status == http.StatusNotFound
+}
+
+func (t *Transport) path(req *http.Request) string {
+	sum := sha256.Sum256([]byte(req.Method + " " + req.URL.String()))
+	key := hex.EncodeToString(sum[:])
+	return filepath.Join(t.Dir, key[:2], key+".gz")
+}
+
+func load(path string, req *http.Request) (*http.Response, bool) {
+	f, err := os.Open(path) //nolint:gosec // our own cache dir, file name from a hash
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = f.Close() }()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, false
+	}
+	r := bufio.NewReader(zr)
+	line, err := r.ReadBytes('\n')
+	if err != nil {
+		return nil, false
+	}
+	var m meta
+	if json.Unmarshal(line, &m) != nil || m.URL != req.URL.String() || m.Method != req.Method {
+		return nil, false
+	}
+	body, err := io.ReadAll(r)
+	if err != nil {
+		return nil, false
+	}
+	h := http.Header{}
+	for k, v := range m.Header {
+		h[k] = v
+	}
+	h.Set(HitHeader, "1")
+	return &http.Response{
+		Status: fmt.Sprintf("%d %s", m.Status, http.StatusText(m.Status)), StatusCode: m.Status,
+		Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1, Header: h, Request: req,
+		Body: io.NopCloser(bytes.NewReader(body)), ContentLength: int64(len(body)),
+	}, true
+}
+
+func store(path string, req *http.Request, resp *http.Response, body []byte) error {
+	m := meta{Method: req.Method, URL: req.URL.String(), Status: resp.StatusCode, Header: map[string][]string{}}
+	for _, k := range kept {
+		if v := resp.Header.Values(k); len(v) > 0 {
+			m.Header[k] = v
+		}
+	}
+	line, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	_, _ = zw.Write(append(line, '\n'))
+	_, _ = zw.Write(body)
+	if err := zw.Close(); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return fmt.Errorf("httpcache: %w", err)
+	}
+	if err := fsx.WriteFileAtomic(path, buf.Bytes(), 0o600); err != nil {
+		return fmt.Errorf("httpcache: %w", err)
+	}
+	return nil
+}
+
+// Throttle spaces requests to Next at least Every apart (MusicBrainz: one per second). Put it below a Transport, so
+// only cache misses wait.
+type Throttle struct {
+	Every time.Duration
+	Next  http.RoundTripper
+	// Sleep waits; tests replace it.
+	Sleep func(context.Context, time.Duration) error
+	// Now is the clock; tests replace it.
+	Now func() time.Time
+
+	mu   sync.Mutex
+	last time.Time
+}
+
+// RoundTrip implements http.RoundTripper. Requests leave one at a time, Every apart, counted from when each went
+// out: MusicBrainz limits the request rate, and its search answers take ~1 s themselves; waiting for the answer
+// would halve the rate for nothing.
+func (t *Throttle) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.mu.Lock()
+	now := t.now()
+	if wait := t.last.Add(t.Every).Sub(now); !t.last.IsZero() && wait > 0 {
+		if err := t.sleep(req.Context(), wait); err != nil {
+			t.mu.Unlock()
+			return nil, err
+		}
+	}
+	t.last = t.now()
+	t.mu.Unlock()
+	next := t.Next
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	return next.RoundTrip(req)
+}
+
+func (t *Throttle) now() time.Time {
+	if t.Now != nil {
+		return t.Now()
+	}
+	return time.Now()
+}
+
+func (t *Throttle) sleep(ctx context.Context, d time.Duration) error {
+	if t.Sleep != nil {
+		return t.Sleep(ctx, d)
+	}
+	return Sleep(ctx, d)
+}
+
+// Sleep waits d or until ctx ends.
+func Sleep(ctx context.Context, d time.Duration) error {
+	tm := time.NewTimer(d)
+	defer tm.Stop()
+	select {
+	case <-tm.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

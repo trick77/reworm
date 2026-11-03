@@ -1,4 +1,16 @@
-.PHONY: build run test tidy ui-build ui-dev ui-test
+.PHONY: build run test tidy ui-build ui-dev ui-test dataset import-cards import-songs
+
+# go:embed cannot reach ../data: the server embeds a copy of the dataset (ignored), as the image build makes it.
+dataset:
+	cp data/songs.jsonl backend/internal/dataset/files/songs.jsonl
+
+# The song database (docs/plan.md, 1): card snapshots from the lists named in .env.local, then the songs. The song
+# step takes about an hour on an empty data/cache (MusicBrainz, 1 req/s); a rerun answers from the cache.
+import-cards:
+	cd backend && go run ./cmd/import -env ../.env.local -data ../data cards
+
+import-songs:
+	cd backend && go run ./cmd/import -data ../data songs
 
 tidy:
 	cd backend && go mod tidy
@@ -20,11 +32,11 @@ ui-build: ui/node_modules/.package-lock.json
 	cd ui && npm run build
 
 # No version stamp: unstamped, kit's version.String reports dev-<commit>[-dirty]; releases stamp it in the image.
-build: ui-build
+build: ui-build dataset
 	cd backend && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/reworm ./cmd/reworm
 
 # The server on :8080 with its database in data/dev (ignored); `make ui-dev` beside it for vite's dev server.
-run:
+run: dataset
 	cd backend && BACKEND_DATA_DIR=../data/dev go run ./cmd/reworm
 
 ui-dev: ui/node_modules/.package-lock.json
