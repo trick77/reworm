@@ -1,8 +1,17 @@
-import { useEffect, useEffectEvent, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { cx } from "../lib/cx";
 
+const TICK_MS = 250;
+
 // CountdownRing drains a ring over `seconds` and counts the seconds down; onDone fires at 0.
-// It counts from mount: give it a new key to restart (a new round).
+// It counts from mount: give it a new key to restart (a new round). The number is the run time without the
+// paused stretches, as the CSS ring (paused animation) is, so the two stay in step across pauses.
 export function CountdownRing({
   seconds,
   size = 120,
@@ -15,13 +24,22 @@ export function CountdownRing({
   onDone?: () => void;
 }) {
   const [left, setLeft] = useState(seconds);
+  const ran = useRef(0); // ms run before the current stretch
   const done = useEffectEvent(() => onDone?.());
 
   useEffect(() => {
     if (paused) return;
-    const id = setInterval(() => setLeft((l) => Math.max(0, l - 1)), 1000);
-    return () => clearInterval(id);
-  }, [paused]);
+    const since = Date.now();
+    const elapsed = () => ran.current + Date.now() - since;
+    const id = setInterval(
+      () => setLeft(Math.max(0, seconds - Math.floor(elapsed() / 1000))),
+      TICK_MS,
+    );
+    return () => {
+      ran.current = elapsed();
+      clearInterval(id);
+    };
+  }, [paused, seconds]);
 
   useEffect(() => {
     if (left === 0) done();

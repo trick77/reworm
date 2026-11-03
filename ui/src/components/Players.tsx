@@ -3,12 +3,21 @@ import { cx } from "../lib/cx";
 import { Avatar } from "./Avatar";
 
 export type Player = {
+  // id: the server's stable player id; two guests may pick the same name
+  id?: string;
   name: string;
   avatar: string;
   score: number;
   // out: answered wrong, locked out for the round. The stage shows who, never what they answered.
   out?: boolean;
 };
+
+// playerKey is the React key: the id, else the position in the given list with the name.
+const playerKey = (p: Player, i: number) => p.id ?? `${i}:${p.name}`;
+
+// keyed pairs each player with its key before any sorting, so a fallback key follows its player.
+const keyed = (players: Player[]) =>
+  players.map((p, i) => ({ p, key: playerKey(p, i) }));
 
 export function PlayerStrip({
   players,
@@ -21,9 +30,9 @@ export function PlayerStrip({
 }) {
   return (
     <div className="strip">
-      {players.map((p) => (
+      {keyed(players).map(({ p, key }) => (
         <div
-          key={p.name}
+          key={key}
           className={cx("p", p.out && "out")}
           data-out={p.out ? "" : undefined}
         >
@@ -51,17 +60,17 @@ export function Standings({
   winner?: string;
   limit?: number;
 }) {
-  const rows = [...players]
+  const rows = keyed(players)
     .sort(
       (a, b) =>
-        b.score - a.score ||
-        Number(b.name === winner) - Number(a.name === winner),
+        b.p.score - a.p.score ||
+        Number(b.p.name === winner) - Number(a.p.name === winner),
     )
     .slice(0, limit);
   return (
     <div className="card" style={{ padding: "8px 16px", textAlign: "left" }}>
-      {rows.map((p, i) => (
-        <div className="set-row" key={p.name}>
+      {rows.map(({ p, key }, i) => (
+        <div className="set-row" key={key}>
           <div className="row">
             <b className="num" style={{ width: 18, color: "var(--muted)" }}>
               {i + 1}
@@ -94,7 +103,7 @@ export function Podium({ players }: { players: Player[] }) {
       <div className="podium">
         {pod.map((p, i) =>
           p ? (
-            <div className="place" key={p.name} data-place={PLACE[i]}>
+            <div className="place" key={PLACE[i]} data-place={PLACE[i]}>
               <div className={cx(i === 1 && "pop")}>
                 <Avatar avatar={p.avatar} size={i === 1 ? 104 : 80} alt="" />
               </div>

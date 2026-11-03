@@ -31,6 +31,19 @@ describe("CountdownRing", () => {
     expect(bar.style.getPropertyValue("--c")).toBe(String(2 * Math.PI * 46));
   });
 
+  it("keeps the seconds in step with the ring across pauses", () => {
+    const { rerender } = render(<CountdownRing seconds={15} />);
+    act(() => vi.advanceTimersByTime(3500));
+    expect(screen.getByRole("timer")).toHaveTextContent("12");
+    rerender(<CountdownRing seconds={15} paused />);
+    act(() => vi.advanceTimersByTime(5000));
+    expect(screen.getByRole("timer")).toHaveTextContent("12");
+    rerender(<CountdownRing seconds={15} />);
+    // 3.5 s + 0.6 s run: 4.1 s gone, 11 left (a count restarted at resume would still say 12)
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.getByRole("timer")).toHaveTextContent("11");
+  });
+
   it("holds while paused", () => {
     const { container } = render(<CountdownRing seconds={15} paused />);
     act(() => vi.advanceTimersByTime(5000));

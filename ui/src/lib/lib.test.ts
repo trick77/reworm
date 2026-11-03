@@ -15,6 +15,10 @@ describe("art", () => {
     expect(initials("Mark Ronson, Bruno Mars")).toBe("MR");
     expect(initials("R.E.M.")).toBe("R");
     expect(initials("(What's the Story) Morning Glory?")).toBe("WT");
+    expect(initials("Édith Piaf")).toBe("ÉP");
+    expect(initials("Die Ärzte")).toBe("DÄ");
+    expect(initials("Joseíto Fernández")).toBe("JF");
+    expect(initials("& more")).toBe("M");
   });
 });
 

@@ -3,10 +3,10 @@
 import { useState, type ReactNode } from "react";
 import { usePlayer } from "../audio/usePlayer";
 import { saveEngine, type Engine } from "../audio/player";
-import { AVATARS } from "../avatars";
+import { AVATARS, avatarInfo } from "../avatars";
 import type { Choice } from "../components/AnswerPad";
 import { AnswerPad } from "../components/AnswerPad";
-import { AppShell, type Tab } from "../components/AppShell";
+import { AppShell, StageScale, type Tab } from "../components/AppShell";
 import { Avatar, AvatarPicker } from "../components/Avatar";
 import { AWARD_TIERS, AwardBadge } from "../components/AwardBadge";
 import {
@@ -77,8 +77,10 @@ function AudioDemo() {
     p.play(SONGS[i].preview, { from: 0, length: CLIP });
     p.prefetch(SONGS[(i + 1) % SONGS.length].preview);
   };
+  // the switch is a tap: unlock the fresh elements inside it
   const setEngine = (e: Engine) => {
     p.setEngine(e);
+    p.unlock();
     saveEngine(e);
   };
   return (
@@ -93,13 +95,10 @@ function AudioDemo() {
         ]}
       />
       <Vinyl spinning={clip.playing} />
-      <Waveform
-        progress={Number.isFinite(clip.total) ? clip.pos / clip.total : 0}
-        level={clip.level}
-      />
+      <Waveform progress={clip.pos / clip.total} level={clip.level} />
       <ClipTime
         pos={clip.pos}
-        total={Number.isFinite(clip.total) ? clip.total : CLIP}
+        total={clip.total}
         level={clip.level}
         note={clip.url ? `♪ ${s.title}` : "not started"}
       />
@@ -201,6 +200,25 @@ export default function Gallery() {
   const toggle = (c: string) =>
     setChips((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
   const s = SONGS[1];
+  const [fullStage, setFullStage] = useState(false);
+
+  // the stage as a TV shows it: the 1180×820 design box scaled to the window
+  if (fullStage) {
+    return (
+      <>
+        <StageScale>
+          <StageLive />
+        </StageScale>
+        <div className="g-close">
+          <IconButton
+            icon="x"
+            label="Close full-screen stage"
+            onClick={() => setFullStage(false)}
+          />
+        </div>
+      </>
+    );
+  }
 
   return (
     <AppShell tab={tab} onTab={setTab}>
@@ -292,9 +310,7 @@ export default function Gallery() {
               </span>
               <div>
                 <div style={{ fontSize: 22, fontWeight: 750 }}>Jan</div>
-                <div className="sub">
-                  {AVATARS.find((a) => a.key === av)?.name}
-                </div>
+                <div className="sub">{avatarInfo(av).name}</div>
               </div>
             </div>
             <AvatarPicker value={av} onChange={setAv} />
@@ -451,6 +467,15 @@ export default function Gallery() {
       </Section>
 
       <Section title="Party stage (iPad / laptop / TV)">
+        <Button
+          small
+          variant="ghost"
+          icon="party"
+          onClick={() => setFullStage(true)}
+          style={{ marginBottom: 16 }}
+        >
+          Stage full screen, scaled to the window
+        </Button>
         <div className="g-frames">
           <Frame kind="stage" caption="Stage · round live">
             <StageLive />

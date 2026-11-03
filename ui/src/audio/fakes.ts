@@ -48,6 +48,7 @@ export class FakeAudio {
   duration = NaN;
   paused = true;
   ended = false;
+  muted = false;
   // crossOrigin as it was when src was set: it must come first
   corsAtSrc: string | null = null;
   volumeWorks = true;
@@ -67,9 +68,14 @@ export class FakeAudio {
   set volume(v: number) {
     if (this.volumeWorks) this._vol = v;
   }
+  // deferPlay: play() stays pending until the test rejects it (a load cut short by a newer clip)
+  deferPlay = false;
+  rejecters: ((e: Error) => void)[] = [];
   play = vi.fn(() => {
     if (this.rejectPlay) return Promise.reject(new Error("NotAllowedError"));
     this.paused = false;
+    if (this.deferPlay)
+      return new Promise<void>((_, reject) => this.rejecters.push(reject));
     return Promise.resolve();
   });
   pause = vi.fn(() => {

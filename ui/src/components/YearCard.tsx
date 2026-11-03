@@ -21,11 +21,37 @@ const TINT: Record<Choice, string> = {
 
 type Drag = { dx: number; dy: number };
 
-function typing(t: EventTarget | null): boolean {
-  if (!(t instanceof HTMLElement)) return false;
-  if (t.isContentEditable) return true;
-  if (t instanceof HTMLInputElement) return t.type !== "range";
-  return t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
+// Keys on a focused control belong to it (Space presses a button, arrows move through a radio group or a
+// slider); the card's own answer buttons ([data-answer]) are the exception.
+const INTERACTIVE = [
+  "button",
+  "a[href]",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "[contenteditable]",
+  "[tabindex]:not([tabindex='-1'])",
+  ...[
+    "button",
+    "radio",
+    "tab",
+    "checkbox",
+    "switch",
+    "slider",
+    "spinbutton",
+    "option",
+    "menuitem",
+    "link",
+    "textbox",
+  ].map((r) => `[role=${r}]`),
+].join(",");
+
+function ownsKeys(t: EventTarget | null): boolean {
+  if (!(t instanceof Element)) return false;
+  if (t.closest("[data-answer]")) return false;
+  if (t instanceof HTMLElement && t.isContentEditable) return true;
+  return t.closest(INTERACTIVE) != null;
 }
 
 // YearCard is the big proposed year. With onAnswer it is the answer: swipe left (earlier), up (spot on) or
@@ -63,7 +89,7 @@ export function YearCard({
   };
 
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (ownsKeys(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
     const c: Choice | null =
       e.key === "ArrowLeft"
         ? "earlier"

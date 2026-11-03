@@ -1,10 +1,4 @@
-import {
-  AVATARS,
-  AVATAR_KEYS,
-  avatarInfo,
-  avatarUrl,
-  isAvatarKey,
-} from "./avatars";
+import { AVATARS, AVATAR_KEYS, avatarInfo, avatarUrl } from "./avatars";
 
 // the shipped files, read through vite (the app's tsconfig has no node types)
 const files = import.meta.glob<string>("../public/avatars/*.svg", {
@@ -48,8 +42,6 @@ describe("avatars", () => {
   });
 
   it("resolves keys, falling back to the first avatar", () => {
-    expect(isAvatarKey("disco")).toBe(true);
-    expect(isAvatarKey("kazoo")).toBe(false);
     expect(avatarInfo("note").name).toBe("Quaver");
     expect(avatarInfo("kazoo").key).toBe("vinyl");
     expect(avatarUrl("keys")).toBe("/avatars/keys.svg");

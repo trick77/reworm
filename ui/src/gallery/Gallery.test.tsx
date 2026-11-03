@@ -79,6 +79,17 @@ describe("Gallery", () => {
     expect(timers.getAllByRole("timer")[0]).toHaveTextContent("15");
   });
 
+  it("opens the stage full screen, scaled, and closes it", () => {
+    const { container } = render(<Gallery />);
+    fireEvent.click(screen.getByRole("button", { name: /Stage full screen/ }));
+    expect(container.querySelector(".stage-fit .stage-box")).not.toBeNull();
+    expect(screen.queryByText("Buttons")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close full-screen stage" }),
+    );
+    expect(screen.getByText("Buttons")).toBeInTheDocument();
+  });
+
   it("plays a preview, pauses, switches engine", async () => {
     render(<Gallery />);
     const card = screen.getByText("Next").closest(".card") as HTMLElement;

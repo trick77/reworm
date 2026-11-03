@@ -4,6 +4,7 @@ import {
   FADE_OUT,
   PreviewPlayer,
   defaultEngine,
+  defaultPrefetch,
   player,
   saveEngine,
   setAudioSession,
@@ -176,61 +177,155 @@ describe("PreviewPlayer, webaudio engine", () => {
     expect(p.state().playing).toBe(false);
   });
 
-  it("unlock sets the audio session, resumes the context, plays silence once", async () => {
+  it("unlock: audio session, context, one muted play+pause of both elements in the tap", () => {
     const { p, audios, ctxs, nav } = setup();
     p.unlock();
     expect(nav.audioSession.type).toBe("playback");
     expect(ctxs[0].resume).toHaveBeenCalled();
-    expect(audios[0].src).toBe(silentWav());
-    expect(audios[0].play).toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(audios[0].pause).toHaveBeenCalled();
+    expect(audios).toHaveLength(2);
+    for (const el of audios) {
+      expect(el.src).toBe(silentWav());
+      expect(el.play).toHaveBeenCalledTimes(1);
+      expect(el.pause).toHaveBeenCalledTimes(1);
+      expect(el.paused).toBe(true);
+      expect(el.muted).toBe(false);
+    }
     expect(p.state().url).toBeNull();
   });
 
-  it("prefetches up to two clips and hands one over on play", () => {
+  it("unlock leaves a playing element and a preloaded clip alone", () => {
     const { p, audios } = setup();
-    p.prefetch(A);
-    p.prefetch(A);
-    expect(audios).toHaveLength(1);
-    expect(audios[0]).toMatchObject({ src: A, preload: "auto" });
-    expect(audios[0].corsAtSrc).toBe("anonymous");
-    expect(audios[0].load).toHaveBeenCalled();
+    p.play(A);
     p.prefetch(B);
-    p.prefetch(C);
-    expect(audios[0].src).toBe(""); // A dropped: two at most
-    p.play(B);
-    expect(audios[1].src).toBe(""); // B's warm-up element released
-    expect(audios[3].src).toBe(B); // the main element plays it
-    p.prefetch(B); // already playing: no new element
-    expect(audios).toHaveLength(4);
+    p.unlock();
+    expect(audios[0].play).toHaveBeenCalledTimes(1);
+    expect(audios[0].pause).not.toHaveBeenCalled();
+    expect(audios[1].src).toBe(B);
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
   });
 
-  it("switching engines starts over with a fresh element", () => {
+  it("A/B: the idle element preloads, play swaps to it, each routed once", () => {
+    const { p, audios, ctxs } = setup();
+    p.play(A);
+    p.prefetch(B);
+    p.prefetch(B);
+    p.prefetch(A); // already the active clip
+    expect(audios).toHaveLength(2);
+    expect(audios[1]).toMatchObject({ src: B, preload: "auto" });
+    expect(audios[1].corsAtSrc).toBe("anonymous");
+    expect(audios[1].load).toHaveBeenCalledTimes(1);
+    p.play(B);
+    expect(audios[0].paused).toBe(true);
+    expect(audios[1].paused).toBe(false);
+    expect(p.state().url).toBe(B);
+    p.prefetch(C); // into A's element, now idle
+    expect(audios[0].src).toBe(C);
+    p.play(C);
+    expect(audios[0].paused).toBe(false);
+    expect(audios[1].paused).toBe(true);
+    expect(audios).toHaveLength(2);
+    expect(ctxs[0].sources.map((s) => s.el)).toEqual([audios[0], audios[1]]);
+  });
+
+  it("plays a clip that was not preloaded on the active element", () => {
+    const { p, audios } = setup();
+    p.play(A);
+    p.prefetch(B);
+    p.play(C);
+    expect(audios[0].src).toBe(C);
+    expect(audios[1].src).toBe(B);
+  });
+
+  it("prefetch: false is one element, no preloading", () => {
+    const f = fakeEnv();
+    const p = new PreviewPlayer({ prefetch: false, env: f.env });
+    p.unlock();
+    p.play(A);
+    p.prefetch(B);
+    p.play(B);
+    expect(f.audios).toHaveLength(1);
+    expect(f.audios[0].src).toBe(B);
+  });
+
+  it("a superseded start's rejected play() does not stop the new clip", async () => {
+    const { p, audios } = setup();
+    p.play(A);
+    const el = audios[0];
+    el.deferPlay = true;
+    p.play(B); // skip mid-load
+    p.play(C);
+    el.rejecters[0](new DOMException("interrupted", "AbortError"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p.state()).toMatchObject({ url: C, playing: true });
+    el.rejecters[1](new DOMException("refused", "NotAllowedError"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p.state().playing).toBe(false);
+  });
+
+  it("settles a fade's promise when a new clip cuts it short", async () => {
+    const { p } = setup();
+    p.play(A);
+    const done = vi.fn();
+    void p.pause().then(done);
+    p.play(B);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toHaveBeenCalled();
+    expect(p.state()).toMatchObject({ url: B, playing: true });
+  });
+
+  it("resume during a pause fade takes it back and ramps up from where it is", async () => {
+    const { p, audios, ctxs } = setup();
+    p.play(A);
+    await vi.advanceTimersByTimeAsync(2000);
+    const g = ctxs[0].gain.gain;
+    void p.pause();
+    g.value = 0.5; // half way down
+    p.resume();
+    expect(g.last("set")).toEqual(["set", 0.5, 10]);
+    expect(g.last("ramp")).toEqual(["ramp", 1, 10 + FADE_IN]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(audios[0].paused).toBe(false);
+    expect(p.state().playing).toBe(true);
+  });
+
+  it("resume after the end replays from the start, onEnd once per play", async () => {
+    const { p, audios } = setup();
+    const end = vi.fn();
+    p.onEnd(end);
+    p.play(A, { from: 30, length: 20 });
+    const el = audios[0];
+    el.currentTime = 49.5;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(end).toHaveBeenCalledTimes(1);
+    el.ended = true; // a late tick must not fire it again
+    await vi.advanceTimersByTimeAsync(500);
+    expect(end).toHaveBeenCalledTimes(1);
+    el.ended = false;
+    p.resume();
+    expect(el.currentTime).toBe(30);
+    expect(p.state()).toMatchObject({ playing: true, total: 20 });
+    el.currentTime = 49.5;
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(end).toHaveBeenCalledTimes(2);
+  });
+
+  it("switching engines releases the elements and starts over", () => {
     const { p, audios } = setup();
     const seen: string[] = [];
     p.onProgress((s) => seen.push(s.engine));
     p.play(A);
+    p.prefetch(B);
     p.setEngine("webaudio");
     p.setEngine("element");
     expect(p.engine).toBe("element");
-    expect(audios[0].paused).toBe(true);
+    for (const el of audios.slice(0, 2)) {
+      expect(el.paused).toBe(true);
+      expect(el.src).toBe("");
+      expect(el.load).toHaveBeenCalled(); // stops the download too
+    }
     expect(seen.at(-1)).toBe("element");
     p.play(A);
-    expect(audios).toHaveLength(2);
-  });
-
-  it("destroy stops everything", async () => {
-    const { p, audios, ctxs } = setup();
-    const progress = vi.fn();
-    p.onProgress(progress);
-    p.play(A);
-    p.destroy();
-    progress.mockClear();
-    await vi.advanceTimersByTimeAsync(500);
-    expect(audios[0].paused).toBe(true);
-    expect(ctxs[0].close).toHaveBeenCalled();
-    expect(progress).not.toHaveBeenCalled();
+    expect(audios).toHaveLength(3);
   });
 });
 
@@ -306,6 +401,12 @@ describe("helpers", () => {
     expect(defaultEngine()).toBe("element");
     window.history.replaceState(null, "", "/?audio=webaudio");
     expect(defaultEngine()).toBe("webaudio");
+  });
+
+  it("defaultPrefetch is on unless ?prefetch=off", () => {
+    expect(defaultPrefetch()).toBe(true);
+    window.history.replaceState(null, "", "/?prefetch=off");
+    expect(defaultPrefetch()).toBe(false);
   });
 
   it("player is one shared instance", () => {

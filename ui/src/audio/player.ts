@@ -7,8 +7,10 @@
 // - "element": the plain <audio>; fades by stepping volume where volume works, none where it doesn't (iOS).
 // If iOS mutes Web Audio on the silent switch, the default flips to "element".
 //
-// One main element is reused for every clip (only its src changes): iOS lets an element that played once
-// from a tap play again without one, which is what lets the host's rounds run unattended.
+// Two elements, A/B: the active one plays, the idle one preloads the next clip, and play() of that clip swaps
+// them. Both are created and played once (muted) inside the first tap: iOS lets an element that played from a
+// tap play again without one, which is what lets the host's rounds run unattended. If iOS refuses the second
+// element, `prefetch: false` (?prefetch=off) is the fallback: one element, no preloading.
 
 export type Engine = "webaudio" | "element";
 
@@ -53,7 +55,7 @@ export function setAudioSession(nav?: Navigator) {
   }
 }
 
-// silentWav is a few samples of silence, played on unlock so the main element has played once from a tap.
+// silentWav is a few samples of silence: what an element plays on unlock when it holds no clip yet.
 export function silentWav(): string {
   const n = 8;
   const b = new Uint8Array(44 + n);
@@ -90,22 +92,27 @@ function browserEnv(): AudioEnv {
   };
 }
 
-const PREFETCH_MAX = 2;
-
 export class PreviewPlayer {
   private env: AudioEnv;
   private _engine: Engine;
+  private readonly buffers: number;
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
-  private el: HTMLAudioElement | null = null;
+  // A/B: els[active] plays, the other preloads; srcs[i] is the clip URL element i holds (null: none/silence)
+  private els: HTMLAudioElement[] = [];
+  private srcs: (string | null)[] = [];
+  private active = 0;
   private routed = new WeakSet<HTMLAudioElement>();
-  private url: string | null = null;
-  private pre = new Map<string, HTMLAudioElement>();
   private from = 0;
   private length = Infinity;
   private playing = false;
   private fading = false;
   private ending = false;
+  private ended = false;
+  // bumped on every start: a play() promise of an older start may reject (AbortError) and must not stop this one
+  private gen = 0;
+  private fadeP: Promise<void> | null = null;
+  private settle: (() => void) | null = null;
   private volumeWorks: boolean | null = null;
   private stopT: ReturnType<typeof setTimeout> | undefined;
   private stepT: ReturnType<typeof setInterval> | undefined;
@@ -113,76 +120,81 @@ export class PreviewPlayer {
   private progressL = new Set<(s: ClipState) => void>();
   private endL = new Set<() => void>();
 
-  constructor(opts: { engine?: Engine; env?: Partial<AudioEnv> } = {}) {
+  constructor(
+    opts: { engine?: Engine; prefetch?: boolean; env?: Partial<AudioEnv> } = {},
+  ) {
     this.env = { ...browserEnv(), ...opts.env };
     this._engine = opts.engine ?? "webaudio";
+    this.buffers = opts.prefetch === false ? 1 : 2;
   }
 
   get engine(): Engine {
     return this._engine;
   }
 
-  // setEngine switches engines. An element routed into Web Audio stays routed for good, so the switch
-  // starts over with fresh elements.
+  // setEngine switches engines. An element routed into Web Audio stays routed for good, so the switch starts
+  // over with fresh elements; call unlock() from the same tap.
   setEngine(e: Engine) {
     if (e === this._engine) return;
     this.stopNow();
-    this.el = null;
-    this.url = null;
-    this.dropPrefetched();
+    this.els.forEach(release);
+    this.els = [];
+    this.srcs = [];
+    this.active = 0;
     this._engine = e;
     this.emit();
   }
 
-  // unlock runs on the first user gesture: audio session, the AudioContext, one silent play of the main
-  // element.
+  // unlock runs inside a user gesture: audio session, the AudioContext, and one muted play of every element,
+  // so each may play later without a tap.
   unlock() {
     setAudioSession(this.env.navigator);
     if (this._engine === "webaudio") this.ensureCtx();
-    const el = this.main();
-    if (this.url == null && el.paused) {
-      el.src = silentWav();
-      el.play()?.then(
-        () => {
-          if (this.url == null) el.pause();
-        },
-        () => {},
-      );
+    for (let i = 0; i < this.buffers; i++) {
+      const el = this.element(i);
+      if (!el.paused) continue;
+      if (this.srcs[i] == null) el.src = silentWav();
+      el.muted = true;
+      const p = el.play();
+      el.pause();
+      el.muted = false;
+      p?.catch(() => {});
     }
   }
 
-  // prefetch starts loading the next clip so it starts without a gap.
+  // prefetch loads the next clip into the idle element, so play() of it starts without a gap.
   prefetch(url: string) {
-    if (url === this.url || this.pre.has(url)) return;
-    const el = this.newElement();
+    if (this.buffers < 2 || url === this.srcs[this.active]) return;
+    const idle = 1 - this.active;
+    if (this.srcs[idle] === url) return;
+    const el = this.element(idle);
     el.src = url;
     el.load?.();
-    this.pre.set(url, el);
-    while (this.pre.size > PREFETCH_MAX) {
-      const [oldest, old] = this.pre.entries().next().value!;
-      old.removeAttribute("src");
-      this.pre.delete(oldest);
-    }
+    this.srcs[idle] = url;
   }
 
-  // play starts a clip at `from` with a fade in; it fades out into the clip's end and then fires onEnd.
+  // play starts a clip at `from` with a fade in; it fades out into the clip's end and then fires onEnd, once.
   play(url: string, opts: PlayOptions = {}) {
     this.clearTimers();
     this.fading = false;
     this.ending = false;
+    this.ended = false;
     this.from = opts.from ?? 0;
     this.length = opts.length ?? Infinity;
     if (this._engine === "webaudio") this.ensureCtx();
-    const el = this.main();
-    if (this.url !== url) {
-      el.src = url;
-      this.url = url;
-      const warm = this.pre.get(url);
-      if (warm) {
-        warm.removeAttribute("src");
-        this.pre.delete(url);
-      }
+    const idle = 1 - this.active;
+    if (
+      this.buffers > 1 &&
+      this.srcs[idle] === url &&
+      this.srcs[this.active] !== url
+    ) {
+      this.els[this.active]?.pause();
+      this.active = idle;
+    } else if (this.srcs[this.active] !== url) {
+      this.element(this.active).src = url;
+      this.srcs[this.active] = url;
     }
+    const el = this.element(this.active);
     try {
       el.currentTime = this.from;
     } catch {
@@ -191,10 +203,12 @@ export class PreviewPlayer {
     this.start(el);
   }
 
-  // fadeOut fades the current clip out over `seconds`, then pauses. Resolves once paused.
+  // fadeOut fades the current clip out over `seconds`, then pauses. Resolves once paused, or when a new
+  // play/resume cuts the fade short.
   fadeOut(seconds = FADE_OUT): Promise<void> {
-    const el = this.el;
-    if (!el || el.paused || this.fading) return Promise.resolve();
+    const el = this.current();
+    if (this.fadeP) return this.fadeP;
+    if (!el || el.paused || !this.playing) return Promise.resolve();
     this.fading = true;
     if (this._engine === "webaudio" && this.gain && this.ctx) {
       const g = this.gain.gain;
@@ -203,10 +217,10 @@ export class PreviewPlayer {
       g.setValueAtTime(g.value, now);
       g.linearRampToValueAtTime(0.0001, now + seconds);
     } else {
-      this.stepVolume(0, seconds);
+      this.stepVolume(el, 0, seconds);
     }
-    clearTimeout(this.stopT);
-    return new Promise((resolve) => {
+    this.fadeP = new Promise((resolve) => {
+      this.settle = resolve;
       this.stopT = setTimeout(
         () => {
           clearInterval(this.stepT);
@@ -217,41 +231,55 @@ export class PreviewPlayer {
           const ended = this.ending;
           this.ending = false;
           this.emit();
-          if (ended) this.endL.forEach((f) => f());
-          resolve();
+          this.settleFade();
+          if (ended) this.end();
         },
         seconds * 1000 + STOP_SLACK_MS,
       );
     });
+    return this.fadeP;
   }
 
   pause(): Promise<void> {
     return this.fadeOut(PAUSE_FADE);
   }
 
+  // resume continues a paused clip, takes back a fade in progress, or replays an ended clip from its start.
   resume() {
-    const el = this.el;
-    if (!el || !this.url || this.playing) return;
-    this.clearTimers();
-    this.fading = false;
+    const el = this.current();
+    const url = this.srcs[this.active];
+    if (!el || !url) return;
+    if (this.ended) {
+      this.play(url, { from: this.from, length: this.length });
+      return;
+    }
+    if (this.fading) {
+      this.clearTimers();
+      this.fading = false;
+      this.ending = false;
+    } else if (this.playing) {
+      return;
+    }
     this.start(el);
   }
 
   // level is the current fade, 0–1.
   level(): number {
-    if (!this.el || !this.playing) return 0;
+    const el = this.current();
+    if (!el || !this.playing) return 0;
     if (this._engine === "webaudio" && this.gain) return this.gain.gain.value;
-    return this.el.volume;
+    return el.volume;
   }
 
   state(): ClipState {
-    const el = this.el;
+    const el = this.current();
+    const url = this.srcs[this.active] ?? null;
     const dur =
       el && Number.isFinite(el.duration) ? el.duration - this.from : Infinity;
     const total = Math.min(this.length, dur);
-    const pos = el && this.url ? Math.max(0, el.currentTime - this.from) : 0;
+    const pos = el && url ? Math.max(0, el.currentTime - this.from) : 0;
     return {
-      url: this.url,
+      url,
       playing: this.playing,
       pos: Math.min(pos, total),
       total,
@@ -271,22 +299,13 @@ export class PreviewPlayer {
     return () => this.endL.delete(f);
   }
 
-  destroy() {
-    this.stopNow();
-    this.dropPrefetched();
-    this.progressL.clear();
-    this.endL.clear();
-    void this.ctx?.close?.();
-    this.ctx = null;
-    this.gain = null;
-    this.el = null;
-  }
-
   private start(el: HTMLAudioElement) {
+    const gen = ++this.gen;
     this.fadeIn(el);
     this.playing = true;
     el.play()?.catch(() => {
-      // autoplay refused (no gesture yet): stays paused, the UI offers play
+      // autoplay refused (no tap yet) or cut short by a newer start: only the newest start counts
+      if (gen !== this.gen) return;
       this.playing = false;
       this.stopTick();
       this.emit();
@@ -295,28 +314,29 @@ export class PreviewPlayer {
     this.emit();
   }
 
+  // fadeIn ramps up to full: from silence on a paused element, from where it is on one still fading out.
   private fadeIn(el: HTMLAudioElement) {
     if (this._engine === "webaudio" && this.gain && this.ctx) {
       this.route(el);
       const g = this.gain.gain;
       const now = this.ctx.currentTime;
+      const from = el.paused ? 0.0001 : Math.max(0.0001, g.value);
       g.cancelScheduledValues(now);
-      g.setValueAtTime(0.0001, now);
+      g.setValueAtTime(from, now);
       g.linearRampToValueAtTime(1, now + FADE_IN);
       return;
     }
     if (this.canFadeVolume(el)) {
-      el.volume = 0;
-      this.stepVolume(1, FADE_IN);
+      if (el.paused) el.volume = 0;
+      this.stepVolume(el, 1, FADE_IN);
     }
   }
 
   // stepVolume moves el.volume to `to` in 50 ms steps (element engine); without a working volume (iOS) it
   // does nothing and the clip simply stops.
-  private stepVolume(to: number, seconds: number) {
-    const el = this.el;
+  private stepVolume(el: HTMLAudioElement, to: number, seconds: number) {
     clearInterval(this.stepT);
-    if (!el || !this.canFadeVolume(el)) return;
+    if (!this.canFadeVolume(el)) return;
     const steps = Math.max(1, Math.round((seconds * 1000) / STEP_MS));
     const delta = (to - el.volume) / steps;
     let n = 0;
@@ -338,7 +358,7 @@ export class PreviewPlayer {
   }
 
   private tick() {
-    const el = this.el;
+    const el = this.current();
     if (!el || !this.playing) return;
     const s = this.state();
     this.emit(s);
@@ -347,13 +367,20 @@ export class PreviewPlayer {
       this.playing = false;
       this.stopTick();
       this.emit();
-      this.endL.forEach((f) => f());
+      this.end();
       return;
     }
     if (Number.isFinite(s.total) && s.pos >= s.total - FADE_OUT) {
       this.ending = true;
       void this.fadeOut(Math.max(0.05, Math.min(FADE_OUT, s.total - s.pos)));
     }
+  }
+
+  // end fires onEnd once per play.
+  private end() {
+    if (this.ended) return;
+    this.ended = true;
+    this.endL.forEach((f) => f());
   }
 
   private emit(s: ClipState = this.state()) {
@@ -375,24 +402,27 @@ export class PreviewPlayer {
     if (this.ctx.state === "suspended") void this.ctx.resume();
   }
 
-  // route wires an element into the gain node, once: a MediaElementSource can't be made twice.
+  // route wires an element into the shared gain node, once: a MediaElementSource can't be made twice.
   private route(el: HTMLAudioElement) {
     if (!this.ctx || !this.gain || this.routed.has(el)) return;
     this.ctx.createMediaElementSource(el).connect(this.gain);
     this.routed.add(el);
   }
 
-  private main(): HTMLAudioElement {
-    if (!this.el) this.el = this.newElement();
-    return this.el;
+  private current(): HTMLAudioElement | undefined {
+    return this.els[this.active];
   }
 
-  // crossOrigin before src, or Web Audio gets a tainted (silent) stream.
-  private newElement(): HTMLAudioElement {
-    const el = this.env.createAudio();
-    el.crossOrigin = "anonymous";
-    el.preload = "auto";
-    return el;
+  // element i, created on first use. crossOrigin before any src, or Web Audio gets a tainted (silent) stream.
+  private element(i: number): HTMLAudioElement {
+    if (!this.els[i]) {
+      const el = this.env.createAudio();
+      el.crossOrigin = "anonymous";
+      el.preload = "auto";
+      this.els[i] = el;
+      this.srcs[i] = null;
+    }
+    return this.els[i];
   }
 
   private startTick() {
@@ -405,32 +435,47 @@ export class PreviewPlayer {
     this.tickT = undefined;
   }
 
+  private settleFade() {
+    const s = this.settle;
+    this.settle = null;
+    this.fadeP = null;
+    s?.();
+  }
+
+  // clearTimers also settles a fade promise whose timer it cancels: nobody waits forever.
   private clearTimers() {
     clearTimeout(this.stopT);
     clearInterval(this.stepT);
     this.stopTick();
+    this.settleFade();
   }
 
   private stopNow() {
     this.clearTimers();
-    this.el?.pause();
+    this.current()?.pause();
     this.playing = false;
     this.fading = false;
     this.ending = false;
   }
+}
 
-  private dropPrefetched() {
-    this.pre.forEach((el) => el.removeAttribute("src"));
-    this.pre.clear();
-  }
+// release stops an element's download too: removing src alone keeps the old resource loading until load().
+function release(el: HTMLAudioElement) {
+  el.pause();
+  el.removeAttribute("src");
+  el.load?.();
 }
 
 const ENGINE_KEY = "reworm.audioEngine";
 
+function query(key: string): string | null {
+  return new URLSearchParams(window.location.search).get(key);
+}
+
 // defaultEngine: ?audio=element|webaudio, else the saved choice, else webaudio.
 export function defaultEngine(): Engine {
   try {
-    const q = new URLSearchParams(window.location.search).get("audio");
+    const q = query("audio");
     if (q === "element" || q === "webaudio") return q;
     const saved = window.localStorage.getItem(ENGINE_KEY);
     if (saved === "element" || saved === "webaudio") return saved;
@@ -448,10 +493,18 @@ export function saveEngine(e: Engine) {
   }
 }
 
+// defaultPrefetch: on, unless ?prefetch=off (the single-element fallback, should iOS refuse a second element).
+export function defaultPrefetch(): boolean {
+  return query("prefetch") !== "off";
+}
+
 let shared: PreviewPlayer | null = null;
 
 // player is the app's one preview player.
 export function player(): PreviewPlayer {
-  shared ??= new PreviewPlayer({ engine: defaultEngine() });
+  shared ??= new PreviewPlayer({
+    engine: defaultEngine(),
+    prefetch: defaultPrefetch(),
+  });
   return shared;
 }

@@ -41,7 +41,8 @@ export function AnswerPad({
     );
   }
   return (
-    <div className="choices">
+    // data-answer: the year card's keys still work with one of these focused (after a click)
+    <div className="choices" data-answer="">
       {BUTTONS.map((b) => (
         <button
           key={b.choice}

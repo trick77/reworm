@@ -21,10 +21,6 @@ export type AvatarInfo = (typeof AVATARS)[number];
 
 export const AVATAR_KEYS: readonly AvatarKey[] = AVATARS.map((a) => a.key);
 
-export function isAvatarKey(k: string): k is AvatarKey {
-  return (AVATAR_KEYS as readonly string[]).includes(k);
-}
-
 // avatarInfo falls back to the first avatar for an unknown key (a server value from a newer set).
 export function avatarInfo(key: string): AvatarInfo {
   return AVATARS.find((a) => a.key === key) ?? AVATARS[0];

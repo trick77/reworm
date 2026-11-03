@@ -8,9 +8,13 @@ const HEIGHTS = Array.from({ length: BARS }, (_, i) =>
   ),
 );
 
-// Waveform shows clip progress (0–1); level (0–1, the fade) dims it, so a fade is visible.
+// unit clamps to 0–1; NaN (0 / 0, an unknown length) is 0.
+const unit = (n: number) => (Number.isNaN(n) ? 0 : Math.min(1, Math.max(0, n)));
+
+// Waveform shows clip progress (0–1, pos / total: an unknown length gives 0); level (0–1, the fade) dims it,
+// so a fade is visible.
 export function Waveform({
-  progress,
+  progress: raw,
   level = 1,
   className,
 }: {
@@ -18,7 +22,8 @@ export function Waveform({
   level?: number;
   className?: string;
 }) {
-  const opacity = 0.25 + 0.75 * Math.min(1, Math.max(0, level));
+  const progress = unit(raw);
+  const opacity = 0.25 + 0.75 * unit(level);
   return (
     <div
       className={cx("wave", className)}
@@ -26,7 +31,7 @@ export function Waveform({
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuenow={Math.round(Math.min(1, Math.max(0, progress)) * 100)}
+      aria-valuenow={Math.round(progress * 100)}
     >
       {HEIGHTS.map((h, i) => (
         <i
@@ -39,8 +44,12 @@ export function Waveform({
   );
 }
 
-export const clock = (s: number) =>
-  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+// clock is m:ss; an unknown time (NaN, Infinity: before the metadata) is –:––, a negative one 0:00.
+export function clock(s: number): string {
+  if (!Number.isFinite(s)) return "–:––";
+  const t = Math.max(0, Math.floor(s));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+}
 
 // ClipTime is the row under the waveform: position, the volume meter (the fade, live), clip length.
 export function ClipTime({
@@ -63,7 +72,7 @@ export function ClipTime({
           <span className="vb">
             <i
               style={{
-                width: `${Math.round(Math.min(1, Math.max(0, level)) * 100)}%`,
+                width: `${Math.round(unit(level) * 100)}%`,
               }}
             />
           </span>

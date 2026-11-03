@@ -213,6 +213,9 @@ describe("Vinyl, Waveform, ClipTime", () => {
   it("formats clip time and shows the level meter", () => {
     expect(clock(8.7)).toBe("0:08");
     expect(clock(90)).toBe("1:30");
+    expect(clock(Infinity)).toBe("–:––");
+    expect(clock(NaN)).toBe("–:––");
+    expect(clock(-2)).toBe("0:00");
     const { container, rerender } = render(
       <ClipTime pos={8} total={20} level={0.5} note="live" />,
     );
@@ -221,6 +224,17 @@ describe("Vinyl, Waveform, ClipTime", () => {
     expect(container.querySelector(".vb i")).toHaveStyle({ width: "50%" });
     rerender(<ClipTime pos={8} total={20} />);
     expect(container.querySelector(".vb")).toBeNull();
+    rerender(<ClipTime pos={0} total={Infinity} level={NaN} />);
+    expect(screen.getByText("–:––")).toBeInTheDocument();
+  });
+
+  it("shows no progress for an unknown length", () => {
+    const { container } = render(<Waveform progress={0 / 0} level={NaN} />);
+    expect(container.querySelectorAll("i.on")).toHaveLength(0);
+    expect(screen.getByRole("progressbar")).toHaveAttribute(
+      "aria-valuenow",
+      "0",
+    );
   });
 });
 
@@ -294,6 +308,24 @@ describe("players", () => {
     expect(out[0]).toHaveTextContent("Mia");
     expect(screen.getByLabelText("locked out")).toHaveTextContent("✕");
     expect(screen.getByText("3 pt", { selector: ".s" })).toBeInTheDocument();
+  });
+
+  it("tells apart two players of the same name by id", () => {
+    const twins: Player[] = [
+      { id: "p1", name: "Mia", avatar: "mic", score: 2 },
+      { id: "p2", name: "Mia", avatar: "note", score: 5 },
+    ];
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = render(
+      <>
+        <PlayerStrip players={twins} />
+        <Standings players={twins} />
+      </>,
+    );
+    expect(container.querySelectorAll(".strip .p")).toHaveLength(2);
+    expect(container.querySelectorAll(".set-row")).toHaveLength(2);
+    expect(err).not.toHaveBeenCalled();
+    err.mockRestore();
   });
 
   it("PlayerStrip can leave the scores out", () => {

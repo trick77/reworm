@@ -117,6 +117,50 @@ describe("YearCard", () => {
     expect(onAnswer).toHaveBeenCalledWith("earlier");
   });
 
+  it("leaves keys on focused controls to them", () => {
+    const onAnswer = vi.fn();
+    render(
+      <>
+        <button>other</button>
+        <div role="radiogroup">
+          <span role="radio" aria-checked="false" tabIndex={0}>
+            Jukey
+          </span>
+        </div>
+        <div role="tablist">
+          <span role="tab" tabIndex={0}>
+            Train
+          </span>
+        </div>
+        <a href="#x">link</a>
+        <div contentEditable suppressContentEditableWarning>
+          note
+        </div>
+        <input type="range" aria-label="year" />
+        <YearCard year={1983} onAnswer={onAnswer} keyboard choices />
+      </>,
+    );
+    for (const t of [
+      screen.getByText("other"),
+      screen.getByRole("radio"),
+      screen.getByRole("tab"),
+      screen.getByText("link"),
+      screen.getByText("note"),
+      screen.getByLabelText("year"),
+    ]) {
+      fireEvent.keyDown(t, { key: " " });
+      fireEvent.keyDown(t, { key: "ArrowRight" });
+    }
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onAnswer).not.toHaveBeenCalled();
+    // the card's own answer buttons keep the keys (focused after a click)
+    fireEvent.keyDown(screen.getByRole("button", { name: /Earlier/ }), {
+      key: "ArrowRight",
+    });
+    act(() => vi.advanceTimersByTime(FLY));
+    expect(onAnswer).toHaveBeenCalledWith("later");
+  });
+
   it("has no keys without `keyboard`", () => {
     const onAnswer = vi.fn();
     render(<YearCard year={1983} onAnswer={onAnswer} />);
