@@ -1,6 +1,6 @@
 module github.com/trick77/reworm
 
-go 1.27.3
+go 1.27.0
 
 require (
 	github.com/ncruces/go-sqlite3 v0.36.0

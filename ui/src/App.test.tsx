@@ -25,7 +25,10 @@ describe("App", () => {
   it("renders without a version when the server is unreachable", async () => {
     const fetchMock = stubFetch(Promise.reject(new TypeError("offline")));
     const { container } = render(<App />);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock).toHaveBeenCalled();
+    // A macrotask runs only after every pending microtask: the rejection has
+    // gone through fetchVersion and App's handler by then.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(screen.getByText("worm")).toBeInTheDocument();
     expect(container.querySelector(".version")).toBeNull();
   });
