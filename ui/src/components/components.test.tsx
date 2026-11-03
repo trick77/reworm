@@ -275,6 +275,19 @@ describe("Cover", () => {
     expect(screen.getByText("A Night at the Opera")).toHaveClass("cb");
   });
 
+  it("drops only the album's last bracket group", () => {
+    render(
+      <Cover
+        title="Wonderwall"
+        artist="Oasis"
+        album="(What's the Story) Morning Glory? (Remastered)"
+      />,
+    );
+    expect(screen.getByText("(What's the Story) Morning Glory?")).toHaveClass(
+      "cb",
+    );
+  });
+
   it("SongHead lines up cover, title, artist and meta", () => {
     render(
       <SongHead
@@ -326,6 +339,21 @@ describe("players", () => {
     expect(container.querySelectorAll(".set-row")).toHaveLength(2);
     expect(err).not.toHaveBeenCalled();
     err.mockRestore();
+  });
+
+  it("Standings marks the winner by id, not by a shared name", () => {
+    const twins: Player[] = [
+      { id: "p1", name: "Mia", avatar: "mic", score: 5 },
+      { id: "p2", name: "Mia", avatar: "note", score: 5 },
+    ];
+    const { container } = render(<Standings players={twins} winnerId="p2" />);
+    const rows = container.querySelectorAll(".set-row");
+    expect(rows[0].querySelector("img")).toHaveAttribute(
+      "src",
+      "/avatars/note.svg",
+    );
+    expect(rows[0]).toHaveTextContent("▲");
+    expect(rows[1]).not.toHaveTextContent("▲");
   });
 
   it("PlayerStrip can leave the scores out", () => {

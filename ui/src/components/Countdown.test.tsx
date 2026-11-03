@@ -22,6 +22,7 @@ describe("CountdownRing", () => {
     act(() => vi.advanceTimersByTime(5000));
     expect(screen.getByRole("timer")).toHaveTextContent("0");
     expect(onDone).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0); // the tick stops at 0
   });
 
   it("drains the ring over the whole window", () => {

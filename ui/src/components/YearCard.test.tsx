@@ -161,6 +161,25 @@ describe("YearCard", () => {
     expect(onAnswer).toHaveBeenCalledWith("later");
   });
 
+  it("submits once for two answers in the same frame", () => {
+    const onAnswer = vi.fn();
+    render(<YearCard year={1983} onAnswer={onAnswer} keyboard choices />);
+    act(() => {
+      fireEvent.keyDown(window, { key: "ArrowLeft" });
+      fireEvent.click(screen.getByRole("button", { name: /Later/ }));
+    });
+    act(() => vi.advanceTimersByTime(1000));
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer).toHaveBeenCalledWith("earlier");
+  });
+
+  it("shows no key hints without `keyboard`", () => {
+    const { container } = render(
+      <YearCard year={1983} onAnswer={() => {}} choices />,
+    );
+    expect(container.querySelectorAll(".kbd")).toHaveLength(0);
+  });
+
   it("has no keys without `keyboard`", () => {
     const onAnswer = vi.fn();
     render(<YearCard year={1983} onAnswer={onAnswer} />);

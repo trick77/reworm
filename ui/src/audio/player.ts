@@ -20,6 +20,7 @@ const PAUSE_FADE = 0.3;
 const TICK_MS = 100;
 const STEP_MS = 50;
 const STOP_SLACK_MS = 30;
+const SEEK_SLACK = 0.25;
 
 export type ClipState = {
   url: string | null;
@@ -40,6 +41,8 @@ export type AudioEnv = {
   // null: no Web Audio here, the player falls back to the element engine
   createContext: () => AudioContext | null;
   navigator?: Navigator;
+  // where user gestures arrive (window): a context iOS suspended or interrupted resumes on the next one
+  gestureTarget?: EventTarget;
 };
 
 type AudioSessionNavigator = Navigator & { audioSession?: { type: string } };
@@ -89,8 +92,11 @@ function browserEnv(): AudioEnv {
       return Ctor ? new Ctor() : null;
     },
     navigator: typeof navigator === "undefined" ? undefined : navigator,
+    gestureTarget: typeof window === "undefined" ? undefined : window,
   };
 }
+
+const GESTURES = ["pointerdown", "keydown", "touchend"] as const;
 
 export class PreviewPlayer {
   private env: AudioEnv;
@@ -103,6 +109,7 @@ export class PreviewPlayer {
   private srcs: (string | null)[] = [];
   private active = 0;
   private routed = new WeakSet<HTMLAudioElement>();
+  private primed = new WeakSet<HTMLAudioElement>();
   private from = 0;
   private length = Infinity;
   private playing = false;
@@ -146,19 +153,32 @@ export class PreviewPlayer {
   }
 
   // unlock runs inside a user gesture: audio session, the AudioContext, and one muted play of every element,
-  // so each may play later without a tap.
+  // so each may play later without a tap. Each element pauses once its play() resolved (pausing earlier
+  // aborts the play, which may not count as played), unless a clip started on it meanwhile.
   unlock() {
     setAudioSession(this.env.navigator);
     if (this._engine === "webaudio") this.ensureCtx();
     for (let i = 0; i < this.buffers; i++) {
       const el = this.element(i);
-      if (!el.paused) continue;
+      // once per element: a later unlock (every tap may call it) must not start a preloaded element
+      if (this.primed.has(el) || !el.paused) continue;
+      this.primed.add(el);
       if (this.srcs[i] == null) el.src = silentWav();
       el.muted = true;
+      const gen = this.gen;
+      const unmute = () => {
+        el.muted = false;
+      };
       const p = el.play();
-      el.pause();
-      el.muted = false;
-      p?.catch(() => {});
+      if (!p) {
+        el.pause();
+        unmute();
+        continue;
+      }
+      p.then(() => {
+        if (this.gen === gen || el !== this.current()) el.pause();
+        unmute();
+      }, unmute);
     }
   }
 
@@ -195,12 +215,29 @@ export class PreviewPlayer {
       this.srcs[this.active] = url;
     }
     const el = this.element(this.active);
-    try {
-      el.currentTime = this.from;
-    } catch {
-      // before metadata some browsers refuse; the clip then starts at 0
-    }
+    const at = this.from;
+    const seek = () => {
+      try {
+        el.currentTime = at;
+      } catch {
+        // before metadata some browsers refuse: loadedmetadata below tries again
+      }
+    };
+    seek();
     this.start(el);
+    // A src just set has no metadata yet: the seek may not stick and the clip would start at 0 and run past
+    // its end. Seek again once the metadata is in, if this start is still the current one.
+    if (el.readyState >= 1 && Math.abs(el.currentTime - at) < SEEK_SLACK)
+      return;
+    const gen = this.gen;
+    const onMeta = () => {
+      el.removeEventListener("loadedmetadata", onMeta);
+      if (gen !== this.gen || Math.abs(el.currentTime - at) < SEEK_SLACK)
+        return;
+      seek();
+      this.emit();
+    };
+    el.addEventListener("loadedmetadata", onMeta);
   }
 
   // fadeOut fades the current clip out over `seconds`, then pauses. Resolves once paused, or when a new
@@ -244,23 +281,25 @@ export class PreviewPlayer {
     return this.fadeOut(PAUSE_FADE);
   }
 
-  // resume continues a paused clip, takes back a fade in progress, or replays an ended clip from its start.
+  // resume continues a paused clip, takes back a pause fade, or replays a clip that ended or is fading out
+  // into its end from its start (tick would only fade it out again).
   resume() {
     const el = this.current();
     const url = this.srcs[this.active];
     if (!el || !url) return;
-    if (this.ended) {
+    if (this.ended || this.ending) {
       this.play(url, { from: this.from, length: this.length });
       return;
     }
-    if (this.fading) {
+    const takeBack = this.fading;
+    if (takeBack) {
       this.clearTimers();
       this.fading = false;
       this.ending = false;
     } else if (this.playing) {
       return;
     }
-    this.start(el);
+    this.start(el, !takeBack);
   }
 
   // level is the current fade, 0–1.
@@ -299,9 +338,11 @@ export class PreviewPlayer {
     return () => this.endL.delete(f);
   }
 
-  private start(el: HTMLAudioElement) {
+  // start plays el with a fade in, from silence unless it takes back a fade out still sounding.
+  private start(el: HTMLAudioElement, fromSilence = true) {
     const gen = ++this.gen;
-    this.fadeIn(el);
+    el.muted = false; // an unlock's muted play may still be pending on this element
+    this.fadeIn(el, fromSilence);
     this.playing = true;
     el.play()?.catch(() => {
       // autoplay refused (no tap yet) or cut short by a newer start: only the newest start counts
@@ -314,20 +355,20 @@ export class PreviewPlayer {
     this.emit();
   }
 
-  // fadeIn ramps up to full: from silence on a paused element, from where it is on one still fading out.
-  private fadeIn(el: HTMLAudioElement) {
+  // fadeIn ramps up to full, from silence or from where a taken-back fade out is.
+  private fadeIn(el: HTMLAudioElement, fromSilence: boolean) {
     if (this._engine === "webaudio" && this.gain && this.ctx) {
       this.route(el);
       const g = this.gain.gain;
       const now = this.ctx.currentTime;
-      const from = el.paused ? 0.0001 : Math.max(0.0001, g.value);
+      const from = fromSilence ? 0.0001 : Math.max(0.0001, g.value);
       g.cancelScheduledValues(now);
       g.setValueAtTime(from, now);
       g.linearRampToValueAtTime(1, now + FADE_IN);
       return;
     }
     if (this.canFadeVolume(el)) {
-      if (el.paused) el.volume = 0;
+      if (fromSilence) el.volume = 0;
       this.stepVolume(el, 1, FADE_IN);
     }
   }
@@ -398,8 +439,27 @@ export class PreviewPlayer {
       this.gain = ctx.createGain();
       this.gain.gain.value = 0;
       this.gain.connect(ctx.destination);
+      // iOS suspends or "interrupts" the context (a call, Siri) and wants a gesture to resume it
+      ctx.addEventListener?.("statechange", () => {
+        if (stalled(ctx)) this.resumeOnGesture(ctx);
+      });
     }
-    if (this.ctx.state === "suspended") void this.ctx.resume();
+    resumeCtx(this.ctx);
+  }
+
+  private gestureArmed = false;
+
+  // resumeOnGesture resumes a stalled context on the next tap or key anywhere, once.
+  private resumeOnGesture(ctx: AudioContext) {
+    const t = this.env.gestureTarget;
+    if (!t || this.gestureArmed) return;
+    this.gestureArmed = true;
+    const on = () => {
+      GESTURES.forEach((g) => t.removeEventListener(g, on, true));
+      this.gestureArmed = false;
+      resumeCtx(ctx);
+    };
+    GESTURES.forEach((g) => t.addEventListener(g, on, true));
   }
 
   // route wires an element into the shared gain node, once: a MediaElementSource can't be made twice.
@@ -457,6 +517,16 @@ export class PreviewPlayer {
     this.fading = false;
     this.ending = false;
   }
+}
+
+// stalled: neither running nor closed: "suspended", or iOS's "interrupted".
+function stalled(ctx: AudioContext): boolean {
+  const s: string = ctx.state;
+  return s !== "running" && s !== "closed";
+}
+
+function resumeCtx(ctx: AudioContext) {
+  if (stalled(ctx)) ctx.resume().catch(() => {});
 }
 
 // release stops an element's download too: removing src alone keeps the old resource loading until load().

@@ -177,7 +177,7 @@ describe("PreviewPlayer, webaudio engine", () => {
     expect(p.state().playing).toBe(false);
   });
 
-  it("unlock: audio session, context, one muted play+pause of both elements in the tap", () => {
+  it("unlock: audio session, context, one muted play of both elements, paused once it resolved", async () => {
     const { p, audios, ctxs, nav } = setup();
     p.unlock();
     expect(nav.audioSession.type).toBe("playback");
@@ -186,11 +186,147 @@ describe("PreviewPlayer, webaudio engine", () => {
     for (const el of audios) {
       expect(el.src).toBe(silentWav());
       expect(el.play).toHaveBeenCalledTimes(1);
+      expect(el.muted).toBe(true);
+      expect(el.pause).not.toHaveBeenCalled(); // pausing now would abort the play
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    for (const el of audios) {
       expect(el.pause).toHaveBeenCalledTimes(1);
       expect(el.paused).toBe(true);
       expect(el.muted).toBe(false);
     }
     expect(p.state().url).toBeNull();
+  });
+
+  it("unlock unmutes quietly when the play is refused", async () => {
+    const f = fakeEnv();
+    const p = new PreviewPlayer({
+      env: {
+        ...f.env,
+        createAudio: () => {
+          const el = f.env.createAudio();
+          (el as unknown as { rejectPlay: boolean }).rejectPlay = true;
+          return el;
+        },
+      },
+    });
+    p.unlock();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.audios.map((el) => el.muted)).toEqual([false, false]);
+  });
+
+  it("an unlock on every start keeps each swapped clip's fade in from silence", async () => {
+    const { p, audios, ctxs } = setup();
+    const g = () => ctxs[0].gain.gain;
+    p.unlock();
+    p.play(A);
+    p.prefetch(B);
+    await vi.advanceTimersByTimeAsync(2000);
+    g().value = 1;
+    p.unlock(); // primes each element once: B stays paused
+    expect(audios[1].play).toHaveBeenCalledTimes(1);
+    p.play(B);
+    expect(g().last("set")).toEqual(["set", 0.0001, 10]);
+    p.prefetch(C);
+    g().value = 1;
+    p.unlock();
+    p.play(C);
+    expect(g().last("set")).toEqual(["set", 0.0001, 10]);
+  });
+
+  it("a first unlock of a preloaded element right before play still fades in", () => {
+    const f = fakeEnv({ webAudio: false });
+    const p = new PreviewPlayer({ engine: "element", env: f.env });
+    p.play(A);
+    p.prefetch(B);
+    f.audios[1].volume = 1;
+    p.unlock(); // B's muted priming play is still running
+    p.play(B);
+    expect(f.audios[1].volume).toBe(0);
+  });
+
+  it("a clip started during unlock keeps playing, unmuted", async () => {
+    const { p, audios } = setup();
+    p.unlock();
+    p.play(A);
+    expect(audios[0].muted).toBe(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(audios[0].paused).toBe(false);
+    expect(audios[1].paused).toBe(true);
+    expect(p.state()).toMatchObject({ url: A, playing: true });
+  });
+
+  it("resumes an interrupted context, and a stalled one on the next gesture", async () => {
+    const { p, ctxs, gestures } = setup();
+    p.play(A);
+    const ctx = ctxs[0];
+    expect(ctx.resume).toHaveBeenCalledTimes(1);
+    ctx.state = "interrupted"; // a call, Siri
+    p.play(B);
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+    ctx.state = "interrupted";
+    ctx.fire("statechange");
+    ctx.fire("statechange"); // armed once
+    expect(ctx.resume).toHaveBeenCalledTimes(2);
+    gestures.dispatchEvent(new Event("pointerdown"));
+    expect(ctx.resume).toHaveBeenCalledTimes(3);
+    gestures.dispatchEvent(new Event("keydown"));
+    expect(ctx.resume).toHaveBeenCalledTimes(3); // disarmed after one
+    ctx.state = "closed";
+    ctx.fire("statechange");
+    p.play(C);
+    expect(ctx.resume).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(0);
+  });
+
+  it("seeks to `from` again once the metadata is in, if the early seek did not stick", async () => {
+    const f = fakeEnv();
+    const p = new PreviewPlayer({ prefetch: false, env: f.env });
+    p.play(A);
+    const el = f.audios[0];
+    el.readyState = 0;
+    el.seekBlocked = true;
+    p.play(B, { from: 30, length: 20 });
+    expect(el.currentTime).toBe(0);
+    expect(p.state().pos).toBe(0);
+    el.seekBlocked = false;
+    el.readyState = 1;
+    el.fire("loadedmetadata");
+    expect(el.currentTime).toBe(30);
+    expect(el.listening("loadedmetadata")).toBe(0);
+    el.currentTime = 33;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(p.state().pos).toBe(3);
+  });
+
+  it("leaves the position alone when the metadata comes for an older clip", () => {
+    const f = fakeEnv();
+    const p = new PreviewPlayer({ prefetch: false, env: f.env });
+    p.play(A);
+    const el = f.audios[0];
+    el.readyState = 0;
+    el.seekBlocked = true;
+    p.play(B, { from: 30 });
+    el.seekBlocked = false;
+    p.play(C, { from: 5 });
+    el.fire("loadedmetadata");
+    expect(el.currentTime).toBe(5);
+  });
+
+  it("resume during the fade into the clip's end replays from the start", async () => {
+    const { p, audios } = setup();
+    const end = vi.fn();
+    p.onEnd(end);
+    p.play(A, { from: 30, length: 20 });
+    const el = audios[0];
+    el.currentTime = 49.5;
+    await vi.advanceTimersByTimeAsync(100); // the end fade starts
+    p.resume();
+    expect(el.currentTime).toBe(30);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(el.paused).toBe(false);
+    expect(end).not.toHaveBeenCalled();
+    expect(p.state().playing).toBe(true);
   });
 
   it("unlock leaves a playing element and a preloaded clip alone", () => {

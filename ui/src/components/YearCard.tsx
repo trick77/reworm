@@ -80,10 +80,14 @@ export function YearCard({
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const live = !!onAnswer && !flying;
 
+  // answered: set at once, unlike the flying state, so two answers in one frame (a key and a tap) submit once
+  const answered = useRef(false);
+
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const fly = (c: Choice) => {
-    if (!onAnswer || flying) return;
+    if (!onAnswer || answered.current) return;
+    answered.current = true;
     setFlying(c);
     timer.current = setTimeout(() => onAnswer(c), FLY);
   };
@@ -181,7 +185,7 @@ export function YearCard({
         {hint && <div className="hint">{hint}</div>}
       </div>
       {choices && onAnswer && (
-        <AnswerPad onAnswer={fly} disabled={!!flying} keys={keyboard} />
+        <AnswerPad onAnswer={fly} disabled={!!flying} keys={!!keyboard} />
       )}
     </>
   );

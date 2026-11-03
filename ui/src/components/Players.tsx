@@ -50,21 +50,26 @@ export function PlayerStrip({
   );
 }
 
-// Standings: the top rows by score, the round's winner marked ▲ (and first among equals).
+// Standings: the top rows by score, the round's winner marked ▲ (and first among equals). The winner is
+// matched by winnerId; by name only for players without an id.
 export function Standings({
   players,
+  winnerId,
   winner,
   limit = 4,
 }: {
   players: Player[];
+  winnerId?: string;
   winner?: string;
   limit?: number;
 }) {
+  const won = (p: Player) =>
+    winnerId != null && p.id != null
+      ? p.id === winnerId
+      : winner != null && p.name === winner;
   const rows = keyed(players)
     .sort(
-      (a, b) =>
-        b.p.score - a.p.score ||
-        Number(b.p.name === winner) - Number(a.p.name === winner),
+      (a, b) => b.p.score - a.p.score || Number(won(b.p)) - Number(won(a.p)),
     )
     .slice(0, limit);
   return (
@@ -80,9 +85,7 @@ export function Standings({
           </div>
           <b className="num">
             {p.score}
-            {p.name === winner && (
-              <span style={{ color: "var(--jade)" }}> ▲</span>
-            )}
+            {won(p) && <span style={{ color: "var(--jade)" }}> ▲</span>}
           </b>
         </div>
       ))}

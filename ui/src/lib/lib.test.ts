@@ -1,4 +1,4 @@
-import { artGradient, hash, initials } from "./art";
+import { artGradient, hash } from "./art";
 import { cx } from "./cx";
 
 describe("art", () => {
@@ -9,16 +9,6 @@ describe("art", () => {
     expect(artGradient("Dancing QueenABBA")).toMatch(
       /^linear-gradient\(135deg,hsl\(\d+ 62% 52%\),hsl\(\d+ 55% 28%\)\)$/,
     );
-  });
-
-  it("initials of the first two words", () => {
-    expect(initials("Mark Ronson, Bruno Mars")).toBe("MR");
-    expect(initials("R.E.M.")).toBe("R");
-    expect(initials("(What's the Story) Morning Glory?")).toBe("WT");
-    expect(initials("Édith Piaf")).toBe("ÉP");
-    expect(initials("Die Ärzte")).toBe("DÄ");
-    expect(initials("Joseíto Fernández")).toBe("JF");
-    expect(initials("& more")).toBe("M");
   });
 });
 

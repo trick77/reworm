@@ -21,7 +21,25 @@ export class FakeParam {
   }
 }
 
-export class FakeContext {
+// Listeners: just addEventListener/removeEventListener and a fire() for the test.
+class Events {
+  private ls = new Map<string, Set<() => void>>();
+  addEventListener(type: string, f: () => void) {
+    if (!this.ls.has(type)) this.ls.set(type, new Set());
+    this.ls.get(type)!.add(f);
+  }
+  removeEventListener(type: string, f: () => void) {
+    this.ls.get(type)?.delete(f);
+  }
+  fire(type: string) {
+    [...(this.ls.get(type) ?? [])].forEach((f) => f());
+  }
+  listening(type: string) {
+    return this.ls.get(type)?.size ?? 0;
+  }
+}
+
+export class FakeContext extends Events {
   currentTime = 10;
   state = "suspended";
   destination = {};
@@ -41,11 +59,20 @@ export class FakeContext {
   }
 }
 
-export class FakeAudio {
+export class FakeAudio extends Events {
   crossOrigin: string | null = null;
   preload = "";
-  currentTime = 0;
   duration = NaN;
+  // readyState 4 (all loaded) unless a test says otherwise; seekBlocked: seeks are ignored (no metadata yet)
+  readyState = 4;
+  seekBlocked = false;
+  private _time = 0;
+  get currentTime() {
+    return this._time;
+  }
+  set currentTime(v: number) {
+    if (!this.seekBlocked) this._time = v;
+  }
   paused = true;
   ended = false;
   muted = false;
@@ -93,6 +120,7 @@ export function fakeEnv(
   const audios: FakeAudio[] = [];
   const ctxs: FakeContext[] = [];
   const nav = { audioSession: { type: "auto" } };
+  const gestures = new EventTarget();
   const env: AudioEnv = {
     createAudio: () => {
       const a = new FakeAudio();
@@ -107,6 +135,7 @@ export function fakeEnv(
       return c as unknown as AudioContext;
     },
     navigator: nav as unknown as Navigator,
+    gestureTarget: gestures,
   };
-  return { env, audios, ctxs, nav };
+  return { env, audios, ctxs, nav, gestures };
 }

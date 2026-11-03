@@ -31,10 +31,11 @@ export function CountdownRing({
     if (paused) return;
     const since = Date.now();
     const elapsed = () => ran.current + Date.now() - since;
-    const id = setInterval(
-      () => setLeft(Math.max(0, seconds - Math.floor(elapsed() / 1000))),
-      TICK_MS,
-    );
+    const id = setInterval(() => {
+      const left = Math.max(0, seconds - Math.floor(elapsed() / 1000));
+      setLeft(left);
+      if (left === 0) clearInterval(id);
+    }, TICK_MS);
     return () => {
       ran.current = elapsed();
       clearInterval(id);

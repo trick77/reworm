@@ -24,7 +24,8 @@ export function Cover({
   const [failed, setFailed] = useState<string | null>(null);
   const dims = size ? { width: size, height: size } : undefined;
   const cls = cx("cover", mini && "mini", flip && "flip");
-  const albumName = album.replace(/\s*\(.*\)$/, "");
+  // only the last bracket group goes ("(2011 Remaster)"), never a title's own "(What's the Story)"
+  const albumName = album.replace(/\s*\([^()]*\)$/, "");
   if (src && src !== failed) {
     return (
       <div className={cx(cls, "img")} style={dims}>
