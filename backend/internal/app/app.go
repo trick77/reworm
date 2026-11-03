@@ -27,10 +27,10 @@ func Main(ctx context.Context, args []string, lookup func(string) string) int {
 	// The container probe (compose healthcheck) runs before any setup: it must answer even when the rest of the
 	// environment is broken.
 	if len(args) > 0 && args[0] == "healthcheck" {
-		return httpx.Healthcheck(httpx.LocalURL(env.New(lookup).String("REWORM_ADDR", defaultAddr), "/healthz"))
+		return httpx.Healthcheck(httpx.LocalURL(env.New(lookup).String("BACKEND_ADDR", defaultAddr), "/healthz"))
 	}
-	// A bad REWORM_LOG_LEVEL fails boot instead of logging at info.
-	if _, err := logging.Setup(logging.Options{Level: lookup("REWORM_LOG_LEVEL"), LevelVar: "REWORM_LOG_LEVEL"}); err != nil {
+	// A bad BACKEND_LOG_LEVEL fails boot instead of logging at info.
+	if _, err := logging.Setup(logging.Options{Level: lookup("BACKEND_LOG_LEVEL"), LevelVar: "BACKEND_LOG_LEVEL"}); err != nil {
 		slog.Error("fatal", logging.Err(err))
 		return 1
 	}

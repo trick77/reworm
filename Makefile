@@ -15,13 +15,14 @@ ui-build:
 	find backend/web/dist -mindepth 1 ! -name .gitkeep -exec rm -rf {} +
 	cd ui && npm ci && npm run build
 
+# No version stamp: unstamped, kit's version.String reports dev-<commit>[-dirty]; releases stamp it in the image.
 build: ui-build
-	cd backend && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X github.com/trick77/ship/kit/version.Version=$$(git rev-parse --short HEAD 2>/dev/null || echo dev)" -o ../bin/reworm ./cmd/reworm
+	cd backend && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o ../bin/reworm ./cmd/reworm
 
 # The server on :8080 with its database in data/dev (ignored); `make ui-dev` beside it for vite's dev server.
 run:
 	mkdir -p data/dev
-	cd backend && REWORM_DATA_DIR=../data/dev go run ./cmd/reworm
+	cd backend && BACKEND_DATA_DIR=../data/dev go run ./cmd/reworm
 
 ui-dev:
 	cd ui && npm run dev

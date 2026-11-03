@@ -22,7 +22,7 @@ func TestLoadConfig(t *testing.T) {
 		t.Errorf("defaults = %+v", cfg)
 	}
 	cfg, err = LoadConfig(lookup(map[string]string{
-		"REWORM_ADDR": "127.0.0.1:9000", "REWORM_DATA_DIR": "/tmp/x", "REWORM_PUBLIC_FQDN": "reworm.example.com",
+		"BACKEND_ADDR": "127.0.0.1:9000", "BACKEND_DATA_DIR": "/tmp/x", "PUBLIC_FQDN": "reworm.example.com",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestMain_badLogLevelFailsBoot(t *testing.T) {
-	if code := Main(context.Background(), nil, lookup(map[string]string{"REWORM_LOG_LEVEL": "loud"})); code != 1 {
+	if code := Main(context.Background(), nil, lookup(map[string]string{"BACKEND_LOG_LEVEL": "loud"})); code != 1 {
 		t.Errorf("exit = %d, want 1", code)
 	}
 }
@@ -44,21 +44,21 @@ func TestMain_runErrorExitsOne(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code := Main(context.Background(), nil, lookup(map[string]string{"REWORM_DATA_DIR": file})); code != 1 {
+	if code := Main(context.Background(), nil, lookup(map[string]string{"BACKEND_DATA_DIR": file})); code != 1 {
 		t.Errorf("exit = %d, want 1", code)
 	}
 }
 
 func TestMain_healthcheckWithoutServerFails(t *testing.T) {
 	addr := freeAddr(t)
-	if code := Main(context.Background(), []string{"healthcheck"}, lookup(map[string]string{"REWORM_ADDR": addr})); code != 1 {
+	if code := Main(context.Background(), []string{"healthcheck"}, lookup(map[string]string{"BACKEND_ADDR": addr})); code != 1 {
 		t.Errorf("exit = %d, want 1", code)
 	}
 }
 
 func TestMain_servesUntilCancelled(t *testing.T) {
 	addr := freeAddr(t)
-	vars := lookup(map[string]string{"REWORM_ADDR": addr, "REWORM_DATA_DIR": filepath.Join(t.TempDir(), "data")})
+	vars := lookup(map[string]string{"BACKEND_ADDR": addr, "BACKEND_DATA_DIR": filepath.Join(t.TempDir(), "data")})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan int, 1)
 	go func() { done <- Main(ctx, nil, vars) }()

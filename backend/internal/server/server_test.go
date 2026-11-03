@@ -55,6 +55,23 @@ func TestStaticGetsTheRest(t *testing.T) {
 	}
 }
 
+func TestWrongMethodIs405(t *testing.T) {
+	rec := httptest.NewRecorder()
+	New(static).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/version", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/version = %d, want 405", rec.Code)
+	}
+}
+
+func TestClientIP_behindOneProxy(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "172.18.0.2:40000" // Traefik
+	req.Header.Set("X-Forwarded-For", "6.6.6.6, 203.0.113.7")
+	if got := ClientIP(req); got != "203.0.113.7" {
+		t.Errorf("ClientIP = %q, want the entry Traefik appended", got)
+	}
+}
+
 func TestCrossOriginMutationRefused(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/version", nil)
 	req.Header.Set("Sec-Fetch-Site", "cross-site")

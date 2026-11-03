@@ -29,8 +29,9 @@ func migrations() fs.FS {
 
 // Open opens (creating if needed) the database at path, applies pending migrations and returns the pool.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
-	// Migrations run on a pool of their own, closed before the app's opens: a table rebuild switches foreign keys
-	// off on its connection, and one that fails midway must not hand that connection to the app.
+	// Migrations run on a pool of their own, closed before the app's opens. Inside a transaction SQLite ignores
+	// PRAGMA foreign_keys, so a table rebuild is a `-- migrate:no-transaction` file that switches them off on its
+	// connection itself; one that fails midway must not hand that FK-off connection to the app.
 	mdb, err := sql.Open("sqlite3", dsn(path))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)

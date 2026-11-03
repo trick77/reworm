@@ -14,16 +14,23 @@ func New(static http.Handler, checks ...httpx.Check) http.Handler {
 	mux := http.NewServeMux()
 	httpx.Health(mux, slog.Default(), checks...)
 	mux.HandleFunc("GET /api/version", handleVersion)
-	mux.Handle("/", static)
+	// GET (HEAD included) only: a wrong method on an API route is a 405, not the SPA's 404.
+	mux.Handle("GET /", static)
 	// Access log outermost, so a panic's line and its 500 carry the request id; the security headers outside
 	// Recover, so the 500 keeps them.
 	return httpx.Chain(mux,
-		httpx.AccessLog(nil, httpx.AccessLogOptions{RoutineLevel: slog.LevelInfo}),
+		httpx.AccessLog(nil, httpx.AccessLogOptions{ClientIP: ClientIP, RoutineLevel: slog.LevelInfo}),
 		httpx.SecurityHeaders(""),
 		httpx.Recover(nil),
 		httpx.CrossOrigin,
 	)
 }
+
+// trustedHops is the proxies in front of the app: one Traefik (compose.yaml).
+const trustedHops = 1
+
+// ClientIP is the caller's address behind Traefik, what the access log and rate limits key on.
+func ClientIP(r *http.Request) string { return httpx.ClientIP(r, trustedHops) }
 
 type versionResponse struct {
 	Version string `json:"version"`
