@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><clipPath id="c"><circle cx="32" cy="32" r="32"/></clipPath><circle cx="32" cy="32" r="32" fill="#ffd166"/><g clip-path="url(#c)">
+  <rect x="14" y="6" width="36" height="52" rx="7" fill="#2b2621" stroke="#13110f" stroke-width="2"/>
+  <circle cx="25" cy="19" r="6" fill="#5a5047"/><circle cx="39" cy="19" r="6" fill="#5a5047"/><circle cx="25" cy="19" r="4.2" fill="#fff" stroke="#13110f" stroke-width="1.2"/><circle cx="25.7" cy="19.6" r="2.1" fill="#13110f"/><circle cx="26.4" cy="18.6" r="0.672" fill="#fff"/><circle cx="39" cy="19" r="4.2" fill="#fff" stroke="#13110f" stroke-width="1.2"/><circle cx="38.3" cy="19.6" r="2.1" fill="#13110f"/><circle cx="39" cy="18.6" r="0.672" fill="#fff"/>
+  <circle cx="32" cy="41" r="12" fill="#3a332c" stroke="#5a5047" stroke-width="2"/><circle cx="32" cy="41" r="7" fill="#13110f"/>
+  <path d="M27 41q5 5 10 0" stroke="#e5482f" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M54 30q4 4 0 8M58 26q7 8 0 16" stroke="#13110f" stroke-width="2" fill="none" stroke-linecap="round"/>
+</g></svg>
