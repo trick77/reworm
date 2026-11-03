@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import App from "./App";
 
 function stubFetch(response: Promise<Response>) {
@@ -28,5 +28,27 @@ describe("App", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(screen.getByText("worm")).toBeInTheDocument();
     expect(container.querySelector(".version")).toBeNull();
+  });
+
+  it("shows the gallery on #gallery in dev, the landing otherwise", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("offline"))),
+    );
+    window.location.hash = "#gallery";
+    const { unmount } = render(<App dev />);
+    expect(await screen.findByText("component gallery")).toBeInTheDocument();
+    act(() => {
+      window.location.hash = "";
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    expect(screen.queryByText("component gallery")).toBeNull();
+    unmount();
+
+    window.location.hash = "#gallery";
+    render(<App dev={false} />);
+    expect(screen.queryByText("component gallery")).toBeNull();
+    expect(screen.getByText("worm")).toBeInTheDocument();
+    window.location.hash = "";
   });
 });

@@ -1,9 +1,34 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { fetchVersion } from "./api";
 import { WormLogo } from "./WormLogo";
 import "./App.css";
 
-export default function App() {
+// The component gallery is for the dev server only; a production build leaves it out.
+const Gallery = lazy(() => import("./gallery/Gallery"));
+
+function useHash() {
+  const [hash, setHash] = useState(() => window.location.hash);
+  useEffect(() => {
+    const on = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  return hash;
+}
+
+export default function App({ dev = import.meta.env.DEV }: { dev?: boolean }) {
+  const hash = useHash();
+  if (dev && hash === "#gallery") {
+    return (
+      <Suspense fallback={null}>
+        <Gallery />
+      </Suspense>
+    );
+  }
+  return <Landing />;
+}
+
+function Landing() {
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {

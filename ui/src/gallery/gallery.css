@@ -1,0 +1,64 @@
+/* Gallery only: frames that hold whole screens. Each frame's .app is its own container, so the screens
+   lay out by the frame's width, as on the device. */
+.g-section {
+  margin-bottom: 8px;
+}
+.g-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.g-awards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 22px;
+}
+.g-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.g-frames.pads {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.g-fig {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.g-fig figcaption {
+  font-size: 13px;
+  color: var(--muted);
+}
+.g-frame {
+  width: 100%;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  position: relative;
+}
+.g-frame.stage {
+  max-width: 1180px;
+  height: 820px;
+}
+.g-frame.pad {
+  width: 340px;
+  max-width: 100%;
+  height: 720px;
+}
+.g-frame.portrait {
+  width: 820px;
+  max-width: 100%;
+  height: 900px;
+}
+.g-me {
+  padding: 8px;
+  line-height: 0;
+}
+.g-frame > .app {
+  height: 100%;
+}
