@@ -29,14 +29,15 @@ func TestSearch_queryHeadersAndDecode(t *testing.T) {
 			t.Errorf("request %s %v", r.URL.Path, r.Header)
 		}
 		q := r.URL.Query()
-		if q.Get("query") != `recording:"Dancing \"Queen\"" AND artist:"AB\\BA"` || q.Get("fmt") != "json" || q.Get("limit") != "100" {
+		if q.Get("query") != `recording:"Dancing \"Queen\"" AND artist:"AB\\BA" AND firstreleasedate:[0000 TO 1977-12-31]` ||
+			q.Get("fmt") != "json" || q.Get("limit") != "100" {
 			t.Errorf("query %v", q)
 		}
 		_, _ = w.Write(body)
 	}))
 	defer srv.Close()
 	c := &Client{BaseURL: srv.URL, HTTP: srv.Client(), UserAgent: "Reworm/test ( https://github.com/trick77/reworm )"}
-	recs, err := c.Search(context.Background(), `AB\BA`, `Dancing "Queen"`)
+	recs, err := c.Search(context.Background(), `AB\BA`, `Dancing "Queen"`, 1977)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestSearch_pagesPastTheFirstHundred(t *testing.T) {
 		_, _ = w.Write([]byte(`{"count":450,"recordings":[{"id":"r` + off + `","title":"T"}]}`))
 	}))
 	defer srv.Close()
-	recs, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Search(context.Background(), "A", "T")
+	recs, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Search(context.Background(), "A", "T", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestSearch_retriesTooFastThenFails(t *testing.T) {
 	var waits []time.Duration
 	c := &Client{BaseURL: srv.URL, HTTP: srv.Client(),
 		Sleep: func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }}
-	if recs, err := c.Search(context.Background(), "A", "T"); err != nil || len(recs) != 0 {
+	if recs, err := c.Search(context.Background(), "A", "T", 0); err != nil || len(recs) != 0 {
 		t.Fatalf("%v, %v", recs, err)
 	}
 	if !slices.Equal(waits, []time.Duration{2 * time.Second, 4 * time.Second}) {
@@ -85,11 +86,11 @@ func TestSearch_retriesTooFastThenFails(t *testing.T) {
 
 	calls.Store(-100)
 	waits = nil
-	if _, err := c.Search(context.Background(), "A", "T"); err == nil || !strings.Contains(err.Error(), "503 after 6 tries") {
+	if _, err := c.Search(context.Background(), "A", "T", 0); err == nil || !strings.Contains(err.Error(), "503 after 6 tries") {
 		t.Errorf("err = %v", err)
 	}
 	c.Sleep = func(context.Context, time.Duration) error { return context.Canceled }
-	if _, err := c.Search(context.Background(), "A", "T"); !errors.Is(err, context.Canceled) {
+	if _, err := c.Search(context.Background(), "A", "T", 0); !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v", err)
 	}
 }
@@ -104,18 +105,23 @@ func TestSearch_errors(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := &Client{BaseURL: srv.URL, HTTP: srv.Client()}
-	if _, err := c.Search(context.Background(), "A", "T"); err == nil || !strings.Contains(err.Error(), "400") {
+	if _, err := c.Search(context.Background(), "A", "T", 0); err == nil || !strings.Contains(err.Error(), "400") {
 		t.Errorf("400: %v", err)
 	}
-	if _, err := c.Search(context.Background(), "A", "bad"); err == nil || !strings.Contains(err.Error(), "decode") {
+	if _, err := c.Search(context.Background(), "A", "bad", 0); err == nil || !strings.Contains(err.Error(), "decode") {
 		t.Errorf("bad json: %v", err)
 	}
-	down := &Client{BaseURL: "http://127.0.0.1:1"}
-	if _, err := down.Search(context.Background(), "A", "T"); err == nil {
-		t.Error("unreachable: no error")
+	// A network error is retried like a 503, then reported.
+	var tries int
+	down := &Client{BaseURL: "http://127.0.0.1:1", Sleep: func(context.Context, time.Duration) error { tries++; return nil }}
+	if _, err := down.Search(context.Background(), "A", "T", 0); err == nil || !strings.Contains(err.Error(), "after 6 tries") || tries != 5 {
+		t.Errorf("unreachable: %v after %d waits", err, tries)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
+	if _, err := down.Search(ctx, "A", "T", 0); !errors.Is(err, context.Canceled) {
+		t.Errorf("canceled: %v", err)
+	}
 	if err := (&Client{}).sleep(ctx, time.Hour); !errors.Is(err, context.Canceled) {
 		t.Errorf("sleep %v", err)
 	}
@@ -129,7 +135,7 @@ func decodeFixture(t *testing.T) []Recording {
 	body := fixture(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
 	defer srv.Close()
-	recs, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Search(context.Background(), "ABBA", "Dancing Queen")
+	recs, err := (&Client{BaseURL: srv.URL, HTTP: srv.Client()}).Search(context.Background(), "ABBA", "Dancing Queen", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,6 +205,21 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 	} {
 		if got := Strip(in); got != want {
 			t.Errorf("Strip(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string][]string{
+		"Waterloo": {"Waterloo"},
+		"Robin Hood - König der Diebe ((Everything I Do) I Do It For You)": {
+			"Robin Hood - König der Diebe ((Everything I Do) I Do It For You)", "Robin Hood",
+			"(Everything I Do) I Do It For You"},
+		"James Bond 007 - Skyfall":                        {"James Bond 007 - Skyfall", "James Bond 007", "Skyfall"},
+		"Bodyguard (I Will Always Love You)":              {"Bodyguard (I Will Always Love You)", "Bodyguard", "I Will Always Love You"},
+		"Die Schöne und das Biest - Beauty and the Beast": {"Die Schöne und das Biest - Beauty and the Beast", "Die Schöne und das Biest", "Beauty and the Beast"},
+		"(Mono)": {"(Mono)", "Mono"},
+		"Odd)":   {"Odd)"},
+	} {
+		if got := SongTitles(in); !slices.Equal(got, want) {
+			t.Errorf("SongTitles(%q) = %q, want %q", in, got, want)
 		}
 	}
 	if !SameTitle("Bohemian Rhapsody - Remastered 2011", "bohemian rhapsody") || SameTitle("Waterloo", "Dancing Queen") {

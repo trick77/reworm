@@ -32,7 +32,7 @@ type Catalog interface {
 
 // Recordings is what the pipeline asks MusicBrainz; *musicbrainz.Client implements it.
 type Recordings interface {
-	Search(ctx context.Context, artist, title string) ([]musicbrainz.Recording, error)
+	Search(ctx context.Context, artist, title string, until int) ([]musicbrainz.Recording, error)
 }
 
 // Pipeline resolves card songs against MusicBrainz, Apple and the Cover Art Archive.
@@ -167,14 +167,17 @@ func (p *Pipeline) resolve(ctx context.Context, e entry) (resolved, error) {
 	r := resolved{entry: e}
 	s := song.Song{Artist: e.Artist, Title: e.Title, Year: e.Year, YearSource: song.YearCard, Sets: e.Sets}
 
-	m, ok, err := p.findRecording(ctx, e)
+	m, ok, why, err := p.findRecording(ctx, e)
 	if err != nil {
 		return r, err
 	}
 	if ok {
 		r.MBMatched, r.MBYear = true, m.Year
 		s.ID, s.MBID = m.Recording.ID, m.Recording.ID
-		if !m.Exact {
+		switch {
+		case why != "":
+			r.Low = append(r.Low, why)
+		case !m.Exact:
 			r.Low = append(r.Low, "MusicBrainz artist matched loosely ("+m.Recording.Credit+")")
 		}
 	} else {
@@ -213,27 +216,38 @@ func (p *Pipeline) resolve(ctx context.Context, e entry) (resolved, error) {
 	return r, nil
 }
 
-// findRecording searches MusicBrainz as the card writes it, then once more with the main artist and the title
-// without its parentheticals; a match of the second search is never exact.
-func (p *Pipeline) findRecording(ctx context.Context, e entry) (musicbrainz.Match, bool, error) {
-	recs, err := p.MB.Search(ctx, e.Artist, e.Title)
+// findRecording searches MusicBrainz for recordings first released by the year after the card's: as the card
+// writes it, then with the main artist and each other reading of the title (musicbrainz.SongTitles); last, without
+// the year bound. Only the first search can match exactly; the others are low confidence, why says how.
+func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Match, ok bool, why string, err error) {
+	type query struct{ artist, title string }
+	queries := []query{{e.Artist, e.Title}}
+	main := musicbrainz.MainArtist(e.Artist)
+	for _, t := range musicbrainz.SongTitles(e.Title) {
+		if q := (query{main, t}); !slices.Contains(queries, q) {
+			queries = append(queries, q)
+		}
+	}
+	for i, q := range queries {
+		recs, err := p.MB.Search(ctx, q.artist, q.title, e.Year+1)
+		if err != nil {
+			return m, false, "", err
+		}
+		if m, ok := musicbrainz.Pick(recs, q.artist, q.title); ok {
+			if i == 0 {
+				return m, true, "", nil
+			}
+			m.Exact = false
+			return m, true, "MusicBrainz matched as " + q.artist + " – " + q.title, nil
+		}
+	}
+	recs, err := p.MB.Search(ctx, e.Artist, e.Title, 0)
 	if err != nil {
-		return musicbrainz.Match{}, false, err
+		return m, false, "", err
 	}
-	if m, ok := musicbrainz.Pick(recs, e.Artist, e.Title); ok {
-		return m, true, nil
-	}
-	artist, title := musicbrainz.MainArtist(e.Artist), musicbrainz.Strip(e.Title)
-	if artist == e.Artist && title == e.Title {
-		return musicbrainz.Match{}, false, nil
-	}
-	recs, err = p.MB.Search(ctx, artist, title)
-	if err != nil {
-		return musicbrainz.Match{}, false, err
-	}
-	m, ok := musicbrainz.Pick(recs, artist, title)
+	m, ok = musicbrainz.Pick(recs, e.Artist, e.Title)
 	m.Exact = false
-	return m, ok, nil
+	return m, ok, "MusicBrainz has it only after the card year", nil
 }
 
 // findTrack looks the song up on Apple, only tracks with a preview counting. Per storefront (ch → de → us): the
@@ -268,20 +282,29 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 	if fallback.ID != "" {
 		return fallback, fallbackSF, false, nil
 	}
-	for _, sf := range storefronts {
-		songs, err := p.Apple.SearchSongs(ctx, sf, e.Artist+" "+e.Title, searchLimit)
-		if err != nil {
-			return apple.Song{}, "", false, err
-		}
-		same := func(s apple.Song) bool {
-			return musicbrainz.SameTitle(s.Name, e.Title) && musicbrainz.SameArtist(s.Artist, e.Artist)
-		}
-		if t, ok := best(songs, m, e.Year, same); ok {
-			return t, sf, true, nil
+	titles := musicbrainz.SongTitles(e.Title)
+	if m.Recording.Title != "" && !slices.Contains(titles, m.Recording.Title) {
+		titles = append([]string{m.Recording.Title}, titles...)
+	}
+	for _, title := range titles[:min(len(titles), searchTitles)] {
+		for _, sf := range storefronts {
+			songs, err := p.Apple.SearchSongs(ctx, sf, musicbrainz.MainArtist(e.Artist)+" "+title, searchLimit)
+			if err != nil {
+				return apple.Song{}, "", false, err
+			}
+			same := func(s apple.Song) bool {
+				return musicbrainz.SameTitle(s.Name, title) && musicbrainz.SameArtist(s.Artist, e.Artist)
+			}
+			if t, ok := best(songs, m, e.Year, same); ok {
+				return t, sf, true, nil
+			}
 		}
 	}
 	return apple.Song{}, "", false, nil
 }
+
+// searchTitles bounds the title readings the Apple search tries.
+const searchTitles = 3
 
 // albumsTried bounds the albums of one name whose tracks are read (Apple lists remasters and deluxe editions too).
 const albumsTried = 2

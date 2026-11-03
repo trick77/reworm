@@ -103,12 +103,18 @@ type searchBody struct {
 	} `json:"recordings"`
 }
 
-// Search finds recordings by artist and title (Lucene phrase query on both fields), up to maxPages pages: Bohemian
-// Rhapsody has 233 recordings by Queen and the studio one is not among the first 100.
-func (c *Client) Search(ctx context.Context, artist, title string) ([]Recording, error) {
+// Search finds recordings by artist and title (Lucene phrase query on both fields), first released by the end of
+// year until when it is not 0, up to maxPages pages. The year bound is what makes the answer usable: Bohemian
+// Rhapsody has 233 recordings by Queen, the studio one was on none of the three pages, and pages past the first
+// shuffle between calls (ties in score); bounded to 1976 there are 4, the studio one among them.
+func (c *Client) Search(ctx context.Context, artist, title string, until int) ([]Recording, error) {
+	query := fmt.Sprintf(`recording:"%s" AND artist:"%s"`, escape(title), escape(artist))
+	if until > 0 {
+		query += fmt.Sprintf(" AND firstreleasedate:[0000 TO %04d-12-31]", until)
+	}
 	var out []Recording
 	for offset, page := 0, 0; page < maxPages; page++ {
-		recs, count, err := c.searchPage(ctx, artist, title, offset)
+		recs, count, err := c.searchPage(ctx, query, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -124,9 +130,9 @@ func (c *Client) Search(ctx context.Context, artist, title string) ([]Recording,
 // maxPages bounds one search: the tail past 300 is covers and karaoke.
 const maxPages = 3
 
-func (c *Client) searchPage(ctx context.Context, artist, title string, offset int) ([]Recording, int, error) {
+func (c *Client) searchPage(ctx context.Context, query string, offset int) ([]Recording, int, error) {
 	q := url.Values{}
-	q.Set("query", fmt.Sprintf(`recording:"%s" AND artist:"%s"`, escape(title), escape(artist)))
+	q.Set("query", query)
 	q.Set("fmt", "json")
 	q.Set("limit", strconv.Itoa(searchLimit))
 	if offset > 0 {
@@ -164,44 +170,58 @@ func (c *Client) searchPage(ctx context.Context, artist, title string, offset in
 	return out, sb.Count, nil
 }
 
-// get fetches url, retrying a 503 (MusicBrainz's "too fast"), 429, 502 and 504 with a doubling backoff.
+// get fetches url, retrying a 503 (MusicBrainz's "too fast"), 429, 502, 504 and a body cut off mid-transfer
+// with a doubling backoff. A full import (~4,000 requests) met each of these a few times (2026-11-04).
 func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 	wait := 2 * time.Second
 	for attempt := 1; ; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-		if err != nil {
+		status, body, err := c.once(ctx, u)
+		var retry error
+		switch {
+		case err != nil && ctx.Err() == nil:
+			retry = err
+		case err != nil:
+			return nil, ctx.Err()
+		case status == http.StatusOK:
+			return body, nil
+		case status == http.StatusServiceUnavailable || status == http.StatusTooManyRequests ||
+			status == http.StatusBadGateway || status == http.StatusGatewayTimeout:
+			retry = fmt.Errorf("musicbrainz: status %d", status)
+		default:
+			return nil, fmt.Errorf("musicbrainz: status %d", status)
+		}
+		if attempt >= tries {
+			return nil, fmt.Errorf("%w after %d tries", retry, attempt)
+		}
+		if err := c.sleep(ctx, wait); err != nil {
 			return nil, err
 		}
-		req.Header.Set("User-Agent", c.UserAgent)
-		req.Header.Set("Accept", "application/json")
-		client := c.HTTP
-		if client == nil {
-			client = &http.Client{Timeout: 30 * time.Second}
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("musicbrainz: %w", err)
-		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
-		_ = resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("musicbrainz: read: %w", err)
-		}
-		switch resp.StatusCode {
-		case http.StatusOK:
-			return body, nil
-		case http.StatusServiceUnavailable, http.StatusTooManyRequests, http.StatusBadGateway, http.StatusGatewayTimeout:
-			if attempt >= tries {
-				return nil, fmt.Errorf("musicbrainz: status %d after %d tries", resp.StatusCode, attempt)
-			}
-			if err := c.sleep(ctx, wait); err != nil {
-				return nil, err
-			}
-			wait *= 2
-		default:
-			return nil, fmt.Errorf("musicbrainz: status %d", resp.StatusCode)
-		}
+		wait *= 2
 	}
+}
+
+// once is one GET: status and body, or the transport's error.
+func (c *Client) once(ctx context.Context, u string) (int, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("User-Agent", c.UserAgent)
+	req.Header.Set("Accept", "application/json")
+	client := c.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("musicbrainz: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if err != nil {
+		return 0, nil, fmt.Errorf("musicbrainz: read: %w", err)
+	}
+	return resp.StatusCode, body, nil
 }
 
 func (c *Client) sleep(ctx context.Context, d time.Duration) error {
@@ -371,6 +391,41 @@ func Strip(s string) string {
 		}
 		s = t
 	}
+}
+
+// SongTitles are the readings of a card title, as written first: without its trailing parentheticals, then the
+// last parenthetical's content, or (no parenthetical at the end) what follows the last " - ". Film and TV cards print "Film (Song)" or "Film - Song":
+// "Robin Hood - König der Diebe ((Everything I Do) I Do It For You)" is the song "(Everything I Do) I Do It For You".
+func SongTitles(title string) []string {
+	out := []string{title}
+	add := func(t string) {
+		t = strings.TrimSpace(t)
+		if t != "" && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	add(Strip(title))
+	t := strings.TrimSpace(title)
+	if !strings.HasSuffix(t, ")") {
+		if i := strings.LastIndex(t, " - "); i > 0 {
+			add(Strip(t[i+3:]))
+		}
+	} else {
+		depth := 0
+		for i := len(t) - 1; i >= 0; i-- {
+			switch t[i] {
+			case ')':
+				depth++
+			case '(':
+				depth--
+			}
+			if depth == 0 {
+				add(t[i+1 : len(t)-1])
+				break
+			}
+		}
+	}
+	return out
 }
 
 // SameTitle compares two titles normalized, as written or without what versions append.
