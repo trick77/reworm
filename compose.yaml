@@ -37,7 +37,8 @@ services:
       traefik.http.routers.reworm.entrypoints: websecure
       traefik.http.routers.reworm.tls: "true"
       traefik.http.routers.reworm.tls.certresolver: letsencrypt
-      # No http router: Traefik's `web` entrypoint redirects to `websecure` for every host.
+      # The server's Traefik provides the `letsencrypt` resolver and redirects its `web` entrypoint to
+      # `websecure` for every host, so no http router here.
       traefik.http.services.reworm.loadbalancer.server.port: "8080"
 
 networks:

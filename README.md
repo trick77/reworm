@@ -28,7 +28,9 @@ pairs its first device through the setup link from the log. Dev mode is for loca
 ## Run
 
 `compose.yaml` runs a released image behind Traefik, from its own directory on the server holding just
-`compose.yaml` and `.env` (not a checkout: the checkout's `data/` holds the tracked dataset). There:
+`compose.yaml` and `.env` (not a checkout: the checkout's `data/` holds the tracked dataset). It expects the host's
+Traefik on the external `traefik` network with a `websecure` entrypoint, an ACME resolver named `letsencrypt` and
+the http → https redirect on `web`. There:
 `cp .env.example .env` and set `PUBLIC_FQDN`, `mkdir -p data && sudo chown -R 65532:65532 data`, then
 `docker compose up -d`. The first device pairs with the one-time setup link from `docker compose logs`. Settings
 are `BACKEND_*` variables (`BACKEND_ADDR`, `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
