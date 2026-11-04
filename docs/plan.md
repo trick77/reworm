@@ -142,7 +142,9 @@ streak. Session state on the server, so a reload or a backgrounded tab resumes a
   pause, skip); AudioContext unlocked by the host's first tap; next clip prefetched.
 - Layout: container queries — iPhone single column; iPad landscape two columns; iPad portrait stacked; stage scales
   to a TV across the room; installable PWA.
-- Home: Game night on top (Host / Join), training below; tabs Home · Party · Train · Settings.
+- Home: Game night on top (Host / Join), training below; tabs Home · Party · Train · Settings. A device without a
+  profile (a party guest's phone) leads with Join and gets pairing as a one-line link, never as a step in the way:
+  joining needs no profile.
 - Profiles: "Who's playing?" on shared devices, profile page with avatar picker, devices, "Add a device" / "Invite
   someone". Avatars: own set of 12 comic music-object SVGs (mock), shipped as static files.
 - Covers hidden until the reveal. Brand-free everywhere (D10).

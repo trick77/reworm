@@ -23,31 +23,31 @@ export function lastTraining(decks?: Decks): TrainSettings {
   );
 }
 
+type Action = { icon: "party" | "qr"; to: string; long: string; short: string };
+const HOST: Action = {
+  icon: "party",
+  to: "/host",
+  long: "Host a game",
+  short: "Host",
+};
+const JOIN: Action = {
+  icon: "qr",
+  to: "/join",
+  long: "Join a game",
+  short: "Join",
+};
+
 // GameNight leads with Join on a guest's phone (no profile, can only join) and with Host on a paired device.
-function GameNight({ avatars, guest }: { avatars: string[]; guest: boolean }) {
+// guest null: not known yet, no buttons, so a guest never taps a Host that turns into Join under the finger.
+function GameNight({
+  avatars,
+  guest,
+}: {
+  avatars: string[];
+  guest: boolean | null;
+}) {
   const [, go] = useLocation();
-  const host = (
-    <Button
-      key="host"
-      icon="party"
-      variant={guest ? "ghost" : undefined}
-      style={{ flex: guest ? 1 : 2 }}
-      onClick={() => go("/host")}
-    >
-      {guest ? "Host" : "Host a game"}
-    </Button>
-  );
-  const join = (
-    <Button
-      key="join"
-      icon="qr"
-      variant={guest ? undefined : "ghost"}
-      style={{ flex: guest ? 2 : 1 }}
-      onClick={() => go("/join")}
-    >
-      {guest ? "Join a game" : "Join"}
-    </Button>
-  );
+  const [first, second] = guest ? [JOIN, HOST] : [HOST, JOIN];
   return (
     <Card className="hero" style={{ marginTop: 18, padding: 18 }}>
       <div className="kata">Game night</div>
@@ -71,9 +71,25 @@ function GameNight({ avatars, guest }: { avatars: string[]; guest: boolean }) {
           <Avatar key={i} avatar={a} size={30} alt="" />
         ))}
       </div>
-      <div className="row" style={{ marginTop: 16, gap: 8 }}>
-        {guest ? [join, host] : [host, join]}
-      </div>
+      {guest != null && (
+        <div className="row" style={{ marginTop: 16, gap: 8 }}>
+          <Button
+            icon={first.icon}
+            style={{ flex: 2 }}
+            onClick={() => go(first.to)}
+          >
+            {first.long}
+          </Button>
+          <Button
+            variant="ghost"
+            icon={second.icon}
+            style={{ flex: 1 }}
+            onClick={() => go(second.to)}
+          >
+            {second.short}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -188,7 +204,7 @@ export function Home() {
       <div className="cols">
         <div className="col">
           <GameNight
-            guest={unpaired}
+            guest={me ? false : unpaired || meError ? true : null}
             avatars={
               profiles.data?.map((p) => p.avatar) ?? ["vinyl", "mic", "guitar"]
             }
@@ -199,7 +215,7 @@ export function Home() {
               <button
                 type="button"
                 className="link"
-                style={{ padding: 0 }}
+                style={{ padding: "12px 4px", margin: "-12px -4px" }}
                 onClick={() => go("/pair")}
               >
                 Pair this device

@@ -84,6 +84,24 @@ describe("App", () => {
     expect(r.path()).toBe("/join");
   });
 
+  it("holds the game night buttons back until it knows paired or not", async () => {
+    const api = new FakeWorld().device();
+    let answer = () => {};
+    const real = api.me;
+    api.me = () =>
+      new Promise<never>((_, reject) => {
+        answer = () => void real().catch(reject);
+      });
+    renderApp("/", api);
+    expect(screen.getByText("Play with friends")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Host/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Join/ })).toBeNull();
+    answer();
+    expect(
+      await screen.findByRole("button", { name: "Join a game" }),
+    ).toBeInTheDocument();
+  });
+
   it("says when a page doesn't exist", () => {
     const r = renderApp("/nope", new FakeWorld().device());
     expect(screen.getByText("Nothing here")).toBeInTheDocument();
@@ -163,6 +181,11 @@ describe("a server that fails /api/me (not 401)", () => {
     api.me = () => Promise.reject(new ApiError(503, "down", "server down"));
     const r = renderApp("/", api);
     expect(await screen.findByText("server down")).toBeInTheDocument();
+    // no profile known: the guest layout, Join first, as on an unpaired phone
+    expect(
+      screen.getByRole("button", { name: "Join a game" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Host a game" })).toBeNull();
     r.unmount();
     renderApp("/me", api);
     expect(await screen.findByText("server down")).toBeInTheDocument();
