@@ -32,7 +32,9 @@ pairs its first device through the setup link from the log. Dev mode is for loca
 Traefik on the external `traefik` network with a `websecure` entrypoint, an ACME resolver named `letsencrypt` and
 the http → https redirect on `web`. There:
 `cp .env.example .env` and set `PUBLIC_FQDN`, `mkdir -p data && sudo chown -R 65532:65532 data`, then
-`docker compose up -d`. The first device pairs with the one-time setup link from `docker compose logs`. Settings
+`docker compose up -d`. The first device pairs with the one-time setup link from `docker compose logs`. The image is
+`:latest`, which every release moves: update with `docker compose pull && docker compose up -d` (`up` alone keeps
+the cached image); roll back by naming a release tag (`ghcr.io/trick77/reworm:0.1.4`) in place of `latest`. Settings
 are `BACKEND_*` variables (`BACKEND_ADDR`, `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
 
 `compose.dev.yaml` builds the image from the checkout and serves it on port 8081 (beside `make run` on 8080; phones
