@@ -209,8 +209,14 @@ func (s *Service) handleSwitch(w http.ResponseWriter, r *http.Request, id Identi
 		err = api.Fail(http.StatusNotFound, "unknown_profile", "no such profile")
 	case err == nil && admin && req.ProfileID != id.ProfileID:
 		err = api.Fail(http.StatusForbidden, "admin_profile", "pair this device from an admin device instead")
-	case err == nil:
-		_, err = s.db.ExecContext(r.Context(), `UPDATE devices SET profile_id = ? WHERE id = ?`, req.ProfileID, id.DeviceID)
+	case err == nil && req.ProfileID != id.ProfileID:
+		err = store.InTx(r.Context(), s.db, func(tx *sql.Tx) error {
+			if err := keepAdmin(r.Context(), tx, id.DeviceID); err != nil {
+				return err
+			}
+			_, err := tx.ExecContext(r.Context(), `UPDATE devices SET profile_id = ? WHERE id = ?`, req.ProfileID, id.DeviceID)
+			return err
+		})
 	}
 	if err != nil {
 		api.WriteError(w, r, err)
@@ -219,15 +225,32 @@ func (s *Service) handleSwitch(w http.ResponseWriter, r *http.Request, id Identi
 	s.answerMe(w, r, http.StatusOK, id.DeviceID)
 }
 
-func oneRow(res sql.Result, none error) error {
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
+var errLastAdmin = api.Fail(http.StatusConflict, "last_admin", "this is the admin profile's only device: pair another one first")
+
+type querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// lastAdminDevice reports whether deviceID is the only device on an admin profile: moving or removing it would
+// leave the server without an admin.
+func lastAdminDevice(ctx context.Context, q querier, deviceID string) (bool, error) {
+	var last bool
+	err := q.QueryRowContext(ctx, `
+SELECT p.admin AND (SELECT count(*) FROM devices o WHERE o.profile_id = d.profile_id) = 1
+FROM devices d JOIN profiles p ON p.id = d.profile_id WHERE d.id = ?`, deviceID).Scan(&last)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
 	}
-	if n == 0 {
-		return none
+	return last, err
+}
+
+// keepAdmin refuses to move deviceID off its profile when it is the admin's last device.
+func keepAdmin(ctx context.Context, q querier, deviceID string) error {
+	last, err := lastAdminDevice(ctx, q, deviceID)
+	if err == nil && last {
+		err = errLastAdmin
 	}
-	return nil
+	return err
 }
 
 type deviceListJSON struct {
@@ -265,11 +288,21 @@ ORDER BY last_seen DESC, id`, id.ProfileID)
 // handleDeleteDevice removes one of the profile's devices (the admin: any device), signing it out.
 func (s *Service) handleDeleteDevice(w http.ResponseWriter, r *http.Request, id Identity) {
 	target := r.PathValue("id")
-	res, err := s.db.ExecContext(r.Context(), `DELETE FROM devices WHERE id = ? AND (profile_id = ? OR ?)`,
-		target, id.ProfileID, id.Admin)
-	if err == nil {
-		err = oneRow(res, api.Fail(http.StatusNotFound, "unknown_device", "no such device"))
-	}
+	err := store.InTx(r.Context(), s.db, func(tx *sql.Tx) error {
+		var n int
+		if err := tx.QueryRowContext(r.Context(), `SELECT count(*) FROM devices WHERE id = ? AND (profile_id = ? OR ?)`,
+			target, id.ProfileID, id.Admin).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			return api.Fail(http.StatusNotFound, "unknown_device", "no such device")
+		}
+		if err := keepAdmin(r.Context(), tx, target); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(r.Context(), `DELETE FROM devices WHERE id = ?`, target)
+		return err
+	})
 	if err != nil {
 		api.WriteError(w, r, err)
 		return
@@ -313,11 +346,9 @@ func (s *Service) handlePair(w http.ResponseWriter, r *http.Request, id Identity
 		api.WriteError(w, r, err)
 		return
 	}
-	base := s.publicURL
-	if base == "" {
-		base = "http://" + r.Host
-	}
-	httpx.WriteJSON(w, http.StatusCreated, pairJSON{Code: code, URL: base + "/pair/" + code, ExpiresAt: exp.UnixMilli()})
+	// Never from the Host header, which the caller picks: absolute only with the configured PUBLIC_FQDN, else the
+	// path, which the client prefixes with its own origin.
+	httpx.WriteJSON(w, http.StatusCreated, pairJSON{Code: code, URL: s.publicURL + "/pair/" + code, ExpiresAt: exp.UnixMilli()})
 }
 
 type claimRequest struct {
@@ -361,6 +392,11 @@ WHERE code = ? AND used_at IS NULL AND expires_at > ? RETURNING kind, profile_id
 			}
 		}
 		if prevErr == nil {
+			if profileID != prev.ProfileID {
+				if err := keepAdmin(r.Context(), tx, prev.DeviceID); err != nil {
+					return err
+				}
+			}
 			if _, err := tx.ExecContext(r.Context(), `DELETE FROM devices WHERE id = ?`, prev.DeviceID); err != nil {
 				return err
 			}

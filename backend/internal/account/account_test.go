@@ -275,14 +275,54 @@ func TestClaimReplacesThePreviousDevice(t *testing.T) {
 	host := e.browser("Mac")
 	e.setup(host)
 	inv := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "invite"}))
-	// The host's own browser claims an invite: its old device row goes, the new one is Mia's.
+	// The admin's only device cannot be claimed over: the server would lose its admin.
+	if rec := host.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_admin" {
+		t.Fatalf("claim over the last admin device = %d", rec.Code)
+	}
+	// With a second admin device it can: its old device row goes, the new one is Mia's.
+	second := e.browser("iPhone")
+	second.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"})).Code})
 	rec := host.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"})
 	if rec.Code != http.StatusCreated {
 		t.Fatal(rec.Code)
 	}
 	var n int
-	if err := e.svc.db.QueryRow(`SELECT count(*) FROM devices`).Scan(&n); err != nil || n != 1 {
-		t.Errorf("devices = %d, %v; want 1", n, err)
+	if err := e.svc.db.QueryRow(`SELECT count(*) FROM devices`).Scan(&n); err != nil || n != 2 {
+		t.Errorf("devices = %d, %v; want 2", n, err)
+	}
+}
+
+func TestPairURL_neverFromTheHostHeader(t *testing.T) {
+	e := newEnv(t)
+	e.svc.publicURL = ""
+	host := e.browser("Mac")
+	e.setup(host)
+	p := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"}))
+	if p.URL != "/pair/"+p.Code {
+		t.Errorf("url = %q, want the path only", p.URL)
+	}
+}
+
+func TestLastAdminDeviceStays(t *testing.T) {
+	e := newEnv(t)
+	host := e.browser("Mac")
+	me := e.setup(host)
+	inv := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "invite"}))
+	mia := decode[meJSON](t, e.browser("Android").do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"}))
+	if rec := host.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: mia.Profile.ID}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_admin" {
+		t.Errorf("switch away from the last admin device = %d", rec.Code)
+	}
+	if rec := host.do(http.MethodDelete, "/api/devices/"+me.Device.ID, nil); rec.Code != http.StatusConflict {
+		t.Errorf("delete the last admin device = %d", rec.Code)
+	}
+	// Once a second admin device exists, both are allowed.
+	phone := e.browser("iPhone")
+	pm := decode[meJSON](t, phone.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"})).Code}))
+	if rec := host.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: mia.Profile.ID}); rec.Code != http.StatusOK {
+		t.Errorf("switch with another admin device = %d", rec.Code)
+	}
+	if rec := phone.do(http.MethodDelete, "/api/devices/"+pm.Device.ID, nil); rec.Code != http.StatusConflict {
+		t.Errorf("the phone is now the last admin device: delete = %d", rec.Code)
 	}
 }
 
