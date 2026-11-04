@@ -97,12 +97,30 @@ func TestGetAndReveal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Year != 1976 || s.AppleID != "1" || s.Storefront != "ch" || !s.HasCover {
+	if s.Year != 1976 || s.AppleID != "1" || s.Storefront != "ch" || s.CoverVersion != CoverVersion("https://img/{w}x{h}bb.jpg") {
 		t.Errorf("song = %+v", s)
 	}
+	// The link names the stored cover: another cover is another link (no browser shows its year-long copy of the old).
 	rv := s.Reveal()
-	if rv.Cover == nil || *rv.Cover != "/api/covers/dq" {
+	if rv.Cover == nil || *rv.Cover != "/api/covers/dq?v="+s.CoverVersion || len(s.CoverVersion) != 12 {
 		t.Errorf("cover = %v", rv.Cover)
+	}
+	if CoverVersion("https://img/a.jpg") == CoverVersion("https://img/b.jpg") || CoverVersion("") != "" {
+		t.Error("versions do not tell covers apart")
+	}
+	// The version is of the URL fetched: another size is another cover.
+	if got := CoverSource("https://is1.mzstatic.com/a/{w}x{h}bb.{f}"); got != "https://is1.mzstatic.com/a/600x600bb.jpg" ||
+		CoverVersion("https://is1.mzstatic.com/a/{w}x{h}bb.{f}") != CoverVersion(got) {
+		t.Errorf("apple = %q", got)
+	}
+	if got := CoverSource("https://coverartarchive.org/release-group/x/front-500"); got != "https://coverartarchive.org/release-group/x/front-500" {
+		t.Errorf("caa = %q", got)
+	}
+	if urls, err := r.CoverURLs(ctx); err != nil || !slices.Equal(urls, []string{"https://img/{w}x{h}bb.jpg"}) {
+		t.Errorf("CoverURLs = %v, %v", urls, err)
+	}
+	if u := *(Song{ID: "a/b c", CoverVersion: "x"}).Reveal().Cover; u != "/api/covers/a%2Fb%20c?v=x" {
+		t.Errorf("escaped = %s", u)
 	}
 	if b, _ := r.Get(ctx, "br"); b.Reveal().Cover != nil {
 		t.Error("song without a cover has a cover URL")

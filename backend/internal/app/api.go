@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 
+	"github.com/trick77/ship/kit/logging"
 	"github.com/trick77/ship/kit/ratelimit"
 
 	"github.com/trick77/reworm/internal/account"
@@ -90,6 +91,15 @@ func newAPI(ctx context.Context, cfg Config, db *sql.DB) (apiParts, error) {
 	}
 	training := train.New(train.Options{DB: db, Accounts: accounts, Songs: songs, Previews: previews})
 	cov := covers.New(songs.CoverURL, filepath.Join(cfg.DataDir, "covers"), nil)
+	// The dataset is loaded by now: a cover none of its songs names any more is dropped (a failed sweep only costs
+	// disk, the server starts anyway).
+	if stored, err := songs.CoverURLs(ctx); err != nil {
+		slog.Warn("cover cache not swept", logging.Err(err))
+	} else if n, err := cov.Sweep(stored); err != nil {
+		slog.Warn("cover cache not swept", logging.Err(err))
+	} else if n > 0 {
+		slog.Info("cover cache swept", "removed", n)
+	}
 	routes = append(routes, accounts, songs, cov, rooms, training)
 	return apiParts{routes: routes, party: rooms}, nil
 }

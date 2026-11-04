@@ -72,7 +72,6 @@ function Center({ children }: { children: ReactNode }) {
 }
 
 function SongCard({ res }: { res: RoundResult }) {
-  const api = useApi();
   const s = res.song;
   return (
     <Card className="pad-song">
@@ -80,7 +79,7 @@ function SongCard({ res }: { res: RoundResult }) {
         title={s.title}
         artist={s.artist}
         album={s.title}
-        src={api.coverUrl(s.id)}
+        src={s.coverUrl}
         size={56}
         mini
       />

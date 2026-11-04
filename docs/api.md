@@ -39,9 +39,12 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - deck selector object used below: `{ sets: [ids], categories: [ids], genres: [ids], from: 1900, to: 2025 }` — songs in
   any listed set ∪ category ∪ genre (all three empty = every song), with a year in [from, to] (defaults 1900 and the
   current year; at most 100 ids)
-- `GET /api/covers/{songId}` → image (server fetches the stored cover_url on first use — Apple `{w}x{h}` at
-  600x600, or the CAA URL, redirects followed — caches it under `BACKEND_DATA_DIR/covers/`, D4;
-  `Cache-Control: public, max-age=31536000, immutable`); 404 → UI draws the placeholder (no cover, or the fetch failed)
+- `GET /api/covers/{songId}?v={version}` → image (server fetches the stored cover_url on first use — Apple `{w}x{h}`
+  at 600x600, or the CAA URL, redirects followed — caches it under `BACKEND_DATA_DIR/covers/`, D4); 404 → UI draws
+  the placeholder (no cover, or the fetch failed). Use the `coverUrl` a reveal sends, never build one: `version`
+  names the cover (hash of the URL fetched), so a cover a re-import changes is a new link. With the current version
+  `Cache-Control: public, max-age=31536000, immutable`; an old or missing one gets `no-cache`. `ETag` is the
+  version; `If-None-Match` with it → 304. Covers no song names any more are removed at boot.
 
 ## Party rooms (main feature)
 - `POST /api/rooms` (paired device = host) `{mode: "years"|"buzzer", deck, toWin: 10, clip: {length: 20, start:
@@ -105,7 +108,7 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - `winnerMs` is the winning press (years: the answer, buzzer: the buzz) in ms after `startedAt`, paused time left
   out; null without a winner.
 - `hostId` is the host's profile id. `connected` = the player has an event stream open. `clip.from` is seconds into
-  the 90 s preview (0 for `chorus`). `coverUrl` is `/api/covers/{id}` or null. `winnerId` is null when nobody scored.
+  the 90 s preview (0 for `chorus`). `coverUrl` is `/api/covers/{id}?v={version}` or null. `winnerId` is null when nobody scored.
   `nextClip` is null when the deck has nothing left. `round` stays after the result (and in `over`) until the next one.
 - `answered` = gave a correct answer (years); `out` = wrong answer this round (years); `late` = joined mid-round,
   plays from the next round.
