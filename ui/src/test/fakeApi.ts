@@ -184,6 +184,23 @@ const OFFSETS = [6, -2, 0, 14, -5, 3, -11, 1, 0, -8];
 const fail = (status: number, code: string, message = code) =>
   Promise.reject(new ApiError(status, code, message));
 const clone = <T>(v: T): T => structuredClone(v);
+
+// refusal is the server's answer to a press it refuses (docs/api.md), null when the press may go on.
+function refusal(
+  st: RoomState,
+  playerId: string,
+  mode: RoomState["mode"],
+  round: number,
+  phase: RoomState["phase"],
+) {
+  if (!st.players.some((p) => p.id === playerId))
+    return fail(401, "not_in_room", "not in this room");
+  if (st.mode !== mode) return fail(409, "wrong_mode");
+  if (st.phase === "paused") return fail(409, "wrong_phase");
+  if (st.round?.n !== round || st.phase !== phase)
+    return fail(409, "wrong_round");
+  return null;
+}
 const ok = <T>(v: T): Promise<T> => Promise.resolve(clone(v));
 
 type FakeDevice = {
@@ -394,7 +411,7 @@ export class FakeWorld {
     const r = this.room(code);
     this.rooms.delete(code);
     for (const h of r.subs)
-      h.onError?.(new ApiError(404, "no_room", "room not found"));
+      h.onError?.(new ApiError(404, "unknown_room", "no such room"));
   }
 
   emit(code: string) {
@@ -509,17 +526,14 @@ export class FakeWorld {
   answerAs(code: string, playerId: string, round: number, choice: Choice) {
     const r = this.room(code);
     const st = r.state;
-    const p = st.players.find((x) => x.id === playerId);
-    if (
-      !p ||
-      st.mode !== "years" ||
-      st.phase !== "playing" ||
-      st.round?.n !== round
-    )
-      return fail(409, "not_now");
+    const no = refusal(st, playerId, "years", round, "playing");
+    if (no) return no;
+    const p = st.players.find((x) => x.id === playerId)!;
+    if (p.state === "late") return fail(409, "late");
     if (p.state !== "thinking") return fail(409, "already_answered");
+    const rd = st.round!;
     const y = r.song!.year;
-    const shown = st.round.proposedYear!;
+    const shown = rd.proposedYear!;
     const right =
       choice === "exact"
         ? y === shown
@@ -540,17 +554,12 @@ export class FakeWorld {
 
   buzzAs(code: string, playerId: string, round: number) {
     const st = this.room(code).state;
-    const p = st.players.find((x) => x.id === playerId);
-    if (
-      !p ||
-      st.mode !== "buzzer" ||
-      st.phase !== "playing" ||
-      st.round?.n !== round
-    )
-      return fail(409, "not_now");
+    const no = refusal(st, playerId, "buzzer", round, "playing");
+    if (no) return no;
+    const p = st.players.find((x) => x.id === playerId)!;
     const now = Date.now();
     p.state = "buzzed";
-    st.round.buzz = { playerId, at: now, answerEndsAt: now + ANSWER_MS };
+    st.round!.buzz = { playerId, at: now, answerEndsAt: now + ANSWER_MS };
     st.phase = "buzzed";
     clearTimeout(this.room(code).timer);
     this.emit(code);
@@ -560,9 +569,10 @@ export class FakeWorld {
   revealAs(code: string, playerId: string, round: number) {
     const r = this.room(code);
     const st = r.state;
-    const rd = st.round;
-    if (st.phase !== "buzzed" || rd?.n !== round || !rd.buzz)
-      return fail(409, "not_now");
+    const no = refusal(st, playerId, "buzzer", round, "buzzed");
+    if (no) return no;
+    const rd = st.round!;
+    if (!rd.buzz) return fail(409, "wrong_phase");
     if (!rd.revealVotes.includes(playerId)) rd.revealVotes.push(playerId);
     const buzzer = rd.buzz.playerId;
     if (
@@ -593,9 +603,10 @@ export class FakeWorld {
 
   judgeAs(code: string, playerId: string, round: number, points: Points) {
     const st = this.room(code).state;
-    const rd = st.round;
-    if (st.phase !== "judging" || rd?.n !== round || !rd.buzz)
-      return fail(409, "not_now");
+    const no = refusal(st, playerId, "buzzer", round, "judging");
+    if (no) return no;
+    const rd = st.round!;
+    if (!rd.buzz) return fail(409, "wrong_phase");
     rd.judgeVotes[playerId] = points;
     const buzzer = rd.buzz.playerId;
     const mine = rd.judgeVotes[buzzer];
@@ -622,11 +633,11 @@ export class FakeWorld {
     const st = r.state;
     switch (action) {
       case "start":
-        if (st.phase !== "lobby") return fail(409, "not_in_lobby");
+        if (st.phase !== "lobby") return fail(409, "wrong_phase");
         this.newRound(code);
         break;
       case "next":
-        if (st.phase !== "result") return fail(409, "not_now");
+        if (st.phase !== "result") return fail(409, "wrong_phase");
         this.newRound(code);
         break;
       case "pause":
@@ -635,14 +646,14 @@ export class FakeWorld {
           st.phase === "lobby" ||
           st.phase === "over"
         )
-          return fail(409, "not_now");
+          return fail(409, "wrong_phase");
         clearTimeout(r.timer);
         r.pausedFrom = st.phase;
         r.pausedAt = Date.now();
         st.phase = "paused";
         break;
       case "resume": {
-        if (st.phase !== "paused") return fail(409, "not_paused");
+        if (st.phase !== "paused") return fail(409, "wrong_phase");
         const gap = Date.now() - r.pausedAt;
         st.phase = (r.pausedFrom ?? "playing") as RoomState["phase"];
         if (st.round && st.phase === "playing") {
@@ -704,7 +715,7 @@ export class FakeWorld {
     const ses = this.sessions.get(id)!;
     const cur = ses.queue[ses.index];
     if (!cur || cur.card.id !== b.cardId)
-      throw new ApiError(409, "stale_card", "stale card");
+      throw new ApiError(409, "wrong_card", "not the current card");
     const y = cur.song.year;
     const shown = cur.card.proposedYear;
     let correct: boolean;
@@ -837,7 +848,7 @@ export class FakeApi implements Api {
   ) {
     return this.log(name, () => {
       const p = this.profile();
-      return p ? f(p) : fail(401, "unpaired", "this device is not paired");
+      return p ? f(p) : fail(401, "unauthorized", "this device is not paired");
     });
   }
 
@@ -855,8 +866,8 @@ export class FakeApi implements Api {
     this.log("setup", () => {
       const w = this.world;
       if (w.setupToken == null)
-        return fail(410, "used", "setup link already used");
-      if (b.token !== w.setupToken) return fail(403, "bad_token");
+        return fail(410, "setup_done", "setup link already used");
+      if (b.token !== w.setupToken) return fail(403, "invalid_token");
       w.setupToken = null;
       const id = nextId("p-");
       w.profiles.set(id, { id, name: b.name, avatar: b.avatar, admin: true });
@@ -876,7 +887,7 @@ export class FakeApi implements Api {
   switchProfile = (profileId: string) =>
     this.paired("switch", (me) => {
       const to = this.world.profiles.get(profileId);
-      if (!to) return fail(404, "no_profile");
+      if (!to) return fail(404, "unknown_profile");
       if (to.admin && me.id !== to.id)
         return fail(
           403,
@@ -925,10 +936,10 @@ export class FakeApi implements Api {
     this.log("claim", () => {
       const pc = this.world.pairs.get(b.code.toUpperCase());
       if (!pc || pc.expiresAt < Date.now())
-        return fail(404, "bad_code", "code unknown or expired");
+        return fail(404, "invalid_code", "code unknown or expired");
       if (pc.kind === "invite") {
         if (!b.name || !b.avatar)
-          return fail(400, "name_required", "name and avatar needed");
+          return fail(400, "invalid_name", "name and avatar needed");
         const id = nextId("p-");
         this.world.profiles.set(id, {
           id,
@@ -955,7 +966,7 @@ export class FakeApi implements Api {
   room = (code: string) =>
     this.log("room", () => {
       const r = this.world.rooms.get(code);
-      return r ? ok(r.state) : fail(404, "no_room", "room not found");
+      return r ? ok(r.state) : fail(404, "unknown_room", "no such room");
     });
   subscribeRoom(code: string, h: RoomHandlers) {
     let live = true;
@@ -976,7 +987,7 @@ export class FakeApi implements Api {
   joinRoom = (code: string, b: { name: string; avatar: string }) =>
     this.log("join", () => {
       const r = this.world.rooms.get(code);
-      if (!r) return fail(404, "no_room", "room not found");
+      if (!r) return fail(404, "unknown_room", "no such room");
       const had = this.dev.players[code];
       if (had && r.kicked.has(had)) return fail(403, "kicked", "kicked");
       if (had && r.state.players.some((p) => p.id === had))
@@ -1005,7 +1016,7 @@ export class FakeApi implements Api {
   private hostOnly(name: string, code: string, f: () => Promise<void>) {
     return this.log(name, () => {
       const r = this.world.rooms.get(code);
-      if (!r) return fail(404, "no_room");
+      if (!r) return fail(404, "unknown_room");
       if (r.hostDevice !== this.deviceId) return fail(403, "not_host");
       return f();
     });
@@ -1023,7 +1034,7 @@ export class FakeApi implements Api {
   roomSettings = (code: string, s: RoomSettings) =>
     this.hostOnly("settings", code, () => {
       const r = this.world.room(code);
-      if (r.state.phase !== "lobby") return fail(409, "not_in_lobby");
+      if (r.state.phase !== "lobby") return fail(409, "wrong_phase");
       r.state.mode = s.mode;
       r.state.toWin = s.toWin;
       r.state.settings = {
@@ -1055,7 +1066,7 @@ export class FakeApi implements Api {
   trainSession = (id: string) =>
     this.paired("trainSession", () => {
       const ses = this.world.sessions.get(id);
-      if (!ses) return fail(404, "no_session");
+      if (!ses) return fail(404, "unknown_session");
       return ok({
         id,
         index: ses.index,

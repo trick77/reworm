@@ -308,7 +308,7 @@ describe("HttpApi.subscribeRoom", () => {
     let gone = false;
     const { fetch, calls } = fetchStub(() =>
       gone
-        ? Response.json({ error: "no_room" }, { status: 404 })
+        ? Response.json({ error: "unknown_room" }, { status: 404 })
         : Response.json(state("playing", 1)),
     );
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
