@@ -29,8 +29,8 @@ import (
 const usage = `usage: import [-env file] [-data dir] [-workers n] cards|songs
 
   cards  download the card lists (BACKEND_CARDS_BASE_URL, BACKEND_CARDS_FILES) into <data>/cards/<set>.csv
-  songs  resolve the snapshots against MusicBrainz, Apple Music and the Cover Art Archive into <data>/songs.jsonl
-         and <data>/import-report.md; every answer is cached in <data>/cache`
+  songs  resolve the snapshots of the sets BACKEND_CARDS_FILES names against MusicBrainz, Apple Music and the
+         Cover Art Archive into <data>/songs.jsonl and <data>/import-report.md; every answer is cached in <data>/cache`
 
 // Endpoints are the services' base URLs; tests point them at fixtures.
 type Endpoints struct {
@@ -74,7 +74,7 @@ func Main(ctx context.Context, args []string, getenv func(string) string, stderr
 	if fs.Arg(0) == "cards" {
 		err = runCards(ctx, lookup, *dataDir, log)
 	} else {
-		err = runSongs(ctx, *dataDir, *workers, ep, log)
+		err = runSongs(ctx, lookup, *dataDir, *workers, ep, log)
 	}
 	if err != nil {
 		log.Error("import failed", logging.Err(err))
@@ -86,11 +86,10 @@ func Main(ctx context.Context, args []string, getenv func(string) string, stderr
 func runCards(ctx context.Context, lookup func(string) string, dataDir string, log *slog.Logger) error {
 	r := env.New(lookup)
 	base := r.Required("BACKEND_CARDS_BASE_URL")
-	spec := r.Required("BACKEND_CARDS_FILES")
 	if err := r.Err(); err != nil {
 		return err
 	}
-	srcs, err := cards.ParseSources(spec)
+	srcs, err := configuredSources(lookup)
 	if err != nil {
 		return err
 	}
@@ -108,10 +107,27 @@ func runCards(ctx context.Context, lookup func(string) string, dataDir string, l
 	return nil
 }
 
-func runSongs(ctx context.Context, dataDir string, workers int, ep Endpoints, log *slog.Logger) error {
-	sets, err := cards.ReadSnapshots(filepath.Join(dataDir, "cards"))
+// configuredSources are the card sets BACKEND_CARDS_FILES names: the songs step reads exactly these snapshots.
+func configuredSources(lookup func(string) string) ([]cards.Source, error) {
+	r := env.New(lookup)
+	spec := r.Required("BACKEND_CARDS_FILES")
+	if err := r.Err(); err != nil {
+		return nil, err
+	}
+	return cards.ParseSources(spec)
+}
+
+func runSongs(ctx context.Context, lookup func(string) string, dataDir string, workers int, ep Endpoints, log *slog.Logger) error {
+	srcs, err := configuredSources(lookup)
 	if err != nil {
 		return err
+	}
+	sets, strays, err := cards.ReadSnapshots(filepath.Join(dataDir, "cards"), srcs)
+	if err != nil {
+		return err
+	}
+	for _, f := range strays {
+		log.Warn("card snapshot of a set no longer configured, left out (delete it)", "file", f)
 	}
 	ovPath := filepath.Join(dataDir, "overrides.json")
 	ov, err := loadOverrides(ovPath)
@@ -128,12 +144,15 @@ func runSongs(ctx context.Context, dataDir string, workers int, ep Endpoints, lo
 		return err
 	}
 	rs, merged := merge(rs)
-	all := make([]song.Song, len(rs))
-	for i, r := range rs {
-		all[i] = r.Song
+	kept, applied, unknown, err := p.applyOverrides(ctx, rs, ov)
+	if err != nil {
+		return err
 	}
-	kept, applied, unknown := applyOverrides(all, ov)
-	jsonl, err := song.Encode(kept)
+	songs := make([]song.Song, len(kept))
+	for i, r := range kept {
+		songs[i] = r.Song
+	}
+	jsonl, err := song.Encode(songs)
 	if err != nil {
 		return err
 	}
@@ -149,11 +168,12 @@ func runSongs(ctx context.Context, dataDir string, workers int, ep Endpoints, lo
 			return err
 		}
 	}
-	rep := report{sets: stats, resolved: rs, songs: kept, merged: merged, applied: applied, unknown: unknown}
+	// The report shows the dataset as written: every section from the songs kept, overrides applied.
+	rep := report{sets: stats, resolved: kept, merged: merged, applied: applied, unknown: unknown}
 	if err := fsx.WriteFileAtomic(filepath.Join(dataDir, "import-report.md"), rep.markdown(), 0o644); err != nil {
 		return err
 	}
-	log.Info("songs written", "songs", len(kept))
+	log.Info("songs written", "songs", len(songs))
 	return nil
 }
 
@@ -161,9 +181,10 @@ func runSongs(ctx context.Context, dataDir string, workers int, ep Endpoints, lo
 // misses wait; the Apple token kept in the cache dir (its page and bundle are not cached: a cached bundle would
 // hand out an expired token forever).
 func newPipeline(cacheDir string, workers int, ep Endpoints, log *slog.Logger) *Pipeline {
-	httpDir := filepath.Join(cacheDir, "http")
+	// One cache dir for all; clients evict what they cannot decode (any Transport on the dir does).
+	cache := &httpcache.Transport{Dir: filepath.Join(cacheDir, "http")}
 	cached := func(next http.RoundTripper) *http.Client {
-		return &http.Client{Timeout: time.Minute, Transport: &httpcache.Transport{Dir: httpDir, Next: next}}
+		return &http.Client{Timeout: time.Minute, Transport: &httpcache.Transport{Dir: cache.Dir, Next: next}}
 	}
 	tokenPath := filepath.Join(cacheDir, "apple-token.json")
 	tokens := &apple.Source{BaseURL: ep.ApplePlayer, HTTP: &http.Client{Timeout: time.Minute},
@@ -180,8 +201,9 @@ func newPipeline(cacheDir string, workers int, ep Endpoints, log *slog.Logger) *
 	return &Pipeline{
 		MB: &musicbrainz.Client{BaseURL: ep.MusicBrainz,
 			HTTP:      cached(&httpcache.Throttle{Every: ep.MBEvery}),
-			UserAgent: "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )"},
-		Apple:   &apple.Client{BaseURL: ep.AppleAPI, HTTP: cached(nil), Dev: tokens},
+			UserAgent: "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )",
+			Evict:     cache.Evict},
+		Apple:   &apple.Client{BaseURL: ep.AppleAPI, HTTP: cached(nil), Dev: tokens, Evict: cache.Evict},
 		Covers:  &CoverArt{BaseURL: ep.CoverArt, HTTP: caa},
 		Workers: workers,
 		Log:     log,

@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trick77/reworm/internal/apple"
+	"github.com/trick77/reworm/internal/musicbrainz"
 	"github.com/trick77/reworm/internal/song"
 )
 
@@ -129,6 +131,18 @@ func services(t *testing.T, mbHits *atomic.Int32) *httptest.Server {
 			_, _ = fmt.Fprint(w, `{"results":{}}`)
 		}
 	})
+	mux.HandleFunc("GET /apple/v1/catalog/{sf}/songs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		switch r.PathValue("sf") + "/" + r.PathValue("id") {
+		case "de/br-opera":
+			_, _ = fmt.Fprintf(w, `{"data":[%s]}`, appleSong("br-opera", "Bohemian Rhapsody", "Queen", "A Night at the Opera (2011 Remaster)", "Queen", "1975-11-21", "GBUM71029605", true))
+		case "ch/gg-alt":
+			_, _ = fmt.Fprintf(w, `{"data":[%s]}`, appleSong("gg-alt", "Guajira Guantanamera", "Joseíto Fernández", "Mi biografia", "Joseíto Fernández", "1958", "CU2", true))
+		case "ch/no-preview":
+			_, _ = fmt.Fprintf(w, `{"data":[%s]}`, appleSong("no-preview", "X", "Y", "Z", "Y", "1990", "I", false))
+		default:
+			http.NotFound(w, r)
+		}
+	})
 	mux.HandleFunc("GET /apple/v1/catalog/ch/albums/al-arrival/tracks", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprintf(w, `{"data":[%s,%s]}`,
 			appleSong("dq-tiger", "Tiger", "ABBA", "Arrival (Bonus Track Version)", "ABBA", "1976-10-11", "SEAYD7601090", true),
@@ -187,16 +201,25 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		}
 	}
 
-	// An override drops the unknown song; one names an id the dataset lacks.
+	// Overrides: one drops the unknown song, two pick other Apple tracks (album, ISRC and cover follow), one names
+	// an id the dataset lacks. A snapshot of a set no longer configured is left out, with a warning.
 	if err := os.WriteFile(filepath.Join(data, "overrides.json"), []byte(`{"_doc":"x","songs":{
 		"nobody--unknown-song":{"exclude":true},
-		"joseito-fernandez--guajira-guantanamera":{"apple_id":"999"},
+		"joseito-fernandez--guajira-guantanamera":{"apple_id":"gg-alt"},
+		"br-studio":{"apple_id":"br-opera","storefront":"de"},
 		"missing-id":{"year":1990}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(data, "cards", "old-set.csv"), []byte("artist,title,year\nOld,Song,1990\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	ep.MBEvery = 0
-	if code, out := run(t, ep, nil, "-data", data, "-workers", "2", "songs"); code != 0 {
+	code, out := run(t, ep, nil, "-env", envFile, "-data", data, "-workers", "2", "songs")
+	if code != 0 {
 		t.Fatalf("songs: exit %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "no longer configured") || !strings.Contains(out, "old-set.csv") {
+		t.Errorf("no warning about the stray snapshot:\n%s", out)
 	}
 	b, err := os.ReadFile(filepath.Join(data, "songs.jsonl"))
 	if err != nil {
@@ -221,13 +244,16 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		dq.ISRC != "SEAYD7601020" || dq.MBID != "dq-studio" {
 		t.Errorf("Dancing Queen = %+v", dq)
 	}
+	// The override's track is on the original album: its album, ISRC and the Apple cover replace the compilation's
+	// and the archive's.
 	br := byID["br-studio"]
-	if br.AppleID != "br-hits" || br.Storefront != "de" || br.CoverSrc != "caa" ||
-		br.CoverURL != "https://coverartarchive.org/release-group/rg-opera/front-500" {
+	if br.AppleID != "br-opera" || br.Storefront != "de" || br.AppleAlbum != "A Night at the Opera (2011 Remaster)" ||
+		br.ISRC != "GBUM71029605" || br.CoverSrc != "apple" || br.CoverURL != "https://img.example/br-opera/{w}x{h}bb.jpg" {
 		t.Errorf("Bohemian Rhapsody = %+v", br)
 	}
 	gg := byID["joseito-fernandez--guajira-guantanamera"]
-	if gg.Year != 1929 || gg.MBID != "" || gg.AppleID != "999" || gg.Storefront != "ch" || gg.CoverSrc != "" {
+	if gg.Year != 1929 || gg.MBID != "" || gg.AppleID != "gg-alt" || gg.Storefront != "ch" || gg.ISRC != "CU2" ||
+		gg.AppleAlbum != "Mi biografia" || gg.CoverSrc != "" {
 		t.Errorf("Guantanamera = %+v", gg)
 	}
 	if bytes.Contains(b, []byte("audio.example")) {
@@ -238,17 +264,23 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every section shows the dataset as written: the excluded song is gone, the overridden tracks count as set.
 	for _, want := range []string{
-		"| cards | 6 |", "| cards without a year (dropped) | 1 |", "| songs | 3 |", "| overrides applied | 2 |",
+		"| cards | 6 |", "| cards without a year (dropped) | 1 |", "| songs | 3 |", "| overrides applied | 3 |",
+		"| cover: Apple (original album) | 2 |", "| cover: Cover Art Archive | 0 |",
 		"| essentials | 4 | 1 | 2 | 1 | 2 |", "| mega-mix | 2 | 0 | 2 | 2 | 2 |",
-		"| Queen | Bohemian Rhapsody | 1975 | 1975 | 1981 |  |",
+		"| Joseito Fernandez | Guajira Guantanamera | 1929 | – | 1958 |  |",
 		"| ABBA | Dancing Queen | 1976, 1977 |",
-		"| Joseito Fernandez | Guajira Guantanamera | Apple track found by search (Joseíto Fernández – Guajira Guantanamera) |",
-		"## Not found on MusicBrainz (2)", "## No Apple track with a preview (1)", "| Nobody | Unknown Song |",
+		"## Low-confidence matches (0)", "## Not found on MusicBrainz (1)", "## No Apple track with a preview (0)",
 		"- `missing-id`",
 	} {
 		if !strings.Contains(string(rep), want) {
 			t.Errorf("report lacks %q:\n%s", want, rep)
+		}
+	}
+	for _, gone := range []string{"Nobody", "| Queen | Bohemian Rhapsody | 1975 | 1975 | 1981", "Old | Song", "found by search"} {
+		if strings.Contains(string(rep), gone) {
+			t.Errorf("report still shows %q:\n%s", gone, rep)
 		}
 	}
 	if strings.Contains(string(rep), "video.example") || strings.Contains(string(rep), srv.URL) {
@@ -257,7 +289,7 @@ func TestImport_cardsThenSongs(t *testing.T) {
 
 	// A re-run answers from the cache: MusicBrainz is not asked again, the output is the same.
 	before := mbHits.Load()
-	if code, out := run(t, ep, nil, "-data", data, "songs"); code != 0 {
+	if code, out := run(t, ep, nil, "-env", envFile, "-data", data, "songs"); code != 0 {
 		t.Fatalf("rerun: exit %d\n%s", code, out)
 	}
 	again, _ := os.ReadFile(filepath.Join(data, "songs.jsonl"))
@@ -266,6 +298,78 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(data, "cache", "apple-token.json")); err != nil {
 		t.Errorf("apple token not kept: %v", err)
+	}
+
+	// An override naming no playable track fails the run instead of leaving the song without a clip.
+	for _, id := range []string{"gone", "no-preview"} {
+		if err := os.WriteFile(filepath.Join(data, "overrides.json"),
+			[]byte(`{"songs":{"dq-studio":{"apple_id":"`+id+`"}}}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if code, out := run(t, ep, nil, "-env", envFile, "-data", data, "songs"); code != 1 || !strings.Contains(out, "no track with a preview") {
+			t.Errorf("override %s: exit %d\n%s", id, code, out)
+		}
+	}
+}
+
+// fakeMB answers each search from bounded or unbounded by its year bound.
+type fakeMB struct{ bounded, unbounded []musicbrainz.Recording }
+
+func (f fakeMB) Search(_ context.Context, _, _ string, until int) ([]musicbrainz.Recording, error) {
+	if until > 0 {
+		return f.bounded, nil
+	}
+	return f.unbounded, nil
+}
+
+func TestFindRecording_labelsTheUnboundedFallback(t *testing.T) {
+	rec := func(date string) []musicbrainz.Recording {
+		return []musicbrainz.Recording{{ID: "r", Title: "Song", Credit: "Act", Artists: []string{"Act"}, FirstReleaseDate: date}}
+	}
+	e := entry{Artist: "Act", Title: "Song", Year: 1929}
+	for _, tc := range []struct {
+		mb   fakeMB
+		ok   bool
+		want string
+	}{
+		{fakeMB{bounded: rec("1929")}, true, ""},
+		{fakeMB{unbounded: rec("1940")}, true, "MusicBrainz has it only from 1940, after the card year"},
+		{fakeMB{unbounded: rec("")}, true, "MusicBrainz knows no release date for it"},
+		{fakeMB{unbounded: rec("1928")}, true, "MusicBrainz matched only by a search without the year bound"},
+		{fakeMB{}, false, ""},
+	} {
+		p := &Pipeline{MB: tc.mb}
+		_, ok, why, err := p.findRecording(context.Background(), e)
+		if err != nil || ok != tc.ok || why != tc.want {
+			t.Errorf("%+v: ok=%v why=%q err=%v", tc.mb, ok, why, err)
+		}
+	}
+}
+
+// best: the original-album track, then one that is no remix or live take, then the artist's own album.
+func TestBest_prefersOriginalThenPlainThenOwnAlbum(t *testing.T) {
+	m := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Help!", Date: "1965-08-06"}}
+	e := entry{Artist: "The Beatles", Title: "Help!", Year: 1965}
+	tr := func(id, name, album, albumArtist, date string) apple.Song {
+		return apple.Song{ID: id, Name: name, Artist: "The Beatles", Album: album, AlbumArtist: albumArtist, ReleaseDate: date, Preview: true}
+	}
+	remix := tr("a-remix", "Help! (Remix)", "Help! - Single", "The Beatles", "2020")
+	live := tr("b-live", "Help! (Live)", "Live at the BBC", "The Beatles", "1994")
+	comp := tr("c-comp", "Help!", "Sixties Hits", "Various Artists", "1965")
+	own := tr("d-own", "Help!", "1", "The Beatles", "2000")
+	orig := tr("e-orig", "Help!", "Help! (Remastered)", "The Beatles", "1965-08-06")
+	for _, tc := range []struct {
+		songs []apple.Song
+		want  string
+	}{
+		{[]apple.Song{remix, live, comp, own, orig}, "e-orig"},
+		{[]apple.Song{remix, live, comp, own}, "d-own"},
+		{[]apple.Song{remix, live, comp}, "c-comp"},
+		{[]apple.Song{remix, live}, "b-live"},
+	} {
+		if got, ok := best(tc.songs, m, e, nil); !ok || got.ID != tc.want {
+			t.Errorf("best = %s, want %s", got.ID, tc.want)
+		}
 	}
 }
 
@@ -279,7 +383,7 @@ func TestImport_writesTheOverridesTemplate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "cards", "rock.csv"), []byte("artist,title,year\nQueen,Bohemian Rhapsody,1975\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := run(t, ep, nil, "-data", data, "songs"); code != 0 {
+	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "src.csv=Rock"}, "-data", data, "songs"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	ov, err := loadOverrides(filepath.Join(data, "overrides.json"))
@@ -307,7 +411,8 @@ func TestMain_usageAndConfigErrors(t *testing.T) {
 		{[]string{"-env", filepath.Join(data, "missing"), "cards"}, nil, 1, "env file"},
 		{[]string{"-data", data, "cards"}, nil, 1, "BACKEND_CARDS_BASE_URL"},
 		{[]string{"-data", data, "cards"}, map[string]string{"BACKEND_CARDS_BASE_URL": "http://x", "BACKEND_CARDS_FILES": "bad"}, 1, "file=Set Name"},
-		{[]string{"-data", data, "songs"}, nil, 1, "no card snapshots"},
+		{[]string{"-data", data, "songs"}, nil, 1, "BACKEND_CARDS_FILES"},
+		{[]string{"-data", data, "songs"}, map[string]string{"BACKEND_CARDS_FILES": "x.csv=Rock"}, 1, "snapshot of set rock"},
 	} {
 		code, out := run(t, ep, tc.env, tc.args...)
 		if code != tc.code || !strings.Contains(out, tc.want) {
@@ -320,7 +425,7 @@ func TestMain_usageAndConfigErrors(t *testing.T) {
 	}
 	_ = os.WriteFile(filepath.Join(data, "cards", "x.csv"), []byte("artist,title,year\nA,T,1990\n"), 0o600)
 	_ = os.WriteFile(filepath.Join(data, "overrides.json"), []byte("{"), 0o600)
-	if code, out := run(t, ep, nil, "-data", data, "songs"); code != 1 || !strings.Contains(out, "overrides") {
+	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "songs"); code != 1 || !strings.Contains(out, "overrides") {
 		t.Errorf("bad overrides: %d %q", code, out)
 	}
 }
@@ -343,7 +448,7 @@ func TestImport_sourceErrorsFailTheRun(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(data, "cards"), 0o750)
 	_ = os.WriteFile(filepath.Join(data, "cards", "x.csv"), []byte("artist,title,year\nA,T,1990\nB,U,1991\n"), 0o600)
 	ep := Endpoints{MusicBrainz: srv.URL, AppleAPI: srv.URL, ApplePlayer: srv.URL, CoverArt: srv.URL}
-	code, out := run(t, ep, nil, "-data", data, "songs")
+	code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "songs")
 	if code != 1 || !strings.Contains(out, "2 songs failed") {
 		t.Errorf("exit %d, %q", code, out)
 	}

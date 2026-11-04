@@ -70,7 +70,7 @@ dataset keep their rows (hidden from decks).
    card songs in that genre; test: ≥ 90 % of card songs pass). Card-set songs bypass it. Count the **song, not the
    recording**: sum (or max) listeners over all recordings of the MusicBrainz work. Measured: Joseíto Fernández's
    Guantanamera has 324 Last.fm listeners, Dancing Queen 2.66 M — a famous song's original recording can be obscure.
-   Key: `LASTFM_API_KEY` in the uncommitted `.env.local` (tested 2026-11-03).
+   Key: `BACKEND_LASTFM_API_KEY` in the uncommitted `.env.local` (tested 2026-11-03).
 3. **Initial year**: card year for card sets; else MusicBrainz min `first-release-date` over all recordings of the
    ISRC. Apple's date only as a cross-check (report if off > 1). No trustworthy year → dropped.
 4. **Apple match**: `songs?filter[isrc]` (paginate past 25) → prefer the original-album version (MusicBrainz
@@ -183,7 +183,7 @@ All decided.
   volume, not in the repo). No outside image host during a game.
 - **D5 Apple client**: copy tunewire's token + client code into reworm; extract a shared module only if they drift.
 - **D6** Library decks later.
-- **D7 Last.fm API key**: registered ("Reworm"), in `.env.local` as `LASTFM_API_KEY`, tested. Shared secret unused.
+- **D7 Last.fm API key**: registered ("Reworm"), in `.env.local` as `BACKEND_LASTFM_API_KEY`, tested. Shared secret unused.
 - **D8 MusicBrainz contact**: `https://github.com/trick77/reworm` in the User-Agent.
 - **D9 Progress theme** (training): record awards, Bronze → Silver → Gold → Platinum → Diamond.
 - **D10** Brand-free everywhere (source URL in uncommitted local config, neutral file names, rule in AGENTS.md).

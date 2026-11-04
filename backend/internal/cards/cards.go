@@ -20,6 +20,8 @@ import (
 	"strings"
 
 	"github.com/trick77/ship/kit/fsx"
+
+	"github.com/trick77/reworm/internal/song"
 )
 
 // Card is one card: what the snapshot keeps. Year is 0 when the source had none.
@@ -83,7 +85,11 @@ func ParseSources(spec string) ([]Source, error) {
 
 // Fetch downloads one source file from base and parses it.
 func Fetch(ctx context.Context, client *http.Client, base string, src Source) ([]Card, error) {
-	u := strings.TrimRight(base, "/") + "/" + url.PathEscape(src.File)
+	segs := strings.Split(src.File, "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	u := strings.TrimRight(base, "/") + "/" + strings.Join(segs, "/")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("cards %s: %w", src.Set, err)
@@ -143,7 +149,7 @@ func ParseSource(r io.Reader) ([]Card, error) {
 		if c.Artist == "" || c.Title == "" {
 			continue
 		}
-		if y, err := strconv.Atoi(field(iy)); err == nil && y >= 1800 && y <= 2100 {
+		if y, err := strconv.Atoi(field(iy)); err == nil && song.ValidYear(y) {
 			c.Year = y
 		}
 		out = append(out, c)
@@ -187,27 +193,36 @@ type Set struct {
 	Cards []Card
 }
 
-// ReadSnapshots reads every dir/*.csv, sorted by slug.
-func ReadSnapshots(dir string) ([]Set, error) {
+// ReadSnapshots reads dir/<slug>.csv of each configured source, sorted by slug. strays are the snapshot files of
+// sets no longer configured: left out, for the caller to warn about (a set dropped from the config must not stay
+// in the dataset unnoticed).
+func ReadSnapshots(dir string, srcs []Source) (sets []Set, strays []string, err error) {
+	want := map[string]bool{}
+	for _, s := range srcs {
+		want[s.Slug()] = true
+	}
 	files, err := filepath.Glob(filepath.Join(dir, "*.csv"))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	slices.Sort(files)
-	var out []Set
 	for _, f := range files {
+		if slug := strings.TrimSuffix(filepath.Base(f), ".csv"); !want[slug] {
+			strays = append(strays, filepath.Base(f))
+		}
+	}
+	slices.Sort(strays)
+	for slug := range want {
+		f := filepath.Join(dir, slug+".csv")
 		b, err := os.ReadFile(f) //nolint:gosec // the repo's own snapshot
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("snapshot of set %s: %w (run the cards step first)", slug, err)
 		}
 		cs, err := ParseSource(bytes.NewReader(b))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
+			return nil, nil, fmt.Errorf("%s: %w", filepath.Base(f), err)
 		}
-		out = append(out, Set{Slug: strings.TrimSuffix(filepath.Base(f), ".csv"), Cards: cs})
+		sets = append(sets, Set{Slug: slug, Cards: cs})
 	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("no card snapshots in %s (run the cards step first)", dir)
-	}
-	return out, nil
+	slices.SortFunc(sets, func(a, b Set) int { return strings.Compare(a.Slug, b.Slug) })
+	return sets, strays, nil
 }

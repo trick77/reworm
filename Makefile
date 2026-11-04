@@ -10,7 +10,7 @@ import-cards:
 	cd backend && go run ./cmd/import -env ../.env.local -data ../data cards
 
 import-songs:
-	cd backend && go run ./cmd/import -data ../data songs
+	cd backend && go run ./cmd/import -env ../.env.local -data ../data songs
 
 tidy:
 	cd backend && go mod tidy

@@ -44,6 +44,9 @@ const (
 	CoverCAA   = "caa"
 )
 
+// ValidYear says y can be a song's release year: what the card snapshots and overrides accept.
+func ValidYear(y int) bool { return y >= 1800 && y <= 2100 }
+
 // Encode writes songs as JSON lines sorted by id, nil lists as [], so a re-import diffs only what changed.
 func Encode(songs []Song) ([]byte, error) {
 	sorted := slices.Clone(songs)

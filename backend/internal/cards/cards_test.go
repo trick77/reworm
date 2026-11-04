@@ -71,7 +71,7 @@ func TestParseSources(t *testing.T) {
 
 func TestFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/lists/two file.csv" {
+		if r.URL.Path != "/lists/two file.csv" && r.URL.EscapedPath() != "/lists/sub%20dir/one%3F.csv" {
 			http.NotFound(w, r)
 			return
 		}
@@ -81,6 +81,10 @@ func TestFetch(t *testing.T) {
 	got, err := Fetch(context.Background(), srv.Client(), srv.URL+"/lists/", Source{File: "two file.csv", Set: "Mega Mix"})
 	if err != nil || len(got) != 5 {
 		t.Fatalf("%v, %v", got, err)
+	}
+	// A file in a subdirectory: each segment escaped, the slash kept.
+	if got, err := Fetch(context.Background(), srv.Client(), srv.URL+"/lists", Source{File: "sub dir/one?.csv", Set: "Rock"}); err != nil || len(got) != 5 {
+		t.Errorf("subdirectory: %v, %v", got, err)
 	}
 	if _, err := Fetch(context.Background(), srv.Client(), srv.URL, Source{File: "x.csv", Set: "Rock"}); err == nil ||
 		!strings.Contains(err.Error(), "cards Rock: status 404") {
@@ -106,8 +110,9 @@ func TestFetch_badCSV(t *testing.T) {
 
 func TestSnapshotsRoundTrip(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "cards")
-	if _, err := ReadSnapshots(dir); err == nil {
-		t.Error("empty dir: no error")
+	srcs := []Source{{File: "b.csv", Set: "Mega Mix"}, {File: "a.csv", Set: "Essentials"}}
+	if _, _, err := ReadSnapshots(dir, srcs); err == nil {
+		t.Error("missing snapshots: no error")
 	}
 	if err := WriteSnapshot(dir, "mega-mix", []Card{{"B", "T", 1980}}); err != nil {
 		t.Fatal(err)
@@ -115,17 +120,24 @@ func TestSnapshotsRoundTrip(t *testing.T) {
 	if err := WriteSnapshot(dir, "essentials", []Card{{"A", "T, with comma", 1976}, {"C", "Q", 0}}); err != nil {
 		t.Fatal(err)
 	}
-	sets, err := ReadSnapshots(dir)
+	// A set dropped from the config: its snapshot is not read, only named.
+	if err := WriteSnapshot(dir, "old-set", []Card{{"X", "Y", 1990}}); err != nil {
+		t.Fatal(err)
+	}
+	sets, strays, err := ReadSnapshots(dir, srcs)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(sets) != 2 || sets[0].Slug != "essentials" || sets[0].Cards[0].Title != "T, with comma" || sets[0].Cards[1].Year != 0 || sets[1].Slug != "mega-mix" {
 		t.Errorf("sets %+v", sets)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "bad.csv"), []byte("x\n"), 0o600); err != nil {
+	if !slices.Equal(strays, []string{"old-set.csv"}) {
+		t.Errorf("strays %v", strays)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "essentials.csv"), []byte("x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadSnapshots(dir); err == nil {
+	if _, _, err := ReadSnapshots(dir, srcs); err == nil {
 		t.Error("bad snapshot: no error")
 	}
 	blocker := filepath.Join(t.TempDir(), "f")

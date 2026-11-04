@@ -2,12 +2,14 @@ package importer
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/trick77/reworm/internal/song"
 )
@@ -16,7 +18,7 @@ import (
 const overridesDoc = "Hand fixes by song id (see data/songs.jsonl), applied after the import: " +
 	`"songs": {"<id>": {"year": 1976, "apple_id": "1422648512", "storefront": "ch", "exclude": true}}. ` +
 	"year replaces the card year (year_source becomes override); apple_id (+ storefront, default ch) picks the Apple " +
-	"track; exclude drops the song from the dataset. Every field is optional."
+	"track, its album, ISRC and cover follow from it; exclude drops the song from the dataset. Every field is optional."
 
 // Override is one hand fix.
 type Override struct {
@@ -48,7 +50,7 @@ func loadOverrides(path string) (map[string]Override, error) {
 		f.Songs = map[string]Override{}
 	}
 	for id, o := range f.Songs {
-		if o.Year != 0 && (o.Year < 1800 || o.Year > 2100) {
+		if o.Year != 0 && !song.ValidYear(o.Year) {
 			return nil, fmt.Errorf("overrides: %s: year %d", id, o.Year)
 		}
 	}
@@ -65,30 +67,44 @@ func templateOverrides() ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-// applyOverrides applies ov to songs (in place) and returns the kept songs, the ids applied and the unknown ones.
-func applyOverrides(songs []song.Song, ov map[string]Override) (kept []song.Song, applied, unknown []string) {
+// applyOverrides applies ov to rs and returns the songs kept, the ids applied and the unknown ones. An apple_id is
+// looked up like any track (cached): its album, ISRC and the cover follow from it, the original-album rule
+// included. One that names no track with a preview fails the run: a hand fix must not leave the song unplayable.
+func (p *Pipeline) applyOverrides(ctx context.Context, rs []resolved, ov map[string]Override) (kept []resolved, applied, unknown []string, err error) {
 	seen := map[string]bool{}
-	for _, s := range songs {
-		o, ok := ov[s.ID]
+	for _, r := range rs {
+		o, ok := ov[r.Song.ID]
 		if !ok {
-			kept = append(kept, s)
+			kept = append(kept, r)
 			continue
 		}
-		seen[s.ID] = true
-		applied = append(applied, s.ID)
+		seen[r.Song.ID] = true
+		applied = append(applied, r.Song.ID)
 		if o.Exclude {
 			continue
 		}
 		if o.Year != 0 {
-			s.Year, s.YearSource = o.Year, song.YearOverride
+			r.Song.Year, r.Song.YearSource = o.Year, song.YearOverride
 		}
 		if o.AppleID != "" {
-			s.AppleID, s.Storefront, s.AppleAlbum = o.AppleID, o.Storefront, ""
-			if s.Storefront == "" {
-				s.Storefront = storefronts[0]
+			sf := o.Storefront
+			if sf == "" {
+				sf = storefronts[0]
+			}
+			t, found, err := p.Apple.SongByID(ctx, sf, o.AppleID)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("override %s: %w", r.Song.ID, err)
+			}
+			if !found || !t.Preview {
+				return nil, nil, nil, fmt.Errorf("override %s: apple_id %s is no track with a preview in storefront %s",
+					r.Song.ID, o.AppleID, sf)
+			}
+			r.Low = slices.DeleteFunc(slices.Clone(r.Low), func(n string) bool { return strings.HasPrefix(n, searchNote) })
+			if err := p.setTrack(ctx, &r, t, sf); err != nil {
+				return nil, nil, nil, err
 			}
 		}
-		kept = append(kept, s)
+		kept = append(kept, r)
 	}
 	for id := range ov {
 		if !seen[id] {
@@ -97,5 +113,5 @@ func applyOverrides(songs []song.Song, ov map[string]Override) (kept []song.Song
 	}
 	slices.Sort(applied)
 	slices.Sort(unknown)
-	return kept, applied, unknown
+	return kept, applied, unknown, nil
 }

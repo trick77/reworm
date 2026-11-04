@@ -25,6 +25,14 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+func TestValidYear(t *testing.T) {
+	for y, want := range map[int]bool{1799: false, 1800: true, 1976: true, 2100: true, 2101: false, 0: false} {
+		if ValidYear(y) != want {
+			t.Errorf("ValidYear(%d) != %v", y, want)
+		}
+	}
+}
+
 func TestKeyAndSlug(t *testing.T) {
 	if Key("ABBA", "Dancing Queen") != Key("Abba", "dancing  queen!") {
 		t.Error("keys differ for the same song")

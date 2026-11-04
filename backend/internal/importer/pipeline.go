@@ -28,6 +28,7 @@ type Catalog interface {
 	SearchSongs(ctx context.Context, storefront, term string, limit int) ([]apple.Song, error)
 	SearchAlbums(ctx context.Context, storefront, term string, limit int) ([]apple.Album, error)
 	AlbumTracks(ctx context.Context, storefront, albumID string) ([]apple.Song, error)
+	SongByID(ctx context.Context, storefront, id string) (apple.Song, bool, error)
 }
 
 // Recordings is what the pipeline asks MusicBrainz; *musicbrainz.Client implements it.
@@ -65,6 +66,8 @@ type resolved struct {
 	MBMatched     bool
 	// Low lists why a match is low confidence; empty when it is not.
 	Low []string
+	// match is the MusicBrainz match, kept for an override that picks another Apple track.
+	match musicbrainz.Match
 }
 
 // collect dedupes the sets' cards by normalized artist+title, drops year-less cards and counts per set.
@@ -171,6 +174,7 @@ func (p *Pipeline) resolve(ctx context.Context, e entry) (resolved, error) {
 	if err != nil {
 		return r, err
 	}
+	r.match = m
 	if ok {
 		r.MBMatched, r.MBYear = true, m.Year
 		s.ID, s.MBID = m.Recording.ID, m.Recording.ID
@@ -188,32 +192,40 @@ func (p *Pipeline) resolve(ctx context.Context, e entry) (resolved, error) {
 	if err != nil {
 		return r, err
 	}
-	if track.ID != "" {
-		s.AppleID, s.Storefront, s.AppleAlbum, s.ISRC = track.ID, sf, track.Album, track.ISRC
-		r.AppleYear = track.Year()
-		r.AppleOriginal = onOriginal(track, m, e.Year)
-		if viaSearch {
-			r.Low = append(r.Low, "Apple track found by search ("+track.Artist+" – "+track.Name+")")
-		}
+	r.Song = s
+	if viaSearch {
+		r.Low = append(r.Low, searchNote+" ("+track.Artist+" – "+track.Name+")")
 	}
+	return r, p.setTrack(ctx, &r, track, sf)
+}
+
+// searchNote starts the low-confidence note of an Apple track found by search.
+const searchNote = "Apple track found by search"
+
+// setTrack makes t (on storefront sf; zero: none found) the song's Apple track and picks its cover: Apple's
+// artwork when t is on the original album, else the Cover Art Archive's front of the MusicBrainz release group,
+// else none.
+func (p *Pipeline) setTrack(ctx context.Context, r *resolved, t apple.Song, sf string) error {
+	s, m := &r.Song, r.match
+	s.AppleID, s.Storefront, s.AppleAlbum, s.ISRC = t.ID, sf, t.Album, t.ISRC
 	if s.ISRC == "" && len(m.ISRCs) > 0 {
 		s.ISRC = m.ISRCs[0]
 	}
-
+	r.AppleYear, r.AppleOriginal = t.Year(), t.ID != "" && onOriginal(t, m, s.Year)
+	s.CoverURL, s.CoverSrc = "", ""
 	switch g := m.CoverGroup(); {
-	case r.AppleOriginal && track.Artwork != "":
-		s.CoverURL, s.CoverSrc = track.Artwork, song.CoverApple
+	case r.AppleOriginal && t.Artwork != "":
+		s.CoverURL, s.CoverSrc = t.Artwork, song.CoverApple
 	case g.ID != "":
 		u, found, err := p.Covers.Front(ctx, g.ID)
 		if err != nil {
-			return r, err
+			return err
 		}
 		if found {
 			s.CoverURL, s.CoverSrc = u, song.CoverCAA
 		}
 	}
-	r.Song = s
-	return r, nil
+	return nil
 }
 
 // findRecording searches MusicBrainz for recordings first released by the year after the card's: as the card
@@ -247,7 +259,17 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 	}
 	m, ok = musicbrainz.Pick(recs, e.Artist, e.Title)
 	m.Exact = false
-	return m, ok, "MusicBrainz has it only after the card year", nil
+	switch {
+	case !ok:
+	case m.Recording.FirstReleaseDate == "":
+		why = "MusicBrainz knows no release date for it"
+	case m.Year > e.Year+1:
+		why = fmt.Sprintf("MusicBrainz has it only from %d, after the card year", m.Year)
+	default:
+		// Dated within the bound, yet the bounded searches missed it (an alias the bound query did not hit).
+		why = "MusicBrainz matched only by a search without the year bound"
+	}
+	return m, ok, why, nil
 }
 
 // findTrack looks the song up on Apple, only tracks with a preview counting. Per storefront (ch → de → us): the
@@ -262,7 +284,7 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 			if err != nil {
 				return apple.Song{}, "", false, err
 			}
-			if t, ok := best(songs, m, e.Year, nil); ok {
+			if t, ok := best(songs, m, e, nil); ok {
 				if onOriginal(t, m, e.Year) {
 					return t, sf, false, nil
 				}
@@ -295,7 +317,7 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 			same := func(s apple.Song) bool {
 				return musicbrainz.SameTitle(s.Name, title) && musicbrainz.SameArtist(s.Artist, e.Artist)
 			}
-			if t, ok := best(songs, m, e.Year, same); ok {
+			if t, ok := best(songs, m, e, same); ok {
 				return t, sf, true, nil
 			}
 		}
@@ -354,8 +376,9 @@ func (p *Pipeline) originalAlbumTrack(ctx context.Context, sf string, e entry, m
 func withinAYear(a, b int) bool { return a == 0 || b == 0 || (a-b <= 1 && b-a <= 1) }
 
 // best picks among songs those with a preview (and passing keep, when set): the original-album track first, then
-// one on the artist's own album (not a various-artists compilation), then the earliest release, then the lowest id.
-func best(songs []apple.Song, m musicbrainz.Match, year int, keep func(apple.Song) bool) (apple.Song, bool) {
+// one that is no live take, remix, karaoke, … the card does not ask for (by track and album name), then one on the
+// artist's own album (not a various-artists compilation), then the earliest release, then the lowest id.
+func best(songs []apple.Song, m musicbrainz.Match, e entry, keep func(apple.Song) bool) (apple.Song, bool) {
 	var cands []apple.Song
 	for _, s := range songs {
 		if s.Preview && (keep == nil || keep(s)) {
@@ -365,12 +388,19 @@ func best(songs []apple.Song, m musicbrainz.Match, year int, keep func(apple.Son
 	if len(cands) == 0 {
 		return apple.Song{}, false
 	}
+	plain := func(s apple.Song) bool { return !musicbrainz.Version(s.Name+" "+s.Album, e.Title) }
 	slices.SortFunc(cands, func(a, b apple.Song) int {
-		oa, ob := onOriginal(a, m, year), onOriginal(b, m, year)
+		oa, ob := onOriginal(a, m, e.Year), onOriginal(b, m, e.Year)
 		switch {
 		case oa && !ob:
 			return -1
 		case ob && !oa:
+			return 1
+		}
+		if pa, pb := plain(a), plain(b); pa != pb {
+			if pa {
+				return -1
+			}
 			return 1
 		}
 		if sa, sb := ownAlbum(a), ownAlbum(b); sa != sb {

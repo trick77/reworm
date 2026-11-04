@@ -40,6 +40,8 @@ type Client struct {
 	UserAgent string
 	// Sleep waits between retries; tests replace it.
 	Sleep func(context.Context, time.Duration) error
+	// Evict, when set, drops a cached answer the client could not decode (httpcache.Transport.Evict).
+	Evict func(method, url string) error
 }
 
 // Recording is one search hit.
@@ -142,13 +144,9 @@ func (c *Client) searchPage(ctx context.Context, query string, offset int) ([]Re
 	if base == "" {
 		base = BaseURL
 	}
-	body, err := c.get(ctx, base+"/ws/2/recording?"+q.Encode())
-	if err != nil {
-		return nil, 0, err
-	}
 	var sb searchBody
-	if err := json.Unmarshal(body, &sb); err != nil {
-		return nil, 0, fmt.Errorf("musicbrainz: decode search: %w", err)
+	if err := c.get(ctx, base+"/ws/2/recording?"+q.Encode(), &sb); err != nil {
+		return nil, 0, err
 	}
 	out := make([]Recording, 0, len(sb.Recordings))
 	for _, r := range sb.Recordings {
@@ -170,9 +168,11 @@ func (c *Client) searchPage(ctx context.Context, query string, offset int) ([]Re
 	return out, sb.Count, nil
 }
 
-// get fetches url, retrying a 503 (MusicBrainz's "too fast"), 429, 502, 504 and a body cut off mid-transfer
-// with a doubling backoff. A full import (~4,000 requests) met each of these a few times (2026-11-04).
-func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
+// get fetches url and decodes it into out, retrying a 503 (MusicBrainz's "too fast"), 429, 502, 504, a network
+// error, a body cut off mid-transfer and a 200 that does not decode, with a doubling backoff. A full import (~4,000
+// requests) met the first ones a few times (2026-11-04). The undecodable 200 is evicted from the cache first, so no
+// later run replays it.
+func (c *Client) get(ctx context.Context, u string, out any) error {
 	wait := 2 * time.Second
 	for attempt := 1; ; attempt++ {
 		status, body, err := c.once(ctx, u)
@@ -181,20 +181,29 @@ func (c *Client) get(ctx context.Context, u string) ([]byte, error) {
 		case err != nil && ctx.Err() == nil:
 			retry = err
 		case err != nil:
-			return nil, ctx.Err()
+			return ctx.Err()
 		case status == http.StatusOK:
-			return body, nil
+			err := json.Unmarshal(body, out)
+			if err == nil {
+				return nil
+			}
+			retry = fmt.Errorf("musicbrainz: decode search: %w", err)
+			if c.Evict != nil {
+				if err := c.Evict(http.MethodGet, u); err != nil {
+					return fmt.Errorf("musicbrainz: evict: %w", err)
+				}
+			}
 		case status == http.StatusServiceUnavailable || status == http.StatusTooManyRequests ||
 			status == http.StatusBadGateway || status == http.StatusGatewayTimeout:
 			retry = fmt.Errorf("musicbrainz: status %d", status)
 		default:
-			return nil, fmt.Errorf("musicbrainz: status %d", status)
+			return fmt.Errorf("musicbrainz: status %d", status)
 		}
 		if attempt >= tries {
-			return nil, fmt.Errorf("%w after %d tries", retry, attempt)
+			return fmt.Errorf("%w after %d tries", retry, attempt)
 		}
 		if err := c.sleep(ctx, wait); err != nil {
-			return nil, err
+			return err
 		}
 		wait *= 2
 	}
@@ -290,6 +299,16 @@ func Pick(recs []Recording, artist, title string) (m Match, ok bool) {
 	if len(cands) == 0 {
 		return Match{}, false
 	}
+	// A live take, remix, demo, … the card does not name is the song only when nothing else matches; one the card
+	// names ("Help! (Demo)") is preferred.
+	plain := slices.DeleteFunc(slices.Clone(cands), func(r Recording) bool { return Version(r.Disambiguation+" "+r.Title, title) })
+	if len(plain) > 0 {
+		cands = plain
+	}
+	named := slices.DeleteFunc(slices.Clone(cands), func(r Recording) bool { return !names(r.Disambiguation+" "+r.Title, title) })
+	if len(named) > 0 {
+		cands = named
+	}
 	slices.SortFunc(cands, func(a, b Recording) int {
 		// By year first: within one year the recording on more releases is the canonical one; a stray copy
 		// dated "1975" must not beat the album's "1975-04-21" on the shorter date.
@@ -308,9 +327,14 @@ func Pick(recs []Recording, artist, title string) (m Match, ok bool) {
 		return strings.Compare(a.ID, b.ID)
 	})
 	m = Match{Recording: cands[0], Exact: isExact, Year: Year(cands[0].FirstReleaseDate)}
+	// ISRCs find the track on Apple, so only the card's own act and recording may contribute: the chosen one (its
+	// "single/LP/12″ version" note names the original, not a variant), then the others credited exactly to the card's
+	// artist that are no variant either, "version" and "edit" included. A tribute band's or a remix's ISRC would find
+	// their track.
 	seen := map[string]bool{}
 	for i, r := range cands {
-		if i > 0 && strings.Contains(strings.ToLower(r.Disambiguation), "live") {
+		text := r.Disambiguation + " " + r.Title
+		if !exactArtist(r, artist) || (i > 0 && (Version(text, title) || variant(text, title))) {
 			continue
 		}
 		for _, isrc := range r.ISRCs {
@@ -394,8 +418,8 @@ func Strip(s string) string {
 }
 
 // SongTitles are the readings of a card title, as written first: without its trailing parentheticals, then the
-// last parenthetical's content, or (no parenthetical at the end) what follows the last " - ". Film and TV cards print "Film (Song)" or "Film - Song":
-// "Robin Hood - König der Diebe ((Everything I Do) I Do It For You)" is the song "(Everything I Do) I Do It For You".
+// last parenthetical's content, or (no parenthetical at the end) what follows the last " - ". Film and TV cards
+// print "Film (Song)" or "Film - Song": "Robin Hood - König der Diebe ((Everything I Do) I Do It For You)" is the song "(Everything I Do) I Do It For You".
 func SongTitles(title string) []string {
 	out := []string{title}
 	add := func(t string) {
@@ -443,24 +467,62 @@ func MainArtist(s string) string {
 	return strings.TrimSpace(parts[0])
 }
 
+// artistKey is an artist name normalized, a leading "the" dropped: "The Beatles" and "Beatles" are one act.
+func artistKey(s string) string { return strings.TrimPrefix(song.Normalize(s), "the ") }
+
 func exactArtist(r Recording, artist string) bool {
-	want := song.Normalize(artist)
-	if song.Normalize(r.Credit) == want {
+	want := artistKey(artist)
+	if artistKey(r.Credit) == want {
 		return true
 	}
-	return len(r.Artists) > 0 && song.Normalize(r.Artists[0]) == want
+	return len(r.Artists) > 0 && artistKey(r.Artists[0]) == want
 }
 
-// SameArtist is the loose artist match: main artists equal, or one name inside the other on word bounds.
+// SameArtist is the loose artist match: the names equal, or their main artists ("Shakira feat. Wyclef Jean" →
+// Shakira), a leading "the" aside. Never one name inside the other: "Abba Revival Band" and "Beatles Tribute" are
+// other acts.
 func SameArtist(a, b string) bool {
-	na, nb := song.Normalize(a), song.Normalize(b)
+	na, nb := artistKey(a), artistKey(b)
 	if na == "" || nb == "" {
 		return false
 	}
-	if na == nb || song.Normalize(MainArtist(a)) == song.Normalize(MainArtist(b)) {
-		return true
+	return na == nb || artistKey(MainArtist(a)) == artistKey(MainArtist(b))
+}
+
+// versionWords mark a recording or track that is not the song as released: live, remixed, a demo, … A card that
+// names the word itself ("Mi Gente - Original Mix", "Unplugged … (Live)") asks for that one.
+var versionWords = []string{"live", "remix", "remixed", "rmx", "dj mix", "demo", "re record", "re recorded",
+	"rerecorded", "re recording", "acoustic", "unplugged", "karaoke", "instrumental", "cover", "tribute"}
+
+// variantWords mark other cuts of the song: kept as the song when nothing better matches, but their ISRCs are not
+// asked of Apple.
+var variantWords = []string{"version", "edit", "mix"}
+
+// Version says text (a disambiguation, title or album name) marks a live take, remix, demo, … the card title does
+// not name.
+func Version(text, cardTitle string) bool { return hasWord(text, versionWords, cardTitle) }
+
+func variant(text, cardTitle string) bool { return hasWord(text, variantWords, cardTitle) }
+
+// names says text carries a version word the card title names too.
+func names(text, cardTitle string) bool {
+	t, c := " "+song.Normalize(text)+" ", " "+song.Normalize(cardTitle)+" "
+	for _, w := range versionWords {
+		if strings.Contains(c, " "+w+" ") && strings.Contains(t, " "+w+" ") {
+			return true
+		}
 	}
-	return strings.Contains(" "+na+" ", " "+nb+" ") || strings.Contains(" "+nb+" ", " "+na+" ")
+	return false
+}
+
+func hasWord(text string, words []string, cardTitle string) bool {
+	t, c := " "+song.Normalize(text)+" ", " "+song.Normalize(cardTitle)+" "
+	for _, w := range words {
+		if strings.Contains(t, " "+w+" ") && !strings.Contains(c, " "+w+" ") {
+			return true
+		}
+	}
+	return false
 }
 
 func looseArtist(r Recording, artist string) bool {

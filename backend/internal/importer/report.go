@@ -14,11 +14,11 @@ type setStats struct {
 	Cards, NoYear int
 }
 
-// report is what import-report.md shows: counts and the songs worth a look, artist and title only.
+// report is what import-report.md shows: counts and the songs worth a look, artist and title only. resolved are
+// the songs as written, overrides applied: every section is built from them.
 type report struct {
 	sets     map[string]*setStats
 	resolved []resolved
-	songs    []song.Song
 	merged   []string
 	applied  []string
 	unknown  []string
@@ -39,7 +39,8 @@ func (r report) markdown() []byte {
 		bySet[slug] = &struct{ songs, mb, preview int }{}
 	}
 	var mb, exact, preview, apple, caa, origin int
-	for _, s := range r.songs {
+	for _, x := range r.resolved {
+		s := x.Song
 		if s.MBID != "" {
 			mb++
 		}
@@ -83,13 +84,13 @@ func (r report) markdown() []byte {
 		k string
 		v int
 	}{
-		{"cards", cardsN}, {"cards without a year (dropped)", noYear}, {"songs", len(r.songs)},
+		{"cards", cardsN}, {"cards without a year (dropped)", noYear}, {"songs", len(r.resolved)},
 		{"card spellings merged into one recording", len(r.merged)},
 		{"MusicBrainz matched", mb}, {"MusicBrainz matched, no low-confidence note", exact},
-		{"Apple track with preview", preview}, {"no Apple preview", len(r.songs) - preview},
+		{"Apple track with preview", preview}, {"no Apple preview", len(r.resolved) - preview},
 		{"Apple track on the original album", origin},
 		{"cover: Apple (original album)", apple}, {"cover: Cover Art Archive", caa},
-		{"cover: none", len(r.songs) - apple - caa}, {"overrides applied", len(r.applied)},
+		{"cover: none", len(r.resolved) - apple - caa}, {"overrides applied", len(r.applied)},
 	} {
 		w("| %s | %d |\n", row.k, row.v)
 	}
@@ -109,7 +110,6 @@ func (r report) markdown() []byte {
 	slices.SortFunc(rows, func(a, b resolved) int {
 		return strings.Compare(song.Key(a.Artist, a.Title), song.Key(b.Artist, b.Title))
 	})
-	off := func(y, card int) bool { return y != 0 && (y-card > 1 || card-y > 1) }
 	section := func(title, header string, line func(x resolved) (string, bool)) {
 		var lines []string
 		for _, x := range rows {
@@ -133,10 +133,10 @@ func (r report) markdown() []byte {
 		}
 		return strconv.Itoa(y)
 	}
-	section("Year conflicts: MusicBrainz or Apple more than a year off the card",
-		"| artist | title | card | MusicBrainz | Apple | Apple on original album |\n|---|---|---:|---:|---:|---|",
+	section("Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override)",
+		"| artist | title | year | MusicBrainz | Apple | Apple on original album |\n|---|---|---:|---:|---:|---|",
 		func(x resolved) (string, bool) {
-			if !off(x.MBYear, x.Song.Year) && !off(x.AppleYear, x.Song.Year) {
+			if withinAYear(x.MBYear, x.Song.Year) && withinAYear(x.AppleYear, x.Song.Year) {
 				return "", false
 			}
 			orig := ""
