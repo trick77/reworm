@@ -4,13 +4,13 @@ import type { Decks, TrainSettings, TrainStats } from "../api/types";
 import { avatarInfo } from "../avatars";
 import { Avatar } from "../components/Avatar";
 import { AwardBadge } from "../components/AwardBadge";
-import { Button, Card, Pill } from "../components/Controls";
+import { Button, Card, IconButton, Pill } from "../components/Controls";
+import { DeckArt } from "../components/DeckArt";
 import { Icon } from "../components/Icon";
 import { allYears, defaultTraining, load, save } from "../lib/prefs";
 import {
   accColor,
   Brand,
-  DeckArt,
   deckLabel,
   Problem,
   Screen,
@@ -33,37 +33,31 @@ export function lastTraining(decks?: Decks): TrainSettings {
 function GameNight({ avatars }: { avatars: string[] }) {
   const [, go] = useLocation();
   return (
-    <Card style={{ marginTop: 18, padding: "14px 16px" }}>
-      <div className="row between" style={{ alignItems: "flex-start" }}>
-        <div>
-          <div className="kata" style={{ color: "var(--sky)" }}>
-            Game night
-          </div>
-          <div style={{ fontWeight: 700, fontSize: 16, marginTop: 3 }}>
-            Play with friends
-          </div>
-          <div className="sub" style={{ fontSize: 12.5, marginTop: 2 }}>
-            One screen plays, phones are buzzers. Fastest right answer wins.
-          </div>
-        </div>
-        <div className="stack">
-          {avatars.slice(0, 3).map((a, i) => (
-            <Avatar key={i} avatar={a} size={30} alt="" />
-          ))}
-        </div>
+    <Card className="hero" style={{ marginTop: 18, padding: 18 }}>
+      <div className="kata">Game night</div>
+      <div
+        style={{
+          fontSize: 24,
+          fontWeight: 750,
+          margin: "6px 0 2px",
+          letterSpacing: -0.3,
+        }}
+      >
+        Play with friends
       </div>
-      <div className="row" style={{ marginTop: 12, gap: 8 }}>
-        <Button
-          small
-          variant="sky"
-          icon="party"
-          style={{ flex: 1 }}
-          onClick={() => go("/host")}
-        >
+      <div className="sub" style={{ maxWidth: 250 }}>
+        One screen plays, phones are buzzers. Fastest right answer wins.
+      </div>
+      <div className="stack" style={{ marginTop: 12 }}>
+        {avatars.slice(0, 3).map((a, i) => (
+          <Avatar key={i} avatar={a} size={30} alt="" />
+        ))}
+      </div>
+      <div className="row" style={{ marginTop: 16, gap: 8 }}>
+        <Button icon="party" style={{ flex: 2 }} onClick={() => go("/host")}>
           Host a game
         </Button>
         <Button
-          small
           variant="ghost"
           icon="qr"
           style={{ flex: 1 }}
@@ -193,42 +187,36 @@ export function Home() {
           {unpaired && <Unpaired what="Training, hosting and progress" />}
           {meError && <Problem error={meError} retry={reload} />}
           {paired && (
-            <Card className="hero" style={{ marginTop: 10, padding: 18 }}>
-              <div className="kata">Today's round</div>
-              <div
-                style={{
-                  fontSize: 24,
-                  fontWeight: 750,
-                  margin: "6px 0 2px",
-                  letterSpacing: -0.3,
-                }}
-              >
-                {deckLabel(today.deck, decks.data)}
-              </div>
-              <div className="sub">
-                {today.length} songs · ~{Math.ceil((today.length * 25) / 60)}{" "}
-                min
-                {stats.data ? ` · ${stats.data.learning} learning` : ""}
-              </div>
-              <div className="row" style={{ marginTop: 16, gap: 8 }}>
-                <Button
-                  icon="play"
-                  style={{ flex: 1 }}
-                  disabled={training.busy}
-                  onClick={() => training.start(today)}
-                >
-                  Start training
-                </Button>
-                <button
-                  type="button"
-                  className="icon-btn"
-                  style={{ height: 54, width: 54, borderRadius: 16 }}
-                  title="Change deck"
-                  aria-label="Change deck"
-                  onClick={() => go("/train")}
-                >
-                  <Icon name="train" />
-                </button>
+            <Card style={{ marginTop: 10, padding: "12px 14px" }}>
+              <div className="row between" style={{ gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="kata" style={{ color: "var(--sky)" }}>
+                    Solo training
+                  </div>
+                  <div style={{ fontWeight: 650, fontSize: 15, marginTop: 2 }}>
+                    {deckLabel(today.deck, decks.data)}
+                  </div>
+                  <div className="sub" style={{ fontSize: 12.5 }}>
+                    {today.length} songs · ~
+                    {Math.ceil((today.length * 25) / 60)} min
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 6, flex: "none" }}>
+                  <IconButton
+                    icon="train"
+                    label="Change deck"
+                    onClick={() => go("/train")}
+                  />
+                  <Button
+                    small
+                    variant="sky"
+                    icon="play"
+                    disabled={training.busy}
+                    onClick={() => training.start(today)}
+                  >
+                    Start training
+                  </Button>
+                </div>
               </div>
             </Card>
           )}
@@ -301,7 +289,7 @@ export function Home() {
                   className="deck"
                   onClick={() => pickDeck(allYears({ sets: [s.id] }))}
                 >
-                  <DeckArt name={s.name} i={i} />
+                  <DeckArt id={s.id} name={s.name} i={i} />
                   <div className="meta">
                     <div className="t">{s.name}</div>
                     <div className="s">
@@ -317,7 +305,7 @@ export function Home() {
                   className="deck"
                   onClick={() => pickDeck(allYears({ categories: [c.id] }))}
                 >
-                  <DeckArt name={c.name} i={i + 4} />
+                  <DeckArt id={c.id} name={c.name} i={i + 4} />
                   <div className="meta">
                     <div className="t">{c.name}</div>
                     <div className="s">Category · {c.count} songs</div>

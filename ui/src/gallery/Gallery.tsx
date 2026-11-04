@@ -238,13 +238,17 @@ export default function Gallery() {
         <div className="col">
           <Section title="Buttons">
             <div className="g-stack">
-              <Button icon="play">Start training</Button>
               <div className="row">
-                <Button small variant="sky" icon="party" style={{ flex: 1 }}>
+                <Button icon="party" style={{ flex: 2 }}>
                   Host a game
                 </Button>
-                <Button small variant="ghost" icon="qr" style={{ flex: 1 }}>
+                <Button variant="ghost" icon="qr" style={{ flex: 1 }}>
                   Join
+                </Button>
+              </div>
+              <div className="row">
+                <Button small variant="sky" icon="play">
+                  Start training
                 </Button>
               </div>
               <div className="row">

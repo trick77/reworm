@@ -29,7 +29,7 @@ test("pairing: add a device, invite someone, the admin profile is not switchable
   await second.goto(`/pair/${code}`);
   await second.getByRole("button", { name: "Pair this device" }).click();
   await expect(second).toHaveURL(/\/$/);
-  await expect(second.getByText("Today's round")).toBeVisible();
+  await expect(second.getByText("Solo training")).toBeVisible();
   await second.goto("/me");
   await expect(second.getByText(/· admin$/)).toBeVisible();
   // a used code is gone
@@ -49,7 +49,7 @@ test("pairing: add a device, invite someone, the admin profile is not switchable
   await third.getByRole("radio", { name: "Quaver" }).click();
   await shot(third, "pair-invite");
   await third.getByRole("button", { name: "Create my profile" }).click();
-  await expect(third.getByText("Today's round")).toBeVisible();
+  await expect(third.getByText("Solo training")).toBeVisible();
   await third.goto("/me");
   await expect(third.getByText(name, { exact: true }).first()).toBeVisible();
   await expect(third.getByText(/· admin$/)).toHaveCount(0);

@@ -28,9 +28,15 @@
 
 /* home */
 .hero {
+  --ring: #231b16;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(150deg, #2e211a 0%, #231b16 55%, #1d1714 100%);
+  background: linear-gradient(
+    150deg,
+    #2e211a 0%,
+    var(--ring) 55%,
+    #1d1714 100%
+  );
   border: 1px solid #3d2c22;
 }
 .hero::after {
@@ -66,7 +72,7 @@
   margin-left: -10px;
 }
 .stack .avatar {
-  box-shadow: 0 0 0 2px var(--panel);
+  box-shadow: 0 0 0 2px var(--ring, var(--panel));
 }
 .buckets {
   display: flex;
@@ -148,11 +154,21 @@
   flex: none;
   display: grid;
   place-items: center;
-  font-weight: 800;
-  font-size: 15px;
   color: #fff;
   position: relative;
   overflow: hidden;
+}
+.art .art-bg {
+  position: absolute;
+  right: -18px;
+  bottom: -18px;
+  opacity: 0.18;
+  transform: rotate(-14deg);
+}
+.art .art-fg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
 }
 .art::after {
   content: "";

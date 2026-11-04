@@ -16,7 +16,7 @@ test("first device: the setup link from the server log makes the admin", async (
   await shot(page, "setup");
   await page.getByRole("button", { name: "Create my profile" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByText("Today's round")).toBeVisible();
+  await expect(page.getByText("Solo training")).toBeVisible();
   await shot(page, "home-admin");
   await page.context().storageState({ path: adminState() });
 
