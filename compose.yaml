@@ -2,7 +2,7 @@
 services:
   reworm:
     # A release tag (exists from the first release on); Dependabot moves it.
-    image: ghcr.io/trick77/reworm:0.1.2
+    image: ghcr.io/trick77/reworm:0.1.4
     # distroless nonroot's own uid, never 1000 (the host's first user). Host ./data must belong to it:
     # sudo chown -R 65532:65532 data
     user: "65532:65532"
@@ -36,6 +36,8 @@ services:
       traefik.http.routers.reworm.rule: Host(`${PUBLIC_FQDN:?set PUBLIC_FQDN in .env, the hostname Traefik routes reworm on}`)
       traefik.http.routers.reworm.entrypoints: websecure
       traefik.http.routers.reworm.tls: "true"
+      traefik.http.routers.reworm.tls.certresolver: letsencrypt
+      # No http router: Traefik's `web` entrypoint redirects to `websecure` for every host.
       traefik.http.services.reworm.loadbalancer.server.port: "8080"
 
 networks:
