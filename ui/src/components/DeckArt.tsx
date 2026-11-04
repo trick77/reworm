@@ -1,6 +1,6 @@
 // Deck tiles: a picture per theme (record, cassette, bolt, sun, …) on its own colours, keyed by the deck's slug,
 // else guessed from whole words of its name. Letters were dropped: "RT" told nobody it was Rock Anthems.
-import type { ReactNode } from "react";
+import type { ReactNode, SVGProps } from "react";
 
 type Art = { glyph: ReactNode; from: string; to: string };
 
@@ -118,7 +118,7 @@ const A = {
   vinyl: { glyph: G.vinyl, from: "#e5482f", to: "#3a1410" },
 } satisfies Record<string, Art>;
 
-// The slugs of backend/internal/deck/names.go (sets, categories).
+// The slugs of backend/internal/deck/names.go (sets, categories); deck_test.go keeps the two in step.
 const BY_ID: Record<string, Art> = {
   essentials: A.vinyl,
   "mega-mix": A.cassette,
@@ -154,7 +154,7 @@ const RULES: [RegExp, Art][] = [
   [/\b(movie|film|tv|screen)\b/, A.clapper],
   [/\bradio\b/, A.radio],
   [/\bmix\b/, A.cassette],
-  [/\b(smash|hits?)\b/, A.star],
+  [/\bsmash\b/, A.star],
   [/\b(number|charts?)\b/, A.crown],
   [/\b(evergreens?|oldies?)\b/, A.gramophone],
 ];
@@ -178,10 +178,7 @@ export function deckArt(id: string, name: string, i = 0): Art {
   return { glyph: G.note, from, to };
 }
 
-function Glyph({
-  children,
-  ...rest
-}: { children: ReactNode } & Record<string, unknown>) {
+function Glyph({ children, ...rest }: SVGProps<SVGSVGElement>) {
   return (
     <svg
       viewBox="0 0 24 24"

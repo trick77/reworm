@@ -277,7 +277,9 @@ describe("training", () => {
   it("starts today's round from home, and a decade, and points an unpaired device to pairing", async () => {
     const world = new FakeWorld();
     const r = renderApp("/", world.device("p-jan"));
-    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start training" }),
+    );
     await waitFor(() => expect(r.path()).toMatch(/^\/train\/t-/));
     r.unmount();
     const r2 = renderApp("/", world.device("p-jan"));

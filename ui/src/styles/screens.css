@@ -28,9 +28,15 @@
 
 /* home */
 .hero {
+  --ring: #231b16;
   position: relative;
   overflow: hidden;
-  background: linear-gradient(150deg, #2e211a 0%, #231b16 55%, #1d1714 100%);
+  background: linear-gradient(
+    150deg,
+    #2e211a 0%,
+    var(--ring) 55%,
+    #1d1714 100%
+  );
   border: 1px solid #3d2c22;
 }
 .hero::after {
@@ -66,10 +72,7 @@
   margin-left: -10px;
 }
 .stack .avatar {
-  box-shadow: 0 0 0 2px var(--panel);
-}
-.hero .stack .avatar {
-  box-shadow: 0 0 0 2px #2a1e18;
+  box-shadow: 0 0 0 2px var(--ring, var(--panel));
 }
 .buckets {
   display: flex;

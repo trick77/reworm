@@ -199,7 +199,6 @@ export function Home() {
                   <div className="sub" style={{ fontSize: 12.5 }}>
                     {today.length} songs · ~
                     {Math.ceil((today.length * 25) / 60)} min
-                    {stats.data ? ` · ${stats.data.learning} learning` : ""}
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6, flex: "none" }}>
@@ -215,7 +214,7 @@ export function Home() {
                     disabled={training.busy}
                     onClick={() => training.start(today)}
                   >
-                    Start
+                    Start training
                   </Button>
                 </div>
               </div>
