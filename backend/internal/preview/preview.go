@@ -19,6 +19,9 @@ type Source interface {
 // ErrNone is a song the source has no preview for: the round skips it.
 var ErrNone = errors.New("no preview for this song")
 
+// AudioHost is where Apple's previews stream from, straight to the browser: the server's CSP media-src allows it.
+const AudioHost = "audio-ssl.itunes.apple.com"
+
 // TTL is how long a resolved URL is reused.
 const TTL = 24 * time.Hour
 
