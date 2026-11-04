@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +44,15 @@ func TestVersion(t *testing.T) {
 	}
 	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Errorf("security headers missing: %v", rec.Header())
+	}
+}
+
+func TestCSPAllowsPreviews(t *testing.T) {
+	csp := get(newHandler(), "/").Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'self'", "media-src 'self' data: https://audio-ssl.itunes.apple.com"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP %q lacks %q", csp, want)
+		}
 	}
 }
 
