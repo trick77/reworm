@@ -874,8 +874,15 @@ export class FakeApi implements Api {
       ),
     );
   switchProfile = (profileId: string) =>
-    this.paired("switch", () => {
-      if (!this.world.profiles.has(profileId)) return fail(404, "no_profile");
+    this.paired("switch", (me) => {
+      const to = this.world.profiles.get(profileId);
+      if (!to) return fail(404, "no_profile");
+      if (to.admin && me.id !== to.id)
+        return fail(
+          403,
+          "admin_profile",
+          "pair this device from an admin device instead",
+        );
       this.dev.profileId = profileId;
       return Promise.resolve();
     });

@@ -124,6 +124,20 @@ describe("profiles and devices", () => {
     expect((await api.me()).profile.name).toBe("Sarah");
   });
 
+  it("explains why the admin profile can't be picked, and how to get it", async () => {
+    const world = new FakeWorld();
+    const api = world.device("p-mia");
+    const r = renderApp("/who", api);
+    fireEvent.click(await screen.findByRole("button", { name: "Jan" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Jan is the admin profile",
+    );
+    expect(r.path()).toBe("/who");
+    expect((await api.me()).profile.name).toBe("Mia");
+    fireEvent.click(screen.getByRole("button", { name: "Pair this device" }));
+    expect(r.path()).toBe("/pair");
+  });
+
   it("Add someone opens the profile page with an invite code", async () => {
     const world = new FakeWorld();
     const r = renderApp("/who", world.device("p-jan"));
