@@ -169,6 +169,8 @@ func TestHTTP_yearsGame(t *testing.T) {
 		t.Fatalf("started = %+v", s)
 	}
 	room, _ := e.svc.room(code)
+	// Start's background prefetch publishes the state (reads the round): wait for it before writing.
+	room.bg.Wait()
 	room.round.proposed = room.round.pick.song.Year + 4 // one point, not the game
 	choice := right(room)
 	if rec := guest.do(http.MethodPost, base+"/answer", pressRequest{Round: 1, Choice: choice}); rec.Code != http.StatusOK ||
