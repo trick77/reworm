@@ -115,9 +115,16 @@ func collect(sets []cards.Set) ([]entry, map[string]*setStats) {
 
 // resolveAll runs resolve over entries on Workers goroutines (MusicBrainz's throttle serializes its share). Every
 // error is collected; any one fails the run, whose cache makes the next one cheap.
+//
+// An Apple 429 stops the whole run at once: every worker's requests are cancelled, nothing more is asked of Apple,
+// and the error counts the songs still missing (a rerun resolves them from the cache once the window is over).
 func (p *Pipeline) resolveAll(ctx context.Context, entries []entry) ([]resolved, error) {
+	parent := ctx
+	ctx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
 	out := make([]resolved, len(entries))
 	errs := make([]error, len(entries))
+	ok := make([]bool, len(entries))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -126,6 +133,10 @@ func (p *Pipeline) resolveAll(ctx context.Context, entries []entry) ([]resolved,
 		wg.Go(func() {
 			for i := range jobs {
 				out[i], errs[i] = p.resolve(ctx, entries[i])
+				ok[i] = errs[i] == nil
+				if errors.Is(errs[i], apple.ErrRateLimited) {
+					stop(errs[i])
+				}
 				mu.Lock()
 				done++
 				if done%100 == 0 || done == len(entries) {
@@ -143,8 +154,18 @@ func (p *Pipeline) resolveAll(ctx context.Context, entries []entry) ([]resolved,
 	}
 	close(jobs)
 	wg.Wait()
-	if err := ctx.Err(); err != nil {
+	if err := parent.Err(); err != nil {
 		return nil, err
+	}
+	if cause := context.Cause(ctx); errors.Is(cause, apple.ErrRateLimited) {
+		missing := 0
+		for _, k := range ok {
+			if !k {
+				missing++
+			}
+		}
+		return nil, fmt.Errorf("stopped at the first Apple 429, %d of %d songs still missing (rerun later; the rest is cached): %w",
+			missing, len(entries), cause)
 	}
 	var all []error
 	for i, err := range errs {

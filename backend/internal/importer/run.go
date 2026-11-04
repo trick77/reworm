@@ -42,8 +42,9 @@ type Endpoints struct {
 // DefaultEndpoints are the real services.
 var DefaultEndpoints = Endpoints{
 	MusicBrainz: musicbrainz.BaseURL, AppleAPI: apple.APIURL, ApplePlayer: apple.PlayerURL, CoverArt: CAAURL,
-	// Apple refuses bursts with 429s whose window outlasts short backoffs: 5 requests a second stay clear.
-	MBEvery: time.Second, AppleEvery: 200 * time.Millisecond,
+	// Apple: the web player's API is unofficial with unpublished limits; 5 req/s caused a ~3.5 h block (2026-11-04),
+	// so 20 req/min, the one rate Apple publishes (its iTunes Search API).
+	MBEvery: time.Second, AppleEvery: 3 * time.Second,
 }
 
 // Main runs the command: args without the program name, getenv the process environment. It returns the exit code.

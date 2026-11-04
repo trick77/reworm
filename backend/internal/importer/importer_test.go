@@ -441,6 +441,35 @@ func TestImport_cardDownloadFails(t *testing.T) {
 	}
 }
 
+// The first Apple 429 stops the run: no retry, no further Apple request, the missing songs counted.
+func TestImport_stopsAtTheFirstAppleRateLimit(t *testing.T) {
+	var appleCalls atomic.Int32
+	tok := webToken()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /mb/ws/2/recording", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{"count":0,"recordings":[]}`)
+	})
+	mux.HandleFunc("GET /player/us/browse", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `<script src="/assets/index~abc123.js"></script>`)
+	})
+	mux.HandleFunc("GET /player/assets/index~abc123.js", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `const t="%s";`, tok)
+	})
+	mux.HandleFunc("GET /apple/", func(w http.ResponseWriter, _ *http.Request) {
+		appleCalls.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	data := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(data, "cards"), 0o750)
+	_ = os.WriteFile(filepath.Join(data, "cards", "x.csv"), []byte("artist,title,year\nA,T,1990\nB,U,1991\nC,V,1992\n"), 0o600)
+	code, out := run(t, endpoints(srv), map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "-workers", "1", "songs")
+	if code != 1 || !strings.Contains(out, "stopped at the first Apple 429, 3 of 3 songs still missing") || appleCalls.Load() != 1 {
+		t.Errorf("exit %d after %d Apple calls:\n%s", code, appleCalls.Load(), out)
+	}
+}
+
 func TestImport_sourceErrorsFailTheRun(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)

@@ -30,17 +30,17 @@ const (
 	maxResponseBytes = 8 << 20
 	// maxPages bounds one ISRC lookup: Apple pages filter[isrc] at 25, a hit song has a few pages of compilations.
 	maxPages = 8
-	// maxRetryAfter caps how long a 429 makes a call wait before a retry.
-	maxRetryAfter = time.Minute
-	// tries is how often a 429 or a cut-off body is tried before the call fails. Apple's 429 window outlasts a few
-	// seconds: a full import at 8 workers met 30 refusals with 12 s of backoff in all (2026-11-04).
-	tries = 6
+	// tries is how often a network error, cut-off body or undecodable 200 is tried before the call fails.
+	tries = 4
 )
 
 var (
 	// ErrDevTokenRefused means Apple refused the web player's developer token even freshly fetched: Apple changed
 	// something.
 	ErrDevTokenRefused = errors.New("apple music refused the web player's developer token")
+	// ErrRateLimited is a 429. Never retried: Apple's window lasted ~3.5 h (2026-11-04) and retrying into it only
+	// prolongs it; the import stops and is rerun later from its cache.
+	ErrRateLimited = errors.New("apple music: rate limited (429)")
 )
 
 // Tokens hands out the developer token; *Source implements it.
@@ -236,9 +236,9 @@ func (c *Client) SearchSongs(ctx context.Context, storefront, term string, limit
 }
 
 // get fetches path into out; found is false on a 404. A 401 or 403 refetches the developer token once and retries;
-// refused again, it is ErrDevTokenRefused. A 429, a network error, a body cut off mid-transfer (Apple does that)
-// or a 200 that does not decode waits and retries, tries times in all; the undecodable 200 is evicted first, so
-// the cache cannot replay it.
+// refused again, it is ErrDevTokenRefused. A 429 is ErrRateLimited at once. A network error, a body cut off
+// mid-transfer (Apple does that) or a 200 that does not decode waits and retries, tries times in all; the
+// undecodable 200 is evicted first, so the cache cannot replay it.
 func (c *Client) get(ctx context.Context, path string, out any) (found bool, err error) {
 	refetched := false
 	for attempt := 1; ; attempt++ {
@@ -247,7 +247,7 @@ func (c *Client) get(ctx context.Context, path string, out any) (found bool, err
 		if err != nil {
 			return false, err
 		}
-		status, body, after, err := c.do(ctx, dev, path)
+		status, body, err := c.do(ctx, dev, path)
 		switch {
 		case err != nil && ctx.Err() != nil:
 			return false, ctx.Err()
@@ -277,8 +277,8 @@ func (c *Client) get(ctx context.Context, path string, out any) (found bool, err
 			c.Dev.Invalidate(dev)
 			refetched = true
 			continue
-		case status == http.StatusTooManyRequests && attempt < tries:
-			wait = min(max(after, 5*time.Second<<(attempt-1)), maxRetryAfter) // 5 s, 10 s, … 1 min
+		case status == http.StatusTooManyRequests:
+			return false, fmt.Errorf("%w: %s", ErrRateLimited, redact(path))
 		default:
 			return false, fmt.Errorf("apple music: %s returned %d: %s", redact(path), status, apiError(body))
 		}
@@ -295,10 +295,10 @@ func (c *Client) base() string {
 	return APIURL
 }
 
-func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, time.Duration, error) {
+func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+path, nil)
 	if err != nil {
-		return 0, nil, 0, err
+		return 0, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+dev)
 	req.Header.Set("Origin", origin)
@@ -310,14 +310,14 @@ func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, time.Du
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, nil, 0, fmt.Errorf("apple music: %s: %w", redact(path), err)
+		return 0, nil, fmt.Errorf("apple music: %s: %w", redact(path), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return 0, nil, 0, fmt.Errorf("apple music: %s: read: %w", redact(path), err)
+		return 0, nil, fmt.Errorf("apple music: %s: read: %w", redact(path), err)
 	}
-	return resp.StatusCode, body, retryAfter(resp.Header.Get("Retry-After")), nil
+	return resp.StatusCode, body, nil
 }
 
 func (c *Client) sleep(ctx context.Context, d time.Duration) error {
@@ -328,13 +328,6 @@ func (c *Client) sleep(ctx context.Context, d time.Duration) error {
 		return ctx.Err()
 	}
 	return nil
-}
-
-func retryAfter(h string) time.Duration {
-	if s, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && s > 0 {
-		return min(time.Duration(s)*time.Second, maxRetryAfter)
-	}
-	return 2 * time.Second
 }
 
 // redact drops the query from error text.

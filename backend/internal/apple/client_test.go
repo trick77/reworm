@@ -168,37 +168,40 @@ func TestGet_refusedTokenIsRefetchedOnce(t *testing.T) {
 	}
 }
 
-func TestGet_retriesRateLimitsAndCutBodies(t *testing.T) {
+// A 429 is never retried: retrying into Apple's window only prolongs it.
+func TestGet_rateLimitStopsAtOnce(t *testing.T) {
+	var calls atomic.Int32
+	c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	if _, err := c.SearchSongs(context.Background(), "ch", "secret", 5); !errors.Is(err, ErrRateLimited) || calls.Load() != 1 ||
+		strings.Contains(err.Error(), "secret") {
+		t.Errorf("err = %v after %d calls, want ErrRateLimited after 1", err, calls.Load())
+	}
+}
+
+func TestGet_retriesCutBodies(t *testing.T) {
 	var calls atomic.Int32
 	var waits []time.Duration
 	c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		switch calls.Add(1) {
-		case 1:
-			w.Header().Set("Retry-After", "7") // longer than the 5 s first backoff: honored
-			w.WriteHeader(http.StatusTooManyRequests)
-		case 2:
+		if calls.Add(1) < 3 {
 			_, _ = fmt.Fprint(w, `{"results":{"songs":{"da`)
-		default:
-			_, _ = fmt.Fprint(w, `{"results":{}}`)
+			return
 		}
+		_, _ = fmt.Fprint(w, `{"results":{}}`)
 	}))
 	c.Sleep = func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
 	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 3 || len(waits) != 2 || waits[0] != 7*time.Second || waits[1] != 2*time.Second {
+	if calls.Load() != 3 || len(waits) != 2 || waits[0] != time.Second || waits[1] != 2*time.Second {
 		t.Errorf("calls %d, waits %v", calls.Load(), waits)
-	}
-
-	c, _ = newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTooManyRequests) }))
-	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); err == nil || !strings.Contains(err.Error(), "429") {
-		t.Errorf("endless 429: %v", err)
 	}
 	c, _ = newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = fmt.Fprint(w, `{`) }))
 	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); err == nil || !strings.Contains(err.Error(), "decode") {
 		t.Errorf("endless cut body: %v", err)
 	}
-	c, _ = newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTooManyRequests) }))
 	c.Sleep = func(context.Context, time.Duration) error { return context.Canceled }
 	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); !errors.Is(err, context.Canceled) {
 		t.Errorf("canceled wait: %v", err)
@@ -284,9 +287,6 @@ func TestGet_errors(t *testing.T) {
 	}
 	if apiError([]byte(`{"errors":[{"title":"T"}]}`)) != "T" || apiError([]byte("x")) != "no error detail" {
 		t.Error("apiError")
-	}
-	if retryAfter("") != 2*time.Second || retryAfter("999") != maxRetryAfter {
-		t.Error("retryAfter")
 	}
 	down := &Client{BaseURL: "http://127.0.0.1:1", Dev: &fakeTokens{}, Sleep: func(context.Context, time.Duration) error { return nil }}
 	if _, err := down.SearchSongs(context.Background(), "ch", "x", 5); err == nil {
