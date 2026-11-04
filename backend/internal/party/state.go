@@ -13,13 +13,15 @@ const (
 
 // Phases.
 const (
-	PhaseLobby   = "lobby"
-	PhasePlaying = "playing"
-	PhaseBuzzed  = "buzzed"
-	PhaseJudging = "judging"
-	PhaseResult  = "result"
-	PhasePaused  = "paused"
-	PhaseOver    = "over"
+	PhaseLobby = "lobby"
+	// PhaseCountdown is the 3, 2, 1 before a round: the clip and the answer window start at round.startedAt.
+	PhaseCountdown = "countdown"
+	PhasePlaying   = "playing"
+	PhaseBuzzed    = "buzzed"
+	PhaseJudging   = "judging"
+	PhaseResult    = "result"
+	PhasePaused    = "paused"
+	PhaseOver      = "over"
 )
 
 // Player states.
@@ -72,7 +74,8 @@ type PlayerState struct {
 
 // RoundState is the running or last round.
 type RoundState struct {
-	N            int            `json:"n"`
+	N int `json:"n"`
+	// StartedAt is when the clip and the answer window start: still ahead while the countdown runs.
 	StartedAt    int64          `json:"startedAt"`
 	EndsAt       int64          `json:"endsAt"`
 	ProposedYear *int           `json:"proposedYear,omitempty"`

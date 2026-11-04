@@ -14,7 +14,11 @@ import { useRoom } from "../../api/useRoom";
 import { AnswerPad } from "../../components/AnswerPad";
 import { Avatar } from "../../components/Avatar";
 import { Button, Card, Pill } from "../../components/Controls";
-import { DeadlineBar, DeadlineRing } from "../../components/Countdown";
+import {
+  DeadlineBar,
+  DeadlineRing,
+  StartCountdown,
+} from "../../components/Countdown";
 import { Cover } from "../../components/Cover";
 import { Loading, Problem, Screen } from "../common";
 import {
@@ -484,6 +488,8 @@ export function Pad({
         <div className="sub">Waiting for the next round…</div>
       </Center>
     );
+  else if (s.phase === "countdown")
+    body = <StartCountdown startsAt={r.startedAt} round={r.n} />;
   else if (view === "result") body = <Result s={s} me={me} />;
   else if (s.mode === "years")
     body = <YearsLive s={s} me={me} sent={sent} send={send} />;

@@ -41,10 +41,18 @@ func newTestRoom(t *testing.T, mode string) *Room {
 		t.Fatal(err)
 	}
 	f := &preview.Fake{}
-	return newRoom("K7Q4", host, c, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
+	return testRoom("K7Q4", host, c, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
 }
 
 func fixed(t time.Time) func() time.Time { return func() time.Time { return t } }
+
+// testRoom is newRoom without the countdown: the rule tests answer the moment a round starts. TestCountdown
+// covers the countdown itself.
+func testRoom(code, hostProfile string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
+	r := newRoom(code, hostProfile, c, clock, rng, resolve)
+	r.countdown = 0
+	return r
+}
 
 // setClock waits for background prefetches and sets the room's clock to now.
 func setClock(r *Room, now time.Time) {
@@ -217,6 +225,75 @@ func TestYears_allOutAndTimer(t *testing.T) {
 	}
 }
 
+func TestCountdown(t *testing.T) {
+	for _, mode := range []string{ModeYears, ModeBuzzer} {
+		t.Run(mode, func(t *testing.T) {
+			r := newTestRoom(t, mode)
+			r.countdown = Countdown
+			p := join(t, r, 1)
+			start(t, r, 5)
+			go1 := t0.Add(Countdown)
+			s := r.State(t0)
+			if s.Phase != PhaseCountdown || s.Round.StartedAt != go1.UnixMilli() || s.Round.EndsAt != go1.Add(RoundTime).UnixMilli() {
+				t.Fatalf("started = %s %+v", s.Phase, s.Round)
+			}
+			// Nothing counts before the clip: no answer, no buzz, no pause.
+			before := t0.Add(Countdown - time.Millisecond)
+			if mode == ModeYears {
+				wantProblem(t, r.Answer(before, p[0], 1, right(r)), "wrong_phase")
+			} else {
+				wantProblem(t, r.Buzz(before, p[0], 1), "wrong_phase")
+			}
+			wantProblem(t, r.Pause(before, host), "wrong_phase")
+			// Who joins during the countdown plays this round.
+			late, err := joinAs(r, before, "", "", "Late", "mic")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st := playerOf(r.State(before), late).State; st != StateThinking {
+				t.Errorf("joined in the countdown = %s, want thinking", st)
+			}
+			// The tick at startedAt starts the round; the press counts from there.
+			r.Tick(go1)
+			if r.phase != PhasePlaying {
+				t.Fatalf("after the countdown = %s", r.phase)
+			}
+			at := go1.Add(1500 * time.Millisecond)
+			if mode == ModeYears {
+				r.round.proposed = r.round.pick.song.Year + 4
+				err = r.Answer(at, p[0], 1, right(r))
+			} else {
+				err = r.Buzz(at, p[0], 1)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ms := r.round.pressMs; ms != 1500 {
+				t.Errorf("pressMs = %d, want 1500 (from the clip's start)", ms)
+			}
+		})
+	}
+}
+
+func TestCountdown_everyRound(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	r.countdown = Countdown
+	p := join(t, r, 1)
+	start(t, r, 5)
+	r.Tick(t0.Add(Countdown))
+	r.round.proposed = r.round.pick.song.Year + 4
+	if err := r.Answer(t0.Add(Countdown+time.Second), p[0], 1, right(r)); err != nil {
+		t.Fatal(err)
+	}
+	at := t0.Add(10 * time.Second)
+	if _, err := next(r, at); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.State(at); s.Phase != PhaseCountdown || s.Round.N != 2 || s.Round.StartedAt != at.Add(Countdown).UnixMilli() {
+		t.Errorf("next round = %s %+v", s.Phase, s.Round)
+	}
+}
+
 func TestYears_inputChecks(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	p := join(t, r, 1)
@@ -297,7 +374,7 @@ func TestNext_deckRunsOutAndSkipsMissingPreviews(t *testing.T) {
 	c := Config{}
 	_ = c.Normalize(2026)
 	f := &preview.Fake{Missing: map[string]bool{"s1": true}}
-	r := newRoom("K7Q4", host, c, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
+	r := testRoom("K7Q4", host, c, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
 	p := join(t, r, 1)
 	if _, err := r.Start(context.Background(), host, loaderOf(songs(3))); err != nil {
 		t.Fatal(err)
@@ -348,7 +425,7 @@ func (f *failing) PreviewURL(_ context.Context, s deck.Song) (string, error) {
 
 func TestPrefetch_onlyNoPreviewDropsASong(t *testing.T) {
 	f := &failing{down: map[string]bool{"s0": true}, none: map[string]bool{"s2": true}}
-	r := newRoom("K7Q4", host, Config{Mode: ModeYears, ToWin: 10}, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
+	r := testRoom("K7Q4", host, Config{Mode: ModeYears, ToWin: 10}, fixed(t0), rand.New(rand.NewPCG(1, 2)), f.PreviewURL)
 	p := join(t, r, 1)
 	// The source is down for the first song: Start fails, the queue keeps it.
 	_, err := r.Start(context.Background(), host, loaderOf(songs(4)))
@@ -401,7 +478,7 @@ func (b *blocking) PreviewURL(ctx context.Context, s deck.Song) (string, error) 
 func TestStart_slowPreviewsHoldNothingUp(t *testing.T) {
 	e := newEnv(t, &preview.Fake{})
 	slow := &blocking{entered: make(chan struct{}, 1), release: make(chan struct{})}
-	busy := newRoom("SLOW", host, Config{Mode: ModeYears, ToWin: 10}, fixed(t0), rand.New(rand.NewPCG(1, 2)), slow.PreviewURL)
+	busy := testRoom("SLOW", host, Config{Mode: ModeYears, ToWin: 10}, fixed(t0), rand.New(rand.NewPCG(1, 2)), slow.PreviewURL)
 	join(t, busy, 1)
 	other, err := e.svc.create(host, Config{Mode: ModeYears, ToWin: 10})
 	if err != nil {
@@ -472,7 +549,7 @@ func TestStart_answersBeforeTheNextClipResolves(t *testing.T) {
 		}
 		return slow.PreviewURL(ctx, s)
 	}
-	r := newRoom("K7Q4", host, Config{Mode: ModeYears, ToWin: 3}, fixed(t0), rand.New(rand.NewPCG(1, 2)), resolve)
+	r := testRoom("K7Q4", host, Config{Mode: ModeYears, ToWin: 3}, fixed(t0), rand.New(rand.NewPCG(1, 2)), resolve)
 	join(t, r, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	if _, err := r.Start(ctx, host, loaderOf(songs(3))); err != nil {
@@ -561,7 +638,7 @@ func TestStart_refusals(t *testing.T) {
 	_, err = r.Start(ctx, host, loaderOf(songs(2)))
 	wantProblem(t, err, "wrong_phase")
 
-	none := newRoom("ABCD", host, Config{Mode: ModeYears}, fixed(t0), rand.New(rand.NewPCG(1, 2)), nil)
+	none := testRoom("ABCD", host, Config{Mode: ModeYears}, fixed(t0), rand.New(rand.NewPCG(1, 2)), nil)
 	join(t, none, 1)
 	_, err = none.Start(ctx, host, loaderOf(songs(2)))
 	wantProblem(t, err, "previews_unavailable")

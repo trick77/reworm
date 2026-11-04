@@ -41,6 +41,17 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   await shot(mia.page, "pad-lobby");
 
   await stage.getByRole("button", { name: "Start game · 3 players" }).click();
+  // 3, 2, 1 on the stage and every phone before the clip; no answer yet
+  await expect(
+    stage.getByRole("timer", { name: /^Round 1 starts in [123]$/ }),
+  ).toBeVisible();
+  for (const p of pads)
+    await expect(
+      p.page.getByRole("timer", { name: /^Round 1 starts in [123]$/ }),
+    ).toBeVisible();
+  await expect(mia.page.getByRole("button", { name: "Later" })).toHaveCount(0);
+  await shot(stage, "stage-countdown");
+  await shot(mia.page, "pad-countdown");
   await expect(
     stage.getByText("Earlier · Spot on · Later — answer on your phone"),
   ).toBeVisible();

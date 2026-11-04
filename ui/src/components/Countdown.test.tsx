@@ -1,5 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
-import { CountdownRing, TimerBar } from "./Countdown";
+import { syncServerClock } from "../api/clock";
+import { CountdownRing, StartCountdown, TimerBar } from "./Countdown";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -50,6 +51,28 @@ describe("CountdownRing", () => {
     act(() => vi.advanceTimersByTime(5000));
     expect(screen.getByRole("timer")).toHaveTextContent("15");
     expect(container.firstChild).toHaveClass("paused");
+  });
+});
+
+describe("StartCountdown", () => {
+  afterEach(() => syncServerClock(Date.now()));
+
+  it("counts 3, 2, 1 to the start by the server clock, then says Go", () => {
+    // this device runs 5 s behind the server: the digits follow the server's time
+    syncServerClock(Date.now() + 5000);
+    const startsAt = Date.now() + 5000 + 3000;
+    render(<StartCountdown startsAt={startsAt} round={2} />);
+    const timer = screen.getByRole("timer");
+    expect(timer).toHaveTextContent("3");
+    expect(timer).toHaveTextContent("Round 2 · get ready");
+    expect(timer).toHaveAccessibleName("Round 2 starts in 3");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(timer).toHaveTextContent("2");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(timer).toHaveTextContent("1");
+    act(() => vi.advanceTimersByTime(1000));
+    expect(timer).toHaveTextContent("Go!");
+    expect(timer).toHaveAccessibleName("Go");
   });
 });
 

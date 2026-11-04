@@ -9,13 +9,14 @@ import type {
   Round,
   RoundResult,
 } from "../../api/types";
+import { serverNow } from "../../api/clock";
 import { player } from "../../audio/player";
 import { audioUnlocked, unlockAudio } from "../../audio/unlock";
 import { usePlayer } from "../../audio/usePlayer";
 import { AppShell } from "../../components/AppShell";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton, Pill } from "../../components/Controls";
-import { DeadlineRing } from "../../components/Countdown";
+import { DeadlineRing, StartCountdown } from "../../components/Countdown";
 import { Cover, SongHead } from "../../components/Cover";
 import {
   Confetti,
@@ -75,7 +76,8 @@ export function direction(shown: number, year: number) {
 }
 
 // useStageAudio plays each new round's clip (fade in), pauses with the room, fades out on a buzz and on
-// the result, and keeps the next round's clip preloaded.
+// the result, and keeps the next round's clip preloaded. The clip starts at the countdown's end by the server
+// clock, not when the "playing" state arrives up to a tick later; that state still starts it if the timer lost.
 function useStageAudio(s: RoomState) {
   const played = useRef<string | null>(null);
   const prev = useRef<string | null>(null);
@@ -83,12 +85,27 @@ function useStageAudio(s: RoomState) {
   const url = s.round?.clip.previewUrl;
   const from = s.round?.clip.from ?? 0;
   const length = s.round?.clip.length;
+  const startsAt = s.round?.startedAt ?? 0;
   const next = s.nextClip?.previewUrl;
+  useEffect(() => {
+    if (s.phase !== "countdown" || n == null || !url) return;
+    const p = player();
+    p.prefetch(url);
+    const id = setTimeout(
+      () => {
+        if (played.current === n) return;
+        played.current = n;
+        p.play(url, { from, length });
+      },
+      Math.max(0, startsAt - serverNow()),
+    );
+    return () => clearTimeout(id);
+  }, [s.phase, n, url, from, length, startsAt]);
   useEffect(() => {
     const p = player();
     const was = prev.current;
     prev.current = s.phase;
-    if (n == null || !url) return;
+    if (n == null || !url || s.phase === "countdown") return;
     if (s.phase === "playing") {
       if (played.current !== n) {
         played.current = n;
@@ -508,6 +525,8 @@ export function Stage({
   if (s.phase === "over") body = <Over s={s} host={host} />;
   else if (!r)
     body = <div className="over center sub">Waiting for the next round…</div>;
+  else if (s.phase === "countdown")
+    body = <StartCountdown startsAt={r.startedAt} round={r.n} />;
   else if (showResult || judging)
     body = (
       <div className="cols mid">

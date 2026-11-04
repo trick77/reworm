@@ -5,7 +5,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { serverNow } from "../api/clock";
+import { secondsLeft, serverNow } from "../api/clock";
 import { cx } from "../lib/cx";
 
 const TICK_MS = 250;
@@ -157,6 +157,38 @@ export function DeadlineRing({
       <div className="sec num" style={{ fontSize: size * 0.32 }}>
         {left}
       </div>
+    </div>
+  );
+}
+
+// GO_TICK_MS keeps the 3, 2, 1 within a frame or so of the server's second, on every screen alike.
+const GO_TICK_MS = 50;
+
+// StartCountdown is the 3, 2, 1 before a round, to the clip's start (startsAt, server ms). Every screen reads the
+// server clock, so stage and phones change digit together; "Go!" holds until the room says the round runs.
+export function StartCountdown({
+  startsAt,
+  round,
+}: {
+  startsAt: number;
+  round: number;
+}) {
+  const [now, setNow] = useState(serverNow);
+  useEffect(() => {
+    const id = setInterval(() => setNow(serverNow()), GO_TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+  const left = secondsLeft(startsAt, now);
+  return (
+    <div
+      className="go center"
+      role="timer"
+      aria-label={left ? `Round ${round} starts in ${left}` : "Go"}
+    >
+      <div key={left} className="go-num num pop">
+        {left || "Go!"}
+      </div>
+      <div className="sub">Round {round} · get ready</div>
     </div>
   );
 }

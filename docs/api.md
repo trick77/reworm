@@ -73,19 +73,19 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - Player actions are rate-limited per client address (generous: a party shares one router). Refusals: 401
   `not_in_room` (no guest cookie / profile player for this room — never silent), 403 `kicked`, 409 `wrong_mode`,
   `wrong_round` (not the running round, or over), `already_answered`, `already_buzzed`, `late` (joined mid-round),
-  `wrong_phase` (paused).
+  `wrong_phase` (paused, or the countdown before the round).
 - `start`, `next` and training need preview URLs: 503 `previews_unavailable` while no preview source is configured
   or when it fails (retry); a song the source has no preview for is skipped.
 
 ### RoomState
 ```
-{ code, seq, now, mode, phase: "lobby"|"playing"|"buzzed"|"judging"|"result"|"paused"|"over",
+{ code, seq, now, mode, phase: "lobby"|"countdown"|"playing"|"buzzed"|"judging"|"result"|"paused"|"over",
   pausedFrom?: "playing"|"buzzed"|"judging",   // only while paused: the phase the pause froze
   hostId, toWin,
   settings: {deck, clip, difficulty},
   players: [{ id, name, avatar, score, connected, state: "thinking"|"out"|"late"|"buzzed"|"answered" }],
   round: null | {
-    n, startedAt, endsAt,                    // 15 s answer window; paused time extends endsAt
+    n, startedAt, endsAt,                    // clip + 15 s answer window from startedAt; paused time extends endsAt
     proposedYear,                            // years mode only
     clip: { previewUrl, from, length },      // the stage plays this; pads never play audio
     buzz: null | { playerId, at, answerEndsAt },        // buzzer mode: clip+timer paused, 10 s to say it
@@ -99,6 +99,9 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 ```
 - `seq` grows by one with every change of the room: keep the state with the highest, drop older snapshots/events.
   `now` is the server clock (unix ms) when the state was written: clients derive their clock offset for countdowns.
+- Every round opens with `countdown`: 3 s of 3, 2, 1 on every screen, `startedAt` still ahead. At `startedAt` the
+  room turns `playing` and the stage starts the clip (by the server clock, not on that event). Answers, buzzes and
+  pause answer `wrong_phase` during it; a player joining then plays the round.
 - `winnerMs` is the winning press (years: the answer, buzzer: the buzz) in ms after `startedAt`, paused time left
   out; null without a winner.
 - `hostId` is the host's profile id. `connected` = the player has an event stream open. `clip.from` is seconds into

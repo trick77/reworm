@@ -57,6 +57,10 @@ func newEnv(t *testing.T, previews preview.Source) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if e.svc.countdown != Countdown {
+		t.Fatalf("service countdown = %v, want %v", e.svc.countdown, Countdown)
+	}
+	e.svc.countdown = 0 // the HTTP tests answer at once; TestCountdown covers it
 	e.mux = http.NewServeMux()
 	e.acc.Mount(e.mux)
 	e.svc.Mount(e.mux)

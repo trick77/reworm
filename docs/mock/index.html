@@ -1002,6 +1002,16 @@ function scrStageOver(){
 }
 // ---- pad (phone) ----
 function padTop(){ const me=PARTY.players[1]; return `<div class="row between" style="margin-top:2px"><div class="row">${av(me.av,34)}<b>${me.n}</b></div><span class="pill num">${me.s} pt · #${sortedPlayers().findIndex(p=>p.n===me.n)+1}</span></div>`; }
+function goCount(size){ // the 3, 2, 1 before a round, stage and pad alike
+  return `<div style="margin:auto;text-align:center;padding:24px 0"><div class="num" style="font-size:${size}px;font-weight:800;line-height:1;color:var(--gold)">3</div>
+   <div class="sub">Round ${PARTY.round} · get ready</div></div>`;
+}
+function scrStageCountdown(){
+  return `${statusBar()}<div class="scroll playscr" style="display:flex;flex-direction:column">${stageTop()}${goCount(220)}</div>`;
+}
+function scrPadCountdown(){
+  return `${statusBar()}<div class="scroll fade-in" style="display:flex;flex-direction:column">${padTop()}${goCount(150)}</div>`;
+}
 function scrPadLive(){
   return `${statusBar()}<div class="scroll fade-in" style="display:flex;flex-direction:column">${padTop()}
    <div class="sub" style="text-align:center;margin-top:18px">Round ${PARTY.round} · listen to the big screen</div>
@@ -1125,6 +1135,7 @@ function renderBoard(){
   shot("7b · Join on the phone","Scan the QR or type the 4-letter code, pick a name and avatar. No app, no account.",scrJoin);
   shot("8 · Who's playing?","Profile picker on a shared device (the family iPad). Only paired devices get here.",scrWho);
   resetRound();
+  shot("P0 · Pad: get ready","3, 2, 1 before every round, on every phone and the stage at once (the server's clock); no buttons yet.",scrPadCountdown);
   shot("P1 · Pad: round live","The phone during a round: the shown year, a draining 15 s bar, three big buttons. No audio on phones.",scrPadLive);
   shot("P2 · Pad: locked out","Wrong answer: out for this round. The stage shows the ✕ but never what you answered.",scrPadOut);
   shot("P3 · Pad: you got it","First right answer: +1 (+2 for a right Spot on), with your time.",scrPadWon);
@@ -1139,6 +1150,7 @@ function renderBoard(){
   S.ses=demoSession(9,null); S.ses.i=9; shotT("iPad · Summary","Score left, decades and misses right.",scrSummary);
   S.cfg={...save.cfg,src:"hit",sets:["Essentials","Mega Mix"]}; shotT("iPad · New session","What to listen to left, how to play right.",scrSetup);
   shotT("iPad · Host lobby","QR + room code left, players and game settings right. The iPad / TV is the stage.",scrHost);
+  shotT("Stage · Get ready","3 s of 3, 2, 1 before every round, the first one too; the clip starts at 0 on the server's clock.",scrStageCountdown);
   shotT("Stage · Round live","Clip plays here; the year, a 15 s countdown, all players — locked-out ones greyed with ✕.",scrStage);
   shotT("Stage · Round result","Song, cover, real year and ruler left; who took the round, in how many seconds, and the standings right.",scrStageResult);
   shotT("Stage · Game over","First to 10: podium, confetti, rematch.",scrStageOver);

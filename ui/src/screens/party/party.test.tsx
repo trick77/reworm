@@ -405,6 +405,41 @@ describe("party: years mode", () => {
     ).toBe(true);
   });
 
+  it("counts 3, 2, 1 on the stage and the pad, and the stage plays the clip at the end of it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const world = new FakeWorld({ timers: true });
+      const { s } = await hostRoom(world);
+      const { p } = await joinPad(world, "Mia");
+      fireEvent.click(
+        await s.findByRole("button", { name: "Start game · 1 player" }),
+      );
+      const stageTimer = await s.findByRole("timer", {
+        name: "Round 1 starts in 3",
+      });
+      expect(
+        await p.findByRole("timer", { name: "Round 1 starts in 3" }),
+      ).toBeInTheDocument();
+      const url = world.room("K7Q4").state.round!.clip.previewUrl;
+      const playing = () =>
+        audio.audios.some((a) => a.src === url && !a.paused);
+      expect(playing()).toBe(false);
+      expect(p.queryByRole("button", { name: "Later" })).toBeNull();
+
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(stageTimer).toHaveAccessibleName("Round 1 starts in 2");
+      expect(playing()).toBe(false);
+
+      await act(() => vi.advanceTimersByTimeAsync(2100));
+      expect(playing()).toBe(true);
+      expect(world.room("K7Q4").state.phase).toBe("playing");
+      expect(await p.findByRole("button", { name: "Later" })).toBeEnabled();
+      expect(s.queryByRole("timer", { name: /starts in/ })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows you got it, the photo finish, pause, nobody, game over and rematch", async () => {
     const world = new FakeWorld();
     const { s } = await hostRoom(world);
