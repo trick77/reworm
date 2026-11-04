@@ -434,6 +434,93 @@ func TestFindRecording_labelsTheUnboundedFallback(t *testing.T) {
 	}
 }
 
+// byArtistMB answers only searches for its artist.
+type byArtistMB map[string][]musicbrainz.Recording
+
+func (f byArtistMB) Search(_ context.Context, artist, _ string, _ int) ([]musicbrainz.Recording, error) {
+	return f[artist], nil
+}
+
+// MusicBrainz finds "Queen, David Bowie" only as Queen; the id is the recording's, not a slug.
+func TestFindRecording_searchesTheLeadArtist(t *testing.T) {
+	rec := musicbrainz.Recording{ID: "up", Title: "Under Pressure", Credit: "Queen & David Bowie",
+		Artists: []string{"Queen", "David Bowie"}, FirstReleaseDate: "1981-10-26"}
+	p := &Pipeline{MB: byArtistMB{"Queen": {rec}}}
+	m, ok, why, err := p.findRecording(context.Background(), entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981})
+	if err != nil || !ok || m.Recording.ID != "up" || m.Exact || why != "MusicBrainz matched as Queen – Under Pressure" {
+		t.Errorf("ok=%v id=%s exact=%v why=%q err=%v", ok, m.Recording.ID, m.Exact, why, err)
+	}
+}
+
+// fakeCatalog answers ISRC lookups and song searches; albums are never found.
+type fakeCatalog struct {
+	byISRC   []apple.Song
+	searched map[string][]apple.Song
+}
+
+func (f fakeCatalog) SongsByISRC(context.Context, string, []string) ([]apple.Song, error) {
+	return f.byISRC, nil
+}
+
+func (f fakeCatalog) SearchSongs(_ context.Context, _, term string, _ int) ([]apple.Song, error) {
+	return f.searched[term], nil
+}
+
+func (fakeCatalog) SearchAlbums(context.Context, string, string, int) ([]apple.Album, error) {
+	return nil, nil
+}
+
+func (fakeCatalog) AlbumTracks(context.Context, string, string) ([]apple.Song, error) {
+	return nil, nil
+}
+
+func (fakeCatalog) SongByID(context.Context, string, string) (apple.Song, bool, error) {
+	return apple.Song{}, false, nil
+}
+
+// Several artists and film titles: an ISRC hit or a search hit counts by every reading of the card title and by
+// the credit as a set or its main artist; another act under the ISRC does not.
+func TestFindTrack_severalArtistsAndFilmTitles(t *testing.T) {
+	tr := func(id, name, artist string) apple.Song {
+		return apple.Song{ID: id, Name: name, Artist: artist, Album: "A", Preview: true}
+	}
+	grease := musicbrainz.Match{ISRCs: []string{"NLF057890002"}, Recording: musicbrainz.Recording{ID: "sn", Title: "Summer Nights",
+		Credit: "John Travolta, Olivia Newton‐John & Cast", Artists: []string{"John Travolta", "Olivia Newton‐John", "Cast"}}}
+	queen := musicbrainz.Match{ISRCs: []string{"GBUM71029622"}, Recording: musicbrainz.Recording{ID: "up", Title: "Under Pressure",
+		Credit: "Queen & David Bowie", Artists: []string{"Queen", "David Bowie"}}}
+	godfather := musicbrainz.Match{ISRCs: []string{"USMC17251836"}, Recording: musicbrainz.Recording{ID: "gw", Title: "The Godfather Waltz",
+		Credit: "Nino Rota", Artists: []string{"Nino Rota"}}}
+	for _, tc := range []struct {
+		e     entry
+		m     musicbrainz.Match
+		apple fakeCatalog
+		want  string
+	}{
+		{entry{Artist: "John Travolta, Olivia Newton-John", Title: "Grease (Summer Nights)", Year: 1978}, grease,
+			fakeCatalog{byISRC: []apple.Song{tr("other", "Summer Nights", "Other Act"), tr("sn", "Summer Nights", "John Travolta & Olivia Newton-John")}}, "sn"},
+		{entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981}, queen,
+			fakeCatalog{byISRC: []apple.Song{tr("up", "Under Pressure (feat. David Bowie)", "Queen")}}, "up"},
+		{entry{Artist: "Nino Rota", Title: "Der Pate (The Godfather Waltz)", Year: 1972}, godfather,
+			fakeCatalog{byISRC: []apple.Song{tr("gw", "The Godfather Waltz", "Nino Rota & Carlo Savina")}}, "gw"},
+		// Another act under the ISRC is no hit.
+		{entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981}, queen,
+			fakeCatalog{byISRC: []apple.Song{tr("x", "Under Pressure", "Some Cover Band")}}, ""},
+		// Searched as the card writes the title, found by the song inside it.
+		{entry{Artist: "Luis Bacalov, Rocky Roberts", Title: "Django Unchained (Django)", Year: 2012}, musicbrainz.Match{},
+			fakeCatalog{searched: map[string][]apple.Song{"Luis Bacalov, Rocky Roberts Django Unchained (Django)": {
+				tr("dj", "Django", "Luis Bacalov & Rocky Roberts")}}}, "dj"},
+		{entry{Artist: "Calvin Harris", Title: "One Kiss (with Dua Lipa)", Year: 2018}, musicbrainz.Match{},
+			fakeCatalog{searched: map[string][]apple.Song{"Calvin Harris One Kiss (with Dua Lipa)": {
+				tr("ok", "One Kiss", "Calvin Harris & Dua Lipa")}}}, "ok"},
+	} {
+		p := &Pipeline{Apple: tc.apple}
+		got, _, _, err := p.findTrack(context.Background(), tc.e, tc.m)
+		if err != nil || got.ID != tc.want {
+			t.Errorf("%s – %s: got %q, want %q (%v)", tc.e.Artist, tc.e.Title, got.ID, tc.want, err)
+		}
+	}
+}
+
 // best: the original-album track, then one that is no remix or live take, then the artist's own album.
 func TestBest_prefersOriginalThenPlainThenOwnAlbum(t *testing.T) {
 	m := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Help!", Date: "1965-08-06"}}

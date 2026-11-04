@@ -427,6 +427,11 @@ var (
 	// & Fire; Florence + the Machine; AC/DC). Several artists joined by those are told by MusicBrainz's credit
 	// (Recording.Artists), see looseArtist.
 	mainSep = regexp.MustCompile(`(?i)\s*(\(?\bfeat\.?|\(?\bft\.|\(?\bfeaturing\b|\(\s*with\b|\bvs\.?\s|\s[x×]\s)\s*`)
+	// joiner splits a credit at every mark that joins two names: the featuring marks and "&", ",", "+", "/", "and"
+	// (und, e, y, et). It splits band names too, so its parts count only as a set or as a lead (see Artists).
+	joiner = regexp.MustCompile(`(?i)\s*(?:[,&+/]|\(\s*(?:feat\.?|ft\.|featuring|with)\s|\s(?:feat\.?|ft\.|featuring|with|and|und|e|y|et|vs\.?|[x×х])\s)\s*`)
+	// featNote matches a title parenthetical that names a guest, not a song: "feat. X", "with X".
+	featNote = regexp.MustCompile(`(?i)^(?:feat\.?|ft\.|featuring|with)\s`)
 )
 
 // Strip drops trailing parentheticals and " - …" suffixes from a title or album name: what versions add.
@@ -472,6 +477,7 @@ func CleanTitle(s string) string {
 // SongTitles are the readings of a card title, as written first: without its trailing parentheticals, then the
 // last parenthetical's content, or (no parenthetical at the end) what follows the last " - ". Film and TV cards
 // print "Film (Song)" or "Film - Song": "Robin Hood - König der Diebe ((Everything I Do) I Do It For You)" is the song "(Everything I Do) I Do It For You".
+// A guest note ("One Kiss (with Dua Lipa)") is no song: only the title without it is read.
 func SongTitles(title string) []string {
 	out := []string{title}
 	add := func(t string) {
@@ -496,7 +502,9 @@ func SongTitles(title string) []string {
 				depth--
 			}
 			if depth == 0 {
-				add(t[i+1 : len(t)-1])
+				if inner := strings.TrimSpace(t[i+1 : len(t)-1]); !featNote.MatchString(inner) {
+					add(inner)
+				}
 				break
 			}
 		}
@@ -531,14 +539,91 @@ func exactArtist(r Recording, artist string) bool {
 }
 
 // SameArtist is the loose artist match: the names equal, or their main artists ("Shakira feat. Wyclef Jean" →
-// Shakira), a leading "the" aside. Never one name inside the other: "Abba Revival Band" and "Beatles Tribute" are
-// other acts.
+// Shakira), or the same artists in any order and joined any way ("Queen, David Bowie" and "Queen & David Bowie";
+// "Ricchi E Poveri" and "Ricchi & Poveri"), a leading "the" aside. Never one name inside the other: "Abba Revival
+// Band" and "Beatles Tribute" are other acts, and "Simon & Garfunkel" is not Simon.
 func SameArtist(a, b string) bool {
 	na, nb := artistKey(a), artistKey(b)
 	if na == "" || nb == "" {
 		return false
 	}
-	return na == nb || artistKey(MainArtist(a)) == artistKey(MainArtist(b))
+	return na == nb || artistKey(MainArtist(a)) == artistKey(MainArtist(b)) || slices.Equal(artistSet(a), artistSet(b))
+}
+
+// Artists splits a credit at every joiner: "Queen & David Bowie" → Queen, David Bowie. Band names split too
+// ("Earth, Wind & Fire" → Earth, Wind, Fire), so a part alone says nothing; see ByArtist.
+func Artists(s string) []string {
+	var out []string
+	for _, p := range joiner.Split(s, -1) {
+		// "A (with B)" leaves "B)"; "EAV (Erste Allgemeine Verunsicherung)" keeps its parenthetical.
+		if p = strings.TrimSpace(p); strings.Count(p, "(") < strings.Count(p, ")") {
+			p = strings.TrimSpace(strings.TrimSuffix(p, ")"))
+		}
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 {
+		return []string{strings.TrimSpace(s)}
+	}
+	return out
+}
+
+// Lead is a credit's first artist split at every joiner: "Nino Rota & Carlo Savina" → Nino Rota.
+func Lead(s string) string { return Artists(s)[0] }
+
+// artistSet is a credit's artists as sorted keys.
+func artistSet(s string) []string {
+	var out []string
+	for _, a := range Artists(s) {
+		if k := artistKey(a); k != "" {
+			out = append(out, k)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// Several says the card's song is by several artists: MusicBrainz credits more than one (rec, the matched
+// recording), or the card joins several names ("Gölä, Trauffer") and MusicBrainz credits only one of them. A card
+// MusicBrainz does not know (zero rec) is one act: its name alone cannot tell "Queen, David Bowie" from "Earth, Wind
+// & Fire".
+func Several(card string, rec Recording) bool {
+	switch {
+	case len(rec.Artists) > 1:
+		return true
+	case len(rec.Artists) == 0, SameArtist(rec.Artists[0], card):
+		return false
+	}
+	return len(artistSet(card)) > 1
+}
+
+// SearchArtist is who to look the card's song up by in another catalog: the lead of a song by several artists
+// (Apple has "Under Pressure" by Queen, "feat. David Bowie" in the title), else the card's main artist.
+func SearchArtist(card string, rec Recording) string {
+	if Several(card, rec) {
+		return Lead(card)
+	}
+	return MainArtist(card)
+}
+
+// ByArtist says name, another catalog's credit (Apple's), is by the card's artist; rec is the matched recording
+// (zero: none). The card's artist or rec's credit (SameArtist); a credit led by either ("Nino Rota & Carlo Savina"
+// for Nino Rota, "Bob Marley & The Wailers" for Bob Marley); or, for a song by several artists (Several), a credit
+// led by its main artist ("Queen" for "Queen, David Bowie"). A band name is never split on its own: "Earth" is not
+// Earth, Wind & Fire, "Simon" not Simon & Garfunkel.
+func ByArtist(name, card string, rec Recording) bool {
+	if SameArtist(name, card) || (rec.Credit != "" && SameArtist(name, rec.Credit)) {
+		return true
+	}
+	lead := artistKey(Lead(name))
+	if lead == "" {
+		return false
+	}
+	if lead == artistKey(card) || (rec.Credit != "" && lead == artistKey(rec.Credit)) {
+		return true
+	}
+	return Several(card, rec) && (lead == artistKey(Lead(card)) || (len(rec.Artists) > 0 && lead == artistKey(rec.Artists[0])))
 }
 
 // versionWords mark a recording or track that is not the song as released: live, remixed, a demo, … A card that
@@ -577,11 +662,12 @@ func hasWord(text string, words []string, cardTitle string) bool {
 	return false
 }
 
-// looseArtist: the credit or one of its artists is the card's artist, loosely; or MusicBrainz credits several
-// artists and the card names the first of them followed by more ("Shakira & Wyclef" for Shakira feat. Wyclef Jean).
-// The card side is never split on its own: "Simon & Garfunkel" is one act.
+// looseArtist: the credit or one of its artists is the card's artist, loosely; or the credit is led by the card's
+// artist ("Ian Dury & The Blockheads" for Ian Dury); or MusicBrainz credits several artists and the card names the
+// first of them followed by more ("Shakira & Wyclef" for Shakira feat. Wyclef Jean). The card side is never split
+// on its own: "Simon & Garfunkel" is one act.
 func looseArtist(r Recording, artist string) bool {
-	if SameArtist(r.Credit, artist) {
+	if SameArtist(r.Credit, artist) || (artistKey(artist) != "" && artistKey(Lead(r.Credit)) == artistKey(artist)) {
 		return true
 	}
 	for _, a := range r.Artists {

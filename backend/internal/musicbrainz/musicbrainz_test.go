@@ -310,6 +310,89 @@ func TestPick_looseAndNone(t *testing.T) {
 	}
 }
 
+// A credit led by the card's artist is the song, loosely: Ian Dury & the Blockheads for Ian Dury. Never the other way
+// round: Simon is not Simon & Garfunkel.
+func TestPick_creditLedByTheCardsArtist(t *testing.T) {
+	recs := []Recording{{ID: "dury", Title: "Hit Me With Your Rhythm Stick", Credit: "Ian Dury & the Blockheads",
+		Artists: []string{"Ian Dury & the Blockheads"}, FirstReleaseDate: "1978-11-23"}}
+	if m, ok := Pick(recs, "Ian Dury", "Hit Me with Your Rhythm Stick", 1978); !ok || m.Exact || m.Recording.ID != "dury" {
+		t.Errorf("ok=%v %+v", ok, m)
+	}
+	simon := []Recording{{ID: "paul", Title: "Mrs. Robinson", Credit: "Simon", Artists: []string{"Simon"}}}
+	if _, ok := Pick(simon, "Simon & Garfunkel", "Mrs. Robinson", 0); ok {
+		t.Error("Simon matched Simon & Garfunkel")
+	}
+}
+
+func TestByArtist(t *testing.T) {
+	rec := func(credit string, artists ...string) Recording { return Recording{Credit: credit, Artists: artists} }
+	queenBowie := rec("Queen & David Bowie", "Queen", "David Bowie")
+	for _, tc := range []struct {
+		name, card string
+		rec        Recording
+		want       bool
+	}{
+		// Several artists: the credits agree as a set, or the main artist leads.
+		{"Queen & David Bowie", "Queen, David Bowie", queenBowie, true},
+		{"Queen & David Bowie", "Queen, David Bowie", Recording{}, true},
+		{"Queen", "Queen, David Bowie", queenBowie, true},
+		{"David Bowie", "Queen, David Bowie", queenBowie, false},
+		{"Queen", "Queen, David Bowie", Recording{}, false},
+		{"Mark Ronson", "Mark Ronson, Amy Winehouse", rec("Mark Ronson feat. Amy Winehouse", "Mark Ronson", "Amy Winehouse"), true},
+		{"Maroon 5", "Maroon 5, Christina Aguilera", rec("Maroon 5, Christina Aguilera", "Maroon 5", "Christina Aguilera"), true},
+		{"John Travolta & Olivia Newton-John", "John Travolta, Olivia Newton-John",
+			rec("John Travolta, Olivia Newton‐John & Cast", "John Travolta", "Olivia Newton‐John", "Cast"), true},
+		{"Ed Sheeran & Elton John", "Ed Sheeran", rec("Ed Sheeran & Elton John", "Ed Sheeran", "Elton John"), true},
+		{"Martin Solveig & Dragonette", "Martin Solveig", rec("Martin Solveig feat. Dragonette", "Martin Solveig", "Dragonette"), true},
+		{"Ricchi & Poveri", "Ricchi E Poveri", rec("Ricchi e Poveri", "Ricchi e Poveri"), true},
+		// MusicBrainz credits one of the card's artists only.
+		{"Gölä", "Gölä, Trauffer", rec("Gölä", "Gölä"), true},
+		// A credit led by the card's artist or the recording's.
+		{"Nino Rota & Carlo Savina", "Nino Rota", rec("Nino Rota", "Nino Rota"), true},
+		{"Max Raabe & Palast Orchester", "Max Raabe", Recording{}, true},
+		{"Udo Lindenberg", "Udo Lindenberg & Das Panik-Orchester", rec("Udo Lindenberg und das Panikorchester", "Udo Lindenberg und das Panikorchester"), true},
+		// Band names stay whole, matched by MusicBrainz or not.
+		{"AC", "AC/DC", rec("AC/DC", "AC/DC"), false},
+		{"AC", "AC/DC", Recording{}, false},
+		{"Earth", "Earth, Wind & Fire", rec("Earth, Wind & Fire", "Earth, Wind & Fire"), false},
+		{"Earth", "Earth, Wind & Fire", Recording{}, false},
+		{"Simon", "Simon and Garfunkel", rec("Simon & Garfunkel", "Simon & Garfunkel"), false},
+		{"Simon", "Simon & Garfunkel", Recording{}, false},
+		{"Florence", "Florence + the Machine", rec("Florence + the Machine", "Florence + the Machine"), false},
+		{"Malcolm", "Malcolm X", Recording{}, false},
+		{"Earth, Wind & Fire", "Earth Wind and Fire", Recording{}, true},
+		// Other acts.
+		{"Beatles Revival Band", "The Beatles", rec("The Beatles", "The Beatles"), false},
+		{"Other Act", "Queen, David Bowie", queenBowie, false},
+		{"", "Queen", Recording{}, false},
+	} {
+		if got := ByArtist(tc.name, tc.card, tc.rec); got != tc.want {
+			t.Errorf("ByArtist(%q, %q, %q) = %v", tc.name, tc.card, tc.rec.Credit, got)
+		}
+	}
+	for _, tc := range []struct {
+		card    string
+		rec     Recording
+		several bool
+		search  string
+	}{
+		{"Queen, David Bowie", queenBowie, true, "Queen"},
+		{"Queen, David Bowie", Recording{}, false, "Queen, David Bowie"},
+		{"Gölä, Trauffer", rec("Gölä", "Gölä"), true, "Gölä"},
+		{"Earth, Wind & Fire", rec("Earth, Wind & Fire", "Earth, Wind & Fire"), false, "Earth, Wind & Fire"},
+		{"Shakira feat. Wyclef Jean", rec("Shakira feat. Wyclef Jean", "Shakira", "Wyclef Jean"), true, "Shakira"},
+		{"Calvin Harris (with Ellie Goulding)", Recording{}, false, "Calvin Harris"},
+		{"ABBA", rec("ABBA", "ABBA"), false, "ABBA"},
+	} {
+		if got := Several(tc.card, tc.rec); got != tc.several {
+			t.Errorf("Several(%q, %q) = %v", tc.card, tc.rec.Credit, got)
+		}
+		if got := SearchArtist(tc.card, tc.rec); got != tc.search {
+			t.Errorf("SearchArtist(%q, %q) = %q, want %q", tc.card, tc.rec.Credit, got, tc.search)
+		}
+	}
+}
+
 func TestTitleAndArtistHelpers(t *testing.T) {
 	for in, want := range map[string]string{
 		"Bohemian Rhapsody (Remastered 2011)":  "Bohemian Rhapsody",
@@ -351,6 +434,12 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 		"Die Schöne und das Biest - Beauty and the Beast": {"Die Schöne und das Biest - Beauty and the Beast", "Die Schöne und das Biest", "Beauty and the Beast"},
 		"(Mono)": {"(Mono)", "Mono"},
 		"Odd)":   {"Odd)"},
+		// A guest note is no song inside the title.
+		"One Kiss (with Dua Lipa)":             {"One Kiss (with Dua Lipa)", "One Kiss"},
+		"Without You (feat. Sandro Cavazza)":   {"Without You (feat. Sandro Cavazza)", "Without You"},
+		"Grease (Summer Nights)":               {"Grease (Summer Nights)", "Grease", "Summer Nights"},
+		"Der Pate (The Godfather Waltz)":       {"Der Pate (The Godfather Waltz)", "Der Pate", "The Godfather Waltz"},
+		"Marry Poppins (Supercalifragilistic)": {"Marry Poppins (Supercalifragilistic)", "Marry Poppins", "Supercalifragilistic"},
 	} {
 		if got := SongTitles(in); !slices.Equal(got, want) {
 			t.Errorf("SongTitles(%q) = %q, want %q", in, got, want)
@@ -379,6 +468,19 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 		{"Queen", "Queens of the Stone Age", false},
 		{"Abba Revival Band", "ABBA", false},
 		{"The Beatles Tribute", "Beatles", false},
+		// The same artists, joined another way or in another order.
+		{"Queen, David Bowie", "Queen & David Bowie", true},
+		{"John Travolta, Olivia Newton-John", "John Travolta & Olivia Newton-John", true},
+		{"Mark Forster, LEA", "Mark Forster & LEA", true},
+		{"Ricchi E Poveri", "Ricchi & Poveri", true},
+		{"Imany,Filatov & Karas", "Imany, Filatov and Karas", true},
+		{"Helga Feddersen & Dieter Hallervorden", "Dieter Hallervorden, Helga Feddersen", true},
+		{"Earth, Wind & Fire", "Earth Wind and Fire", true},
+		{"Simon and Garfunkel", "Simon & Garfunkel", true},
+		// One of them is not the set.
+		{"Queen, David Bowie", "Queen", false},
+		{"Queen", "Queen & David Bowie", false},
+		{"Simon & Garfunkel", "Simon & Somebody", false},
 	} {
 		if got := SameArtist(tc.a, tc.b); got != tc.want {
 			t.Errorf("SameArtist(%q, %q) = %v", tc.a, tc.b, got)
@@ -396,6 +498,34 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 	}
 	if MainArtist("& Friends") != "& Friends" {
 		t.Error("MainArtist")
+	}
+	for _, tc := range []struct {
+		in   string
+		want []string
+	}{
+		{"Queen & David Bowie", []string{"Queen", "David Bowie"}},
+		{"Imany,Filatov & Karas", []string{"Imany", "Filatov", "Karas"}},
+		{"Robin Schulz,Lilly Wood and The Prick", []string{"Robin Schulz", "Lilly Wood", "The Prick"}},
+		{"Calvin Harris (with Ellie Goulding)", []string{"Calvin Harris", "Ellie Goulding"}},
+		{"Pras (feat. Ol' Dirty Bastard & Mýa)", []string{"Pras", "Ol' Dirty Bastard", "Mýa"}},
+		{"Eartha Kitt with Henri René", []string{"Eartha Kitt", "Henri René"}},
+		{"Udo Lindenberg und das Panikorchester", []string{"Udo Lindenberg", "das Panikorchester"}},
+		{"MEDUZA х Becky Hill х Goodboys", []string{"MEDUZA", "Becky Hill", "Goodboys"}},
+		{"Tiësto vs. Diplo", []string{"Tiësto", "Diplo"}},
+		// Band names split too: a part alone says nothing (ByArtist).
+		{"AC/DC", []string{"AC", "DC"}},
+		{"Florence + the Machine", []string{"Florence", "the Machine"}},
+		{"EAV (Erste Allgemeine Verunsicherung)", []string{"EAV (Erste Allgemeine Verunsicherung)"}},
+		{"Malcolm X", []string{"Malcolm X"}},
+		{"E Nomine", []string{"E Nomine"}},
+		{"&", []string{"&"}},
+	} {
+		if got := Artists(tc.in); !slices.Equal(got, tc.want) {
+			t.Errorf("Artists(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	if Lead("Nino Rota & Carlo Savina") != "Nino Rota" || Lead("Queen") != "Queen" {
+		t.Error("Lead")
 	}
 	if compareDates("1976", "1976-08-15") >= 0 || compareDates("", "1976") <= 0 || compareDates("1976", "") >= 0 {
 		t.Error("compareDates")

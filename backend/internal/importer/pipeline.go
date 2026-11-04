@@ -307,15 +307,17 @@ func (p *Pipeline) setTrack(ctx context.Context, r *resolved, t apple.Song, sf s
 }
 
 // findRecording searches MusicBrainz for recordings first released by the year after the card's: as the card
-// writes it, then with the main artist and each other reading of the title (musicbrainz.SongTitles); last, without
-// the year bound. Only the first search can match exactly; the others are low confidence, why says how.
+// writes it, then with the main artist and each other reading of the title (musicbrainz.SongTitles), then the same
+// with the card's first artist (musicbrainz.Lead: MusicBrainz finds "Queen, David Bowie" only as Queen); last,
+// without the year bound. Only the first search can match exactly; the others are low confidence, why says how.
 func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Match, ok bool, why string, err error) {
 	type query struct{ artist, title string }
 	queries := []query{{e.Artist, e.Title}}
-	main := musicbrainz.MainArtist(e.Artist)
-	for _, t := range musicbrainz.SongTitles(e.Title) {
-		if q := (query{main, t}); !slices.Contains(queries, q) {
-			queries = append(queries, q)
+	for _, artist := range []string{musicbrainz.MainArtist(e.Artist), musicbrainz.Lead(e.Artist)} {
+		for _, t := range musicbrainz.SongTitles(e.Title) {
+			if q := (query{artist, t}); !slices.Contains(queries, q) {
+				queries = append(queries, q)
+			}
 		}
 	}
 	for i, q := range queries {
@@ -352,19 +354,21 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 
 // findTrack looks the song up on Apple, only tracks with a preview counting. Per storefront (ch → de → us): the
 // ISRC lookup, then (ch only) the original album found by name. The first original-album track wins; else the
-// first storefront's best ISRC hit; else an artist+title search in ch and us (viaSearch: low confidence). Apple's
+// first storefront's best ISRC hit; else an artist+title search in ch and us (viaSearch: low confidence). Every
+// hit must be the card's song by title and artist (sameSong), the ISRC's as much as the search's. Apple's
 // search endpoint has a quota of its own: a full import that searched every storefront hit 429s that lasted
 // ~3.5 h (2026-11-04), while the ISRC lookups kept answering.
 func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) (t apple.Song, sf string, viaSearch bool, err error) {
 	var fallback apple.Song
 	var fallbackSF string
+	same := func(s apple.Song) bool { return sameSong(s, e, m) }
 	for i, sf := range storefronts {
 		if len(m.ISRCs) > 0 {
 			songs, err := p.Apple.SongsByISRC(ctx, sf, m.ISRCs)
 			if err != nil {
 				return apple.Song{}, "", false, err
 			}
-			if t, ok := best(songs, m, e, func(s apple.Song) bool { return sameSong(s, e, m) }); ok {
+			if t, ok := best(songs, m, e, same); ok {
 				if onOriginal(t, m, e.Year) {
 					return t, sf, false, nil
 				}
@@ -391,14 +395,13 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 	if m.Recording.Title != "" && !slices.Contains(titles, m.Recording.Title) {
 		titles = append([]string{m.Recording.Title}, titles...)
 	}
+	// A hit counts by any reading of the card title, not just the one searched: "Luis Bacalov Django Unchained
+	// (Django)" finds "Django".
 	for _, title := range titles[:min(len(titles), searchTitles)] {
 		for _, sf := range searchStorefronts {
-			songs, err := p.Apple.SearchSongs(ctx, sf, musicbrainz.MainArtist(e.Artist)+" "+title, searchLimit)
+			songs, err := p.Apple.SearchSongs(ctx, sf, musicbrainz.SearchArtist(e.Artist, m.Recording)+" "+title, searchLimit)
 			if err != nil {
 				return apple.Song{}, "", false, err
-			}
-			same := func(s apple.Song) bool {
-				return musicbrainz.SameTitle(s.Name, title) && musicbrainz.SameArtist(s.Artist, e.Artist)
 			}
 			if t, ok := best(songs, m, e, same); ok {
 				return t, sf, true, nil
@@ -409,13 +412,10 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 }
 
 // sameSong says an Apple track found by ISRC is the card's song: its title one of the card's readings or the
-// recording's, its artist the card's or the recording's. Apple files unrelated tracks under a famous ISRC
-// (Yesterday's returned a 2023 single by another act).
+// recording's, its artist the card's or the recording's (musicbrainz.ByArtist). Apple files unrelated tracks under
+// a famous ISRC (Yesterday's returned a 2023 single by another act).
 func sameSong(s apple.Song, e entry, m musicbrainz.Match) bool {
-	if !sameTitle(s, e, m) {
-		return false
-	}
-	return musicbrainz.SameArtist(s.Artist, e.Artist) || (m.Recording.Credit != "" && musicbrainz.SameArtist(s.Artist, m.Recording.Credit))
+	return sameTitle(s, e, m) && musicbrainz.ByArtist(s.Artist, e.Artist, m.Recording)
 }
 
 // sameTitle says an Apple track's name is one of the card title's readings (musicbrainz.SongTitles) or the matched
@@ -445,7 +445,7 @@ func (p *Pipeline) originalAlbumTrack(ctx context.Context, sf string, e entry, m
 	if g.ID == "" {
 		return apple.Song{}, false, nil
 	}
-	albums, err := p.Apple.SearchAlbums(ctx, sf, musicbrainz.MainArtist(e.Artist)+" "+musicbrainz.Strip(g.Title), 10)
+	albums, err := p.Apple.SearchAlbums(ctx, sf, musicbrainz.SearchArtist(e.Artist, m.Recording)+" "+musicbrainz.Strip(g.Title), 10)
 	if err != nil {
 		return apple.Song{}, false, err
 	}
@@ -454,7 +454,7 @@ func (p *Pipeline) originalAlbumTrack(ctx context.Context, sf string, e entry, m
 		if tried == albumsTried {
 			break
 		}
-		if !musicbrainz.SameTitle(a.Name, g.Title) || !musicbrainz.SameArtist(a.Artist, e.Artist) ||
+		if !musicbrainz.SameTitle(a.Name, g.Title) || !musicbrainz.ByArtist(a.Artist, e.Artist, m.Recording) ||
 			!originalYear(a.Year(), g, e.Year) {
 			continue
 		}
