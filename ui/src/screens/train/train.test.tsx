@@ -184,10 +184,18 @@ describe("training", () => {
     api.trainSummary = async (sid) => {
       const s = await real(sid);
       const song = FAKE_SONGS[0];
-      const miss = { song, choice: 1900 };
+      const miss = { song: { ...song, coverUrl: null }, proposedYear: null };
       return {
         ...s,
-        misses: [miss, miss, { song: FAKE_SONGS[1], choice: 1900 }],
+        misses: [
+          { ...miss, choice: 1900 },
+          { ...miss, choice: 1901 },
+          {
+            song: { ...FAKE_SONGS[1], coverUrl: null },
+            proposedYear: null,
+            choice: 1900,
+          },
+        ],
       };
     };
     renderApp(`/train/${id}`, api);
@@ -204,7 +212,7 @@ describe("training", () => {
     expect(drill.settings.length).toBe(2);
   });
 
-  it("offers to try again when the next clip failed, and resumes at the session's card", async () => {
+  it("offers to try again when the server says the next card failed (nextError), and resumes at the session's card", async () => {
     const world = new FakeWorld();
     const api = world.device("p-jan");
     const { id } = await api.startTraining({
@@ -218,7 +226,7 @@ describe("training", () => {
     api.trainAnswer = async (sid, b) => ({
       ...(await real(sid, b)),
       next: null,
-      retryable: true,
+      nextError: "previews_unavailable",
     });
     const realSession = api.trainSession;
     let down = true;

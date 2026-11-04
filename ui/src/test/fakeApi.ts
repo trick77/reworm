@@ -23,6 +23,7 @@ import type {
   Tier,
   TrainAnswer,
   TrainSettings,
+  TrainStarted,
   TrainStats,
   TrainSummary,
 } from "../api/types";
@@ -36,7 +37,7 @@ const PREVIEWS = [
   "AudioPreview221/v4/44/10/de/4410de9b-4b10-c763-baf8-c4911c032248/mzaf_2164995177730538281.plus.aac.ep.m4a",
 ].map((p) => AUDIO + p);
 
-type FakeSong = Song & { preview: string; art?: string };
+type FakeSong = Omit<Song, "coverUrl"> & { preview: string; art?: string };
 
 export const FAKE_SONGS: FakeSong[] = [
   {
@@ -399,7 +400,7 @@ export class FakeWorld {
   emit(code: string) {
     const r = this.rooms.get(code);
     if (!r) return;
-    r.state.seq = (r.state.seq ?? 0) + 1;
+    r.state.seq++;
     r.state.now = Date.now();
     for (const h of r.subs) h.onState(clone(r.state));
   }
@@ -437,6 +438,8 @@ export class FakeWorld {
         players: [],
         round: null,
         nextClip: null,
+        seq: 1,
+        now: Date.now(),
       },
     });
     return code;
@@ -581,6 +584,7 @@ export class FakeWorld {
         winnerId: null,
         points: 0,
         photoFinish: [],
+        winnerMs: null,
       };
     }
     this.emit(code);
@@ -662,7 +666,7 @@ export class FakeWorld {
 
   // ---- training ----
 
-  startTraining(s: TrainSettings): { id: string; card: Card } {
+  startTraining(s: TrainSettings): TrainStarted {
     const id = nextId("t-");
     const songs = s.songIds
       ? this.songs.filter((x) => s.songIds!.includes(x.id))
@@ -690,7 +694,7 @@ export class FakeWorld {
       best: 0,
       xp: 0,
     });
-    return { id, card: queue[0].card };
+    return { id, card: queue[0].card, now: Date.now() };
   }
 
   trainAnswer(
@@ -756,6 +760,8 @@ export class FakeWorld {
         coverUrl: s.art ?? null,
       },
       next: ses.queue[ses.index]?.card ?? null,
+      nextError: null,
+      now: Date.now(),
     };
   }
 
@@ -788,7 +794,7 @@ export class FakeWorld {
         .filter((r) => !r.ok)
         .map((r) => ({
           song: plain(r.song),
-          proposedYear: r.proposedYear,
+          proposedYear: r.proposedYear ?? null,
           choice: r.choice,
         })),
     };
@@ -983,6 +989,8 @@ export class FakeApi implements Api {
     this.log("roomMe", () => {
       const r = this.world.rooms.get(code);
       const id = this.dev.players[code];
+      if (r && id && r.kicked.has(id))
+        return fail(403, "kicked", "removed from this game");
       return ok(
         r && id && r.state.players.some((p) => p.id === id) ? id : null,
       );
@@ -1048,8 +1056,14 @@ export class FakeApi implements Api {
         card: ses.queue[ses.index]?.card ?? null,
         stats: {
           correct: ses.results.filter((r) => r.ok).length,
+          answered: ses.results.length,
           streak: ses.streak,
+          bestStreak: ses.best,
+          learning: ses.queue.slice(ses.index).filter((q) => q.card.retry)
+            .length,
+          xp: ses.xp,
         },
+        now: Date.now(),
       });
     });
   trainAnswer = (

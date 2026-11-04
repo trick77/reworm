@@ -1,7 +1,6 @@
 // The API client: every endpoint of the contract behind one interface, so screens and tests can swap the
 // network for a fake. HttpApi is the real one: fetch for the calls, EventSource for the live room state.
 import type {
-  Card,
   Choice,
   Decks,
   Device,
@@ -15,6 +14,7 @@ import type {
   TrainAnswer,
   TrainSession,
   TrainSettings,
+  TrainStarted,
   TrainStats,
   TrainSummary,
 } from "./types";
@@ -67,7 +67,8 @@ export interface Api {
     code: string,
     body: { name: string; avatar: string },
   ): Promise<{ playerId: string }>;
-  // roomMe: this browser's player in the room (guest cookie or profile); null when it has none
+  // roomMe: this browser's player in the room (guest cookie or profile); null when it has none or the
+  // room is gone. A kicked player is refused (403 kicked).
   roomMe(code: string): Promise<string | null>;
   host(code: string, action: HostAction): Promise<void>;
   kick(code: string, playerId: string): Promise<void>;
@@ -77,7 +78,7 @@ export interface Api {
   reveal(code: string, round: number): Promise<void>;
   judge(code: string, round: number, points: Points): Promise<void>;
 
-  startTraining(s: TrainSettings): Promise<{ id: string; card: Card }>;
+  startTraining(s: TrainSettings): Promise<TrainStarted>;
   trainSession(id: string): Promise<TrainSession>;
   trainAnswer(
     id: string,
@@ -206,10 +207,10 @@ export class HttpApi implements Api {
     this.post<{ playerId: string }>(`${room(code)}/join`, b);
   roomMe = async (code: string) => {
     try {
-      const r = await this.get<{ playerId?: string }>(`${room(code)}/me`);
-      return r?.playerId ?? null;
+      const r = await this.get<{ playerId: string }>(`${room(code)}/me`);
+      return r.playerId;
     } catch (e) {
-      if (e instanceof ApiError && [401, 403, 404].includes(e.status))
+      if (e instanceof ApiError && (e.status === 401 || e.status === 404))
         return null;
       throw e;
     }
@@ -234,7 +235,7 @@ export class HttpApi implements Api {
   private train = <T>(method: string, path: string, body?: unknown) =>
     this.call<T>(method, path, body, { "X-Timezone": timeZone() });
   startTraining = (s: TrainSettings) =>
-    this.train<{ id: string; card: Card }>("POST", "/api/train/sessions", s);
+    this.train<TrainStarted>("POST", "/api/train/sessions", s);
   trainSession = (id: string) =>
     this.train<TrainSession>(
       "GET",
@@ -263,14 +264,11 @@ export class HttpApi implements Api {
     let es: EventSourceLike | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
-    // order: a state older than the last applied one is dropped (by seq when the server sends it)
-    let events = 0;
+    // order: a state older than the last applied one (by seq) is dropped, snapshot or event
     let lastSeq = -Infinity;
     const apply = (s: RoomState) => {
-      if (s.seq != null) {
-        if (s.seq <= lastSeq) return;
-        lastSeq = s.seq;
-      }
+      if (s.seq <= lastSeq) return;
+      lastSeq = s.seq;
       h.onState(s);
     };
     const stop = () => {
@@ -280,14 +278,10 @@ export class HttpApi implements Api {
       es = null;
     };
 
-    const snapshot = () => {
-      const at = events;
-      return this.room(code).then(
+    const snapshot = () =>
+      this.room(code).then(
         (s) => {
-          if (closed) return;
-          // without seq: a stream event that came in meanwhile is newer than this snapshot
-          if (s.seq == null && events !== at) return;
-          apply(s);
+          if (!closed) apply(s);
         },
         (e: ApiError) => {
           if (closed) return;
@@ -295,7 +289,6 @@ export class HttpApi implements Api {
           h.onError?.(e);
         },
       );
-    };
 
     const open = () => {
       const src = this.env.eventSource(`${room(code)}/events`);
@@ -308,9 +301,7 @@ export class HttpApi implements Api {
         if (closed) return;
         attempt = 0;
         try {
-          const s = JSON.parse(e.data as string) as RoomState;
-          events++;
-          apply(s);
+          apply(JSON.parse(e.data as string) as RoomState);
         } catch {
           // a garbled event: the next one (or the snapshot after a reconnect) is whole
         }

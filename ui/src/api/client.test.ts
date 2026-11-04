@@ -47,8 +47,10 @@ class FakeES implements EventSourceLike {
   }
 }
 
-const state = (phase: RoomState["phase"], n = 0): RoomState => ({
+const state = (phase: RoomState["phase"], n = 0, seq = 1): RoomState => ({
   code: "K7Q4",
+  seq,
+  now: 0,
   mode: "years",
   phase,
   hostId: "p1",
@@ -68,6 +70,7 @@ const state = (phase: RoomState["phase"], n = 0): RoomState => ({
         buzz: null,
         revealVotes: [],
         judgeVotes: {},
+        judgeEndsAt: null,
         result: null,
       }
     : null,
@@ -139,8 +142,13 @@ describe("HttpApi calls", () => {
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     expect(await api.roomMe("K7Q4")).toBe("pl1");
     expect(calls[0].url).toBe("/api/rooms/K7Q4/me");
-    reply = Response.json({ error: "not_joined" }, { status: 404 });
+    reply = Response.json({ error: "not_in_room" }, { status: 401 });
     expect(await api.roomMe("K7Q4")).toBeNull();
+    reply = Response.json({ error: "unknown_room" }, { status: 404 });
+    expect(await api.roomMe("K7Q4")).toBeNull();
+    // kicked: the pad says why instead of offering the form as if nothing happened
+    reply = Response.json({ error: "kicked" }, { status: 403 });
+    await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ code: "kicked" });
     reply = Response.json({ error: "boom" }, { status: 500 });
     await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ status: 500 });
   });
@@ -240,8 +248,6 @@ describe("server clock", () => {
     syncServerClock(local + 5_000, local); // the server is 5 s ahead
     expect(secondsLeft(serverNow() + 10_000)).toBe(10);
     expect(secondsLeft(local + 10_000)).toBeLessThanOrEqual(5);
-    syncServerClock(undefined); // a state without `now` keeps the offset
-    expect(serverNow() - Date.now()).toBeGreaterThanOrEqual(4_990);
     syncServerClock(Date.now());
     expect(secondsLeft(local - 1_000)).toBe(0);
   });
@@ -266,12 +272,12 @@ describe("HttpApi.subscribeRoom", () => {
     const es = FakeES.all[0];
     expect(es.url).toBe("/api/rooms/K7Q4/events");
     es.fire("open");
-    es.fire("state", state("playing", 1));
+    es.fire("state", state("playing", 1, 2));
     es.fire("state", "{garbled");
     expect(seen).toEqual(["lobby", "playing1"]);
 
     // the stream drops: closed at once, reopened after the backoff with a new snapshot
-    snap = state("result", 1);
+    snap = state("result", 1, 3);
     es.fire("error");
     expect(es.closed).toBe(true);
     expect(live).toEqual([true, false]);
@@ -292,7 +298,7 @@ describe("HttpApi.subscribeRoom", () => {
     stop();
     expect(FakeES.all[2].closed).toBe(true);
     FakeES.all[2].fire("error");
-    FakeES.all[2].fire("state", state("over"));
+    FakeES.all[2].fire("state", state("over", 1, 9));
     await vi.advanceTimersByTimeAsync(20_000);
     expect(FakeES.all).toHaveLength(3);
     expect(seen.at(-1)).toBe("result1");
@@ -326,7 +332,7 @@ describe("HttpApi.subscribeRoom", () => {
   });
 
   it("drops a state older than the last applied one", async () => {
-    // with seq: the reconnect's snapshot (seq 5) lands after the stream's seq 6 and is dropped
+    // the reconnect's snapshot (seq 5) lands after the stream's seq 6 and is dropped
     let snap: RoomState = { ...state("lobby"), seq: 1 };
     let release: () => void = () => {};
     const { fetch } = fetchStub(async () => {
@@ -337,7 +343,7 @@ describe("HttpApi.subscribeRoom", () => {
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     const seen: string[] = [];
     const stop = api.subscribeRoom("K7Q4", {
-      onState: (s) => seen.push(`${s.phase}${s.seq ?? ""}`),
+      onState: (s) => seen.push(`${s.phase}${s.seq}`),
     });
     await vi.advanceTimersByTimeAsync(0);
     FakeES.all[0].fire("state", { ...state("playing", 1), seq: 3 });
@@ -352,7 +358,7 @@ describe("HttpApi.subscribeRoom", () => {
     stop();
   });
 
-  it("without seq, applies a snapshot only if no event came in meanwhile", async () => {
+  it("drops the first snapshot when a newer event beat it", async () => {
     let release: () => void = () => {};
     let first = true;
     const { fetch } = fetchStub(async () => {
@@ -360,7 +366,7 @@ describe("HttpApi.subscribeRoom", () => {
         first = false;
         await new Promise<void>((r) => (release = r));
       }
-      return Response.json(state("lobby"));
+      return Response.json(state("lobby", 0, 1));
     });
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     const seen: string[] = [];
@@ -368,7 +374,7 @@ describe("HttpApi.subscribeRoom", () => {
       onState: (s) => seen.push(s.phase),
     });
     await vi.advanceTimersByTimeAsync(0);
-    FakeES.all[0].fire("state", state("playing", 1));
+    FakeES.all[0].fire("state", state("playing", 1, 2));
     release();
     await vi.advanceTimersByTimeAsync(0);
     expect(seen).toEqual(["playing"]);

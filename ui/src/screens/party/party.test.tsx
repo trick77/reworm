@@ -25,7 +25,10 @@ async function joinPad(world: FakeWorld, name: string, avatar = "Woofer") {
   const padApi = world.device();
   const pad = renderApp("/join/K7Q4", padApi);
   const p = within(pad.container);
-  fireEvent.change(p.getByLabelText("Your name"), { target: { value: name } });
+  // the pad asks the server for this phone's player first
+  fireEvent.change(await p.findByLabelText("Your name"), {
+    target: { value: name },
+  });
   fireEvent.click(p.getByRole("radio", { name: avatar }));
   fireEvent.click(p.getByRole("button", { name: "Join game" }));
   expect(await p.findByText("You're in!")).toBeInTheDocument();
@@ -82,7 +85,7 @@ describe("party: lobby and join", () => {
     for (let i = 0; i < 8; i++) world.addPlayer("K7Q4", `P${i}`, "vinyl");
     const pad = renderApp("/join/K7Q4", world.device());
     const p = within(pad.container);
-    fireEvent.change(p.getByLabelText("Your name"), {
+    fireEvent.change(await p.findByLabelText("Your name"), {
       target: { value: "Zoe" },
     });
     fireEvent.click(p.getByRole("button", { name: "Join game" }));
@@ -102,7 +105,7 @@ describe("party: lobby and join", () => {
     api.joinRoom = () => Promise.reject(refusals[next++][0]);
     const pad = renderApp("/join/K7Q4", api);
     const p = within(pad.container);
-    fireEvent.change(p.getByLabelText("Your name"), {
+    fireEvent.change(await p.findByLabelText("Your name"), {
       target: { value: "Mia" },
     });
     for (const [, text] of refusals) {
@@ -177,17 +180,27 @@ describe("party: lobby and join", () => {
     expect(world.rooms.size).toBe(1);
   });
 
-  it("finds this phone's player from the server when storage lost it", async () => {
+  it("asks the server for this phone's player on every open (rooms/{code}/me)", async () => {
     const world = new FakeWorld();
-    await hostRoom(world);
+    const { s } = await hostRoom(world);
     const { pad, padApi } = await joinPad(world, "Mia");
     pad.unmount();
-    localStorage.removeItem("reworm.player.K7Q4");
+    localStorage.clear();
+    padApi.calls = [];
     const again = renderApp("/join/K7Q4", padApi);
+    const a = within(again.container);
+    expect(await a.findByText("You're in!")).toBeInTheDocument();
+    expect(padApi.calls).toContain("roomMe");
+    expect(padApi.calls).not.toContain("join");
+    again.unmount();
+
+    // kicked meanwhile: reopened, the pad says so instead of a blank form
+    fireEvent.click(await s.findByRole("button", { name: "Remove Mia" }));
+    await s.findByText("Players · 0");
+    const kicked = within(renderApp("/join/K7Q4", padApi).container);
     expect(
-      await within(again.container).findByText("You're in!"),
+      await kicked.findByText("The host removed you from this game."),
     ).toBeInTheDocument();
-    expect(localStorage.getItem("reworm.player.K7Q4")).not.toBeNull();
   });
 
   it("shows a room that is gone even after it was showing", async () => {
@@ -379,7 +392,7 @@ describe("party: late join", () => {
     const padApi = world.device();
     const pad = renderApp("/join/K7Q4", padApi);
     const p = within(pad.container);
-    fireEvent.change(p.getByLabelText("Your name"), {
+    fireEvent.change(await p.findByLabelText("Your name"), {
       target: { value: "Zoe" },
     });
     fireEvent.click(p.getByRole("button", { name: "Join game" }));

@@ -1,13 +1,13 @@
 // /join/:code? — the phone's way in: the room code (from the QR or typed), a name and an avatar. Once
 // joined, the same route is the pad.
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import type { ApiError } from "../../api/client";
 import { toApiError, useApi, useAsync, useMe } from "../../api/context";
 import { avatarInfo } from "../../avatars";
 import { Button } from "../../components/Controls";
-import { load, playerKey, save } from "../../lib/prefs";
-import { AvatarStrip, CodeBoxes, Screen, ScreenHead } from "../common";
+import { load, save } from "../../lib/prefs";
+import { AvatarStrip, CodeBoxes, Loading, Screen, ScreenHead } from "../common";
 import { Pad } from "./Pad";
 
 type Guest = { name: string; avatar: string };
@@ -58,7 +58,6 @@ function JoinForm({
     api.joinRoom(code, guest).then(
       (r) => {
         save("guest", guest);
-        save(playerKey(code), r.playerId);
         onJoined(code, r.playerId);
       },
       (e: unknown) => {
@@ -134,41 +133,41 @@ function JoinForm({
 export function Join({ code: raw }: { code?: string }) {
   const [, go] = useLocation();
   const code = raw?.toUpperCase();
-  // the player id per room lives in storage (a reload, the QR again); bump re-reads it
-  const [, bump] = useState(0);
-  const [note, setNote] = useState<string | undefined>();
   const api = useApi();
-  const stored = code ? load<string>(playerKey(code)) : null;
-  // nothing stored (storage cleared, another tab): the server may still know this browser's player
-  const asked = useAsync(code && !stored && !note ? `me:${code}` : null, () =>
-    api.roomMe(code!),
-  );
-  const found = code && !stored && !note ? (asked.data ?? null) : null;
-  useEffect(() => {
-    if (code && found) save(playerKey(code), found);
-  }, [code, found]);
-  const id = stored ?? found;
+  // joined: the player this page just joined as; note: why the form is back (the pad lost its player)
+  const [joined, setJoined] = useState<string | null>(null);
+  const [note, setNote] = useState<string | undefined>();
+  // the server knows this browser's player (guest cookie or profile): a reload, the QR again, another tab
+  const asking = !!code && !joined && !note;
+  const asked = useAsync(asking ? `me:${code}` : null, () => api.roomMe(code!));
+  const id = joined ?? (asking ? (asked.data ?? null) : null);
   if (code && id)
     return (
       <Pad
-        key={code}
+        key={`${code}:${id}`}
         code={code}
         playerId={id}
         onGone={() => {
-          save(playerKey(code), null);
+          setJoined(null);
           setNote("You're not in this game any more. Join again?");
-          bump((n) => n + 1);
         }}
       />
     );
+  if (asking && asked.loading)
+    return (
+      <Screen>
+        <Loading />
+      </Screen>
+    );
+  const refused = asking && asked.error ? joinError(asked.error, code!) : null;
   return (
     <JoinForm
       key={code ?? ""}
       code={code}
-      note={note}
-      onJoined={(c) => {
+      note={note ?? refused ?? undefined}
+      onJoined={(c, playerId) => {
         if (c !== code) go(`/join/${c}`, { replace: true });
-        else bump((n) => n + 1);
+        else setJoined(playerId);
       }}
     />
   );
