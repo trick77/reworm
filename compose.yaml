@@ -1,7 +1,8 @@
+# Keep in step with compose.dev.yaml (user, settings, healthcheck).
 services:
   reworm:
     # A release tag (exists from the first release on); Dependabot moves it.
-    image: ghcr.io/trick77/reworm:0.1.0
+    image: ghcr.io/trick77/reworm:0.1.2
     # distroless nonroot's own uid, never 1000 (the host's first user). Host ./data must belong to it:
     # sudo chown -R 65532:65532 data
     user: "65532:65532"

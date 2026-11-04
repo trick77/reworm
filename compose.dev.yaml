@@ -1,0 +1,40 @@
+# Local run of the image built from this checkout, no Traefik, no .env (a production one stays out of it):
+#   mkdir -p data/compose-dev && docker compose -f compose.dev.yaml up --build
+# Port 8081 (make run has 8080), on all interfaces so phones on the LAN can join a party.
+# Pair the first device: the log's one-time link is path-only here, open http://localhost:8081/setup/<token>
+# (docker compose -f compose.dev.yaml logs | grep setup).
+# Keep in step with compose.yaml (user, settings, healthcheck): `extends` cannot share them, compose.yaml's
+# required PUBLIC_FQDN would stop this file.
+
+# Its own project: run where compose.yaml runs too, it never replaces that container.
+name: reworm-dev
+
+services:
+  reworm:
+    build:
+      context: .
+      dockerfile: backend/Containerfile
+    # distroless nonroot's own uid, never 1000 (the host's first user). On Linux the host dir must belong to
+    # it: sudo chown 65532:65532 data/compose-dev (Docker Desktop maps it).
+    user: "65532:65532"
+    ports:
+      - "8081:8080"
+    environment:
+      BACKEND_ADDR: ":8080"
+      BACKEND_DATA_DIR: "/data"
+      BACKEND_LOG_LEVEL: "${BACKEND_LOG_LEVEL:-debug}"
+      # No proxy in front. Docker's port forwarding shows every client with the same gateway address, so all
+      # devices share one rate-limit budget here (production sees them apart behind Traefik).
+      BACKEND_TRUSTED_PROXIES: "0"
+      # Plain http: no PUBLIC_FQDN, so cookies are not Secure-only and pairing links are path-only.
+      PUBLIC_FQDN: ""
+    healthcheck:
+      test: ["CMD", "/reworm", "healthcheck"]
+      interval: 60s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 5s
+      retries: 3
+    volumes:
+      # Its own dir: `make run` (data/dev) is a host process with another uid on the same SQLite files.
+      - ./data/compose-dev:/data
