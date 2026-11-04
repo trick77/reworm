@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -434,7 +435,173 @@ func TestFindRecording_labelsTheUnboundedFallback(t *testing.T) {
 	}
 }
 
-// best: the original-album track, then one that is no remix or live take, then the artist's own album.
+// byArtistMB answers only searches for its artist, recording each query.
+type byArtistMB struct {
+	recs    map[string][]musicbrainz.Recording
+	queries *[]string
+}
+
+func (f byArtistMB) Search(_ context.Context, artist, title string, until int) ([]musicbrainz.Recording, error) {
+	*f.queries = append(*f.queries, fmt.Sprintf("%s|%s|%d", artist, title, until))
+	return f.recs[artist], nil
+}
+
+// boundMB answers bounded and unbounded searches apart, by artist.
+type boundMB struct {
+	bounded, unbounded map[string][]musicbrainz.Recording
+}
+
+func (f boundMB) Search(_ context.Context, artist, _ string, until int) ([]musicbrainz.Recording, error) {
+	if until > 0 {
+		return f.bounded[artist], nil
+	}
+	return f.unbounded[artist], nil
+}
+
+// MusicBrainz finds "Queen, David Bowie" only as Queen: searched by the card's first name last, after the
+// unbounded search, and only a recording credited to the card's artists is taken; "Simon" alone is not Simon &
+// Garfunkel.
+func TestFindRecording_searchesTheLeadArtistLast(t *testing.T) {
+	rec := musicbrainz.Recording{ID: "up", Title: "Under Pressure", Credit: "Queen & David Bowie",
+		Artists: []string{"Queen", "David Bowie"}, FirstReleaseDate: "1981-10-26"}
+	var queries []string
+	p := &Pipeline{MB: byArtistMB{map[string][]musicbrainz.Recording{"Queen": {rec}}, &queries}}
+	m, ok, why, err := p.findRecording(context.Background(), entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981})
+	if err != nil || !ok || m.Recording.ID != "up" || m.Exact || why != "MusicBrainz matched as Queen – Under Pressure" {
+		t.Errorf("ok=%v id=%s exact=%v why=%q err=%v", ok, m.Recording.ID, m.Exact, why, err)
+	}
+	if want := []string{"Queen, David Bowie|Under Pressure|1982", "Queen, David Bowie|Under Pressure|0", "Queen|Under Pressure|1982"}; !slices.Equal(queries, want) {
+		t.Errorf("queries %q", queries)
+	}
+	simon := musicbrainz.Recording{ID: "s", Title: "Mrs. Robinson", Credit: "Simon", Artists: []string{"Simon"}, FirstReleaseDate: "1968"}
+	queries = nil
+	p = &Pipeline{MB: byArtistMB{map[string][]musicbrainz.Recording{"Simon": {simon}}, &queries}}
+	if _, ok, _, _ := p.findRecording(context.Background(), entry{Artist: "Simon & Garfunkel", Title: "Mrs. Robinson", Year: 1968}); ok {
+		t.Error("Simon taken for Simon & Garfunkel")
+	}
+	// The unbounded search finds it only undated or later: the first name's bounded pick is the better one.
+	late := musicbrainz.Recording{ID: "late", Title: "Under Pressure", Credit: "Queen & David Bowie",
+		Artists: []string{"Queen", "David Bowie"}, FirstReleaseDate: "1999"}
+	for _, unbounded := range []musicbrainz.Recording{late, {ID: "undated", Title: "Under Pressure", Credit: "Queen & David Bowie",
+		Artists: []string{"Queen", "David Bowie"}}} {
+		p = &Pipeline{MB: boundMB{unbounded: map[string][]musicbrainz.Recording{"Queen, David Bowie": {unbounded}},
+			bounded: map[string][]musicbrainz.Recording{"Queen": {rec}}}}
+		m, ok, why, _ := p.findRecording(context.Background(), entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981})
+		if !ok || m.Recording.ID != "up" || why != "MusicBrainz matched as Queen – Under Pressure" {
+			t.Errorf("after %s: ok=%v id=%s why=%q", unbounded.ID, ok, m.Recording.ID, why)
+		}
+	}
+	// … and when the first name finds nothing, the weak match stays.
+	p = &Pipeline{MB: boundMB{unbounded: map[string][]musicbrainz.Recording{"Queen, David Bowie": {late}}}}
+	if m, ok, why, _ := p.findRecording(context.Background(), entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981}); !ok || m.Recording.ID != "late" ||
+		why != "MusicBrainz has it only from 1999, after the card year" {
+		t.Errorf("weak kept: ok=%v id=%s why=%q", ok, m.Recording.ID, why)
+	}
+	// No other name: no further search.
+	queries = nil
+	p = &Pipeline{MB: byArtistMB{map[string][]musicbrainz.Recording{}, &queries}}
+	if _, ok, _, _ := p.findRecording(context.Background(), entry{Artist: "ABBA", Title: "Waterloo", Year: 1974}); ok || len(queries) != 2 {
+		t.Errorf("ok=%v queries %q", ok, queries)
+	}
+}
+
+// fakeCatalog answers ISRC lookups and song searches; albums are never found.
+type fakeCatalog struct {
+	byISRC   []apple.Song
+	searched map[string][]apple.Song
+}
+
+func (f fakeCatalog) SongsByISRC(context.Context, string, []string) ([]apple.Song, error) {
+	return f.byISRC, nil
+}
+
+func (f fakeCatalog) SearchSongs(_ context.Context, _, term string, _ int) ([]apple.Song, error) {
+	return f.searched[term], nil
+}
+
+func (fakeCatalog) SearchAlbums(context.Context, string, string, int) ([]apple.Album, error) {
+	return nil, nil
+}
+
+func (fakeCatalog) AlbumTracks(context.Context, string, string) ([]apple.Song, error) {
+	return nil, nil
+}
+
+func (fakeCatalog) SongByID(context.Context, string, string) (apple.Song, bool, error) {
+	return apple.Song{}, false, nil
+}
+
+// Several artists and film titles: an ISRC hit or a search hit counts by every reading of the card title and by
+// the credit as a set or its main artist; another act under the ISRC does not.
+func TestFindTrack_severalArtistsAndFilmTitles(t *testing.T) {
+	tr := func(id, name, artist string) apple.Song {
+		return apple.Song{ID: id, Name: name, Artist: artist, Album: "A", Preview: true}
+	}
+	grease := musicbrainz.Match{ISRCs: []string{"NLF057890002"}, Recording: musicbrainz.Recording{ID: "sn", Title: "Summer Nights",
+		Credit: "John Travolta, Olivia Newton‐John & Cast", Artists: []string{"John Travolta", "Olivia Newton‐John", "Cast"}}}
+	queen := musicbrainz.Match{ISRCs: []string{"GBUM71029622"}, Recording: musicbrainz.Recording{ID: "up", Title: "Under Pressure",
+		Credit: "Queen & David Bowie", Artists: []string{"Queen", "David Bowie"}}}
+	godfather := musicbrainz.Match{ISRCs: []string{"USMC17251836"}, Recording: musicbrainz.Recording{ID: "gw", Title: "The Godfather Waltz",
+		Credit: "Nino Rota", Artists: []string{"Nino Rota"}}}
+	yusuf := musicbrainz.Match{Recording: musicbrainz.Recording{ID: "fs", Title: "Father and Son", Credit: "Yusuf", Artists: []string{"Yusuf"}}}
+	oneKissRemix := musicbrainz.Match{Recording: musicbrainz.Recording{ID: "jz", Title: "One Kiss (with Dua Lipa) - Jauz Remix",
+		Credit: "Calvin Harris", Artists: []string{"Calvin Harris"}}}
+	unpluggedMatch := musicbrainz.Match{Recording: musicbrainz.Recording{ID: "u", Title: "Where Did You Sleep Last Night",
+		Disambiguation: "live, MTV Unplugged", Credit: "Nirvana", Artists: []string{"Nirvana"}}}
+	glory := musicbrainz.Match{Recording: musicbrainz.Recording{ID: "gl", Title: "Glory", Credit: "Common & John Legend",
+		Artists: []string{"Common", "John Legend"}}}
+	for _, tc := range []struct {
+		e     entry
+		m     musicbrainz.Match
+		apple fakeCatalog
+		want  string
+	}{
+		{entry{Artist: "John Travolta, Olivia Newton-John", Title: "Grease (Summer Nights)", Year: 1978}, grease,
+			fakeCatalog{byISRC: []apple.Song{tr("other", "Summer Nights", "Other Act"), tr("sn", "Summer Nights", "John Travolta & Olivia Newton-John")}}, "sn"},
+		{entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981}, queen,
+			fakeCatalog{byISRC: []apple.Song{tr("up", "Under Pressure (feat. David Bowie)", "Queen")}}, "up"},
+		{entry{Artist: "Nino Rota", Title: "Der Pate (The Godfather Waltz)", Year: 1972}, godfather,
+			fakeCatalog{byISRC: []apple.Song{tr("gw", "The Godfather Waltz", "Nino Rota & Carlo Savina")}}, "gw"},
+		// Another act under the ISRC is no hit.
+		{entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981}, queen,
+			fakeCatalog{byISRC: []apple.Song{tr("x", "Under Pressure", "Some Cover Band")}}, ""},
+		// Searched as the card writes the title, found by the song inside it.
+		{entry{Artist: "Luis Bacalov, Rocky Roberts", Title: "Django Unchained (Django)", Year: 2012}, musicbrainz.Match{},
+			fakeCatalog{searched: map[string][]apple.Song{"Luis Bacalov, Rocky Roberts Django Unchained (Django)": {
+				tr("dj", "Django", "Luis Bacalov & Rocky Roberts")}}}, "dj"},
+		{entry{Artist: "Calvin Harris", Title: "One Kiss (with Dua Lipa)", Year: 2018}, musicbrainz.Match{},
+			fakeCatalog{searched: map[string][]apple.Song{"Calvin Harris One Kiss (with Dua Lipa)": {
+				tr("ok", "One Kiss", "Calvin Harris & Dua Lipa")}}}, "ok"},
+		// The act under another of its names; its re-recording is no hit.
+		{entry{Artist: "Yusuf / Cat Stevens", Title: "Father And Son", Year: 1970}, yusuf,
+			fakeCatalog{searched: map[string][]apple.Song{"Yusuf / Cat Stevens Father and Son": {
+				tr("re", "Father and Son (Re-Recorded Version)", "Yusuf / Cat Stevens"), tr("fs", "Father and Son", "Cat Stevens")}}}, "fs"},
+		// The live take alone is no hit: no clip beats the wrong recording.
+		{entry{Artist: "Common, John Legend", Title: "Selma (Glory)", Year: 2014}, glory,
+			fakeCatalog{searched: map[string][]apple.Song{"Common Glory": {tr("live", "Glory [Live]", "Common & John Legend")}}}, ""},
+		// A remix MusicBrainz took for the song is found first, the plain take by the card's title wins.
+		{entry{Artist: "Calvin Harris", Title: "One Kiss (with Dua Lipa)", Year: 2018}, oneKissRemix,
+			fakeCatalog{searched: map[string][]apple.Song{
+				"Calvin Harris One Kiss (with Dua Lipa) - Jauz Remix": {tr("jz", "One Kiss (Jauz Remix)", "Calvin Harris & Dua Lipa")},
+				"Calvin Harris One Kiss (with Dua Lipa)":              {tr("ok", "One Kiss", "Calvin Harris & Dua Lipa")}}}, "ok"},
+		// A song MusicBrainz knows only live: its live take, nothing plain anywhere.
+		{entry{Artist: "Nirvana", Title: "Where Did You Sleep Last Night", Year: 1994}, unpluggedMatch,
+			fakeCatalog{searched: map[string][]apple.Song{"Nirvana Where Did You Sleep Last Night": {
+				tr("l", "Where Did You Sleep Last Night (Live)", "Nirvana")}}}, "l"},
+		// An act the card does not name, by search.
+		{entry{Artist: "Queen", Title: "Bohemian Rhapsody", Year: 1975}, musicbrainz.Match{},
+			fakeCatalog{searched: map[string][]apple.Song{"Queen Bohemian Rhapsody": {tr("ql", "Bohemian Rhapsody", "Queen + Adam Lambert")}}}, ""},
+	} {
+		p := &Pipeline{Apple: tc.apple}
+		got, _, _, err := p.findTrack(context.Background(), tc.e, tc.m)
+		if err != nil || got.ID != tc.want {
+			t.Errorf("%s – %s: got %q, want %q (%v)", tc.e.Artist, tc.e.Title, got.ID, tc.want, err)
+		}
+	}
+}
+
+// best: the original-album track, then one on no album named live or remixed, then the artist's own album; never a
+// track named a remix or live take the card does not ask for.
 func TestBest_prefersOriginalThenPlainThenOwnAlbum(t *testing.T) {
 	m := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Help!", Date: "1965-08-06"}}
 	e := entry{Artist: "The Beatles", Title: "Help!", Year: 1965}
@@ -446,18 +613,47 @@ func TestBest_prefersOriginalThenPlainThenOwnAlbum(t *testing.T) {
 	comp := tr("c-comp", "Help!", "Sixties Hits", "Various Artists", "1965")
 	own := tr("d-own", "Help!", "1", "The Beatles", "2000")
 	orig := tr("e-orig", "Help!", "Help! (Remastered)", "The Beatles", "1965-08-06")
+	liveAlbum := tr("f-hits", "Help!", "Live Party Hits", "The Beatles", "1965")
 	for _, tc := range []struct {
 		songs []apple.Song
 		want  string
 	}{
 		{[]apple.Song{remix, live, comp, own, orig}, "e-orig"},
 		{[]apple.Song{remix, live, comp, own}, "d-own"},
-		{[]apple.Song{remix, live, comp}, "c-comp"},
-		{[]apple.Song{remix, live}, "b-live"},
+		{[]apple.Song{remix, live, liveAlbum, comp}, "c-comp"},
+		{[]apple.Song{remix, live, liveAlbum}, "f-hits"},
+		{[]apple.Song{remix, live}, ""},
 	} {
-		if got, ok := best(tc.songs, m, e, nil); !ok || got.ID != tc.want {
-			t.Errorf("best = %s, want %s", got.ID, tc.want)
+		if got, _ := best(tc.songs, m, e, nil); got.ID != tc.want {
+			t.Errorf("best = %q, want %q", got.ID, tc.want)
 		}
+	}
+	// Asked for by the card, the live take is the song.
+	if got, _ := best([]apple.Song{remix, live}, m, entry{Artist: "The Beatles", Title: "Help! (Live)", Year: 1994}, nil); got.ID != "b-live" {
+		t.Errorf("asked live: %q", got.ID)
+	}
+	// A song MusicBrainz knows only live: the live take is fine, a plain one still first.
+	unplugged := musicbrainz.Match{Recording: musicbrainz.Recording{Title: "Where Did You Sleep Last Night", Disambiguation: "live, MTV Unplugged"}}
+	nirvana := entry{Artist: "Nirvana", Title: "Where Did You Sleep Last Night", Year: 1994}
+	liveTake := apple.Song{ID: "l", Name: "Where Did You Sleep Last Night (Live)", Artist: "Nirvana", Album: "MTV Unplugged in New York", Preview: true}
+	studio := apple.Song{ID: "s", Name: "Where Did You Sleep Last Night", Artist: "Nirvana", Album: "Hits", Preview: true}
+	if got, _ := best([]apple.Song{liveTake}, unplugged, nirvana, nil); got.ID != "l" {
+		t.Errorf("live recording: %q", got.ID)
+	}
+	if got, _ := best([]apple.Song{liveTake, studio}, unplugged, nirvana, nil); got.ID != "s" {
+		t.Errorf("plain first: %q", got.ID)
+	}
+	// A re-recording is not the 1970 song, the only candidate or not; nor is its "Tillerman²" the original album.
+	tiller := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Tea for the Tillerman", Date: "1970-11-23"}}
+	cat := entry{Artist: "Yusuf / Cat Stevens", Title: "Father And Son", Year: 1970}
+	rerec := apple.Song{ID: "re", Name: "Father and Son (Re-Recorded Version)", Artist: "Yusuf / Cat Stevens",
+		Album: "Tea for the Tillerman²", ReleaseDate: "2020-09-18", Preview: true}
+	if got, ok := best([]apple.Song{rerec}, tiller, cat, nil); ok {
+		t.Errorf("re-recording picked: %q", got.ID)
+	}
+	rerec.Name, rerec.ReleaseDate = "Father and Son", "1970-11-23" // Apple dates the album's tracks so
+	if onOriginal(rerec, tiller, 1970) {
+		t.Error("Tillerman² is the original album")
 	}
 }
 
