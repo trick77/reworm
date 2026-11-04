@@ -144,6 +144,8 @@ type Room struct {
 	streams map[string]int
 	// bg tracks background prefetches (tests wait on it).
 	bg sync.WaitGroup
+	// unsent: a deadline fired in touch and nothing published it yet (Tick does).
+	unsent bool
 	// idle mirrors lastActive (unix ms) for the reaper, which must not wait for a busy room.
 	idle atomic.Int64
 
@@ -298,7 +300,7 @@ func (r *Room) state() State {
 func (r *Room) State(now time.Time) State {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.advance(now) {
+	if r.advance(now) || r.unsent {
 		r.publish()
 	}
 	return r.state()
@@ -308,6 +310,7 @@ func (r *Room) State(now time.Time) State {
 // order; seq lets a client drop a snapshot older than an event it already has.
 func (r *Room) publish() {
 	r.seq++
+	r.unsent = false
 	b, err := json.Marshal(r.state())
 	if err != nil {
 		slog.Error("room state", logging.Err(err)) // plain structs; a programmer error
@@ -461,7 +464,9 @@ func (r *Room) touch(now time.Time) time.Time {
 	}
 	r.lastActive = now
 	r.idle.Store(now.UnixMilli())
-	r.advance(now)
+	if r.advance(now) {
+		r.unsent = true // a request that then fails publishes nothing: the next tick sends it
+	}
 	return now
 }
 
@@ -819,7 +824,7 @@ func (r *Room) Tick(now time.Time) {
 		return
 	}
 	defer r.mu.Unlock()
-	if r.advance(now) {
+	if r.advance(now) || r.unsent {
 		r.publish()
 	}
 }

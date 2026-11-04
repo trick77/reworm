@@ -15,12 +15,7 @@ import { usePlayer } from "../../audio/usePlayer";
 import { AppShell } from "../../components/AppShell";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton, Pill } from "../../components/Controls";
-import {
-  DeadlineRing,
-  StartCountdown,
-  started,
-  useSecondsTo,
-} from "../../components/Countdown";
+import { DeadlineRing, StartCountdown } from "../../components/Countdown";
 import { Cover, SongHead } from "../../components/Cover";
 import {
   Confetti,
@@ -34,6 +29,7 @@ import { Vinyl } from "../../components/Vinyl";
 import { Waveform } from "../../components/Waveform";
 import { YearCard } from "../../components/YearCard";
 import { save } from "../../lib/prefs";
+import { useStartedRoom } from "./started";
 import { Brand } from "../common";
 
 // The windows (D11, buzzer rules): 15 s to answer, 10 s to say it after a buzz, 20 s to judge. The
@@ -496,10 +492,7 @@ export function Stage({
   live: boolean;
 }) {
   const api = useApi();
-  const left = useSecondsTo(
-    raw.phase === "countdown" ? (raw.round?.startedAt ?? null) : null,
-  );
-  const s = started(raw, left);
+  const { s, left } = useStartedRoom(raw);
   useStageAudio(s);
   const [sound, setSound] = useState(audioUnlocked);
   const r = s.round;

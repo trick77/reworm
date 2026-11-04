@@ -18,8 +18,6 @@ import {
   DeadlineBar,
   DeadlineRing,
   StartCountdown,
-  started,
-  useSecondsTo,
 } from "../../components/Countdown";
 import { Cover } from "../../components/Cover";
 import { Loading, Problem, Screen } from "../common";
@@ -33,6 +31,7 @@ import {
   winTime,
   type RoundView,
 } from "./Stage";
+import { useStartedRoom } from "./started";
 
 const ord = (n: number) =>
   n +
@@ -419,10 +418,7 @@ export function Pad({
   onGone: () => void;
 }) {
   const { state: raw, error, live } = useRoom(code);
-  const left = useSecondsTo(
-    raw?.phase === "countdown" ? (raw.round?.startedAt ?? null) : null,
-  );
-  const s = raw && started(raw, left);
+  const { s, left } = useStartedRoom(raw);
   const [sent, setSent] = useState<Sent>(null);
   const me = s?.players.find((p) => p.id === playerId);
   const gone = (!!s && !me) || error?.status === 404;
@@ -450,8 +446,10 @@ export function Pad({
     setSent(press);
     f().catch((e: unknown) => {
       // a deliberate refusal (409: too late, out, late) stands, the room state says what happened;
-      // a failed request (network, 5xx) frees the button to try again
-      if (e instanceof ApiError && e.status === 409) return;
+      // a failed request (network, 5xx) frees the button to try again, as does "not now" (wrong_phase): a
+      // press a few ms before the countdown's end by the server's clock, which the next one makes
+      if (e instanceof ApiError && e.status === 409 && e.code !== "wrong_phase")
+        return;
       setSent((cur) => (cur === press ? null : cur));
     });
   };

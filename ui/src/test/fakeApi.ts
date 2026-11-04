@@ -186,7 +186,8 @@ const fail = (status: number, code: string, message = code) =>
   Promise.reject(new ApiError(status, code, message));
 const clone = <T>(v: T): T => structuredClone(v);
 
-// refusal is the server's answer to a press it refuses (docs/api.md), null when the press may go on.
+// refusal is the server's answer to a press it refuses (docs/api.md), null when the press may go on. Checked in
+// Room.press's order; a countdown whose start passed counts as playing, as Room.touch starts it.
 function refusal(
   st: RoomState,
   playerId: string,
@@ -197,10 +198,12 @@ function refusal(
   if (!st.players.some((p) => p.id === playerId))
     return fail(401, "not_in_room", "not in this room");
   if (st.mode !== mode) return fail(409, "wrong_mode");
+  if (st.round?.n !== round) return fail(409, "wrong_round");
+  if (st.phase === "countdown" && Date.now() >= st.round.startedAt)
+    st.phase = "playing";
   if (st.phase === "paused" || st.phase === "countdown")
     return fail(409, "wrong_phase");
-  if (st.round?.n !== round || st.phase !== phase)
-    return fail(409, "wrong_round");
+  if (st.phase !== phase) return fail(409, "wrong_round");
   return null;
 }
 const ok = <T>(v: T): Promise<T> => Promise.resolve(clone(v));
@@ -516,7 +519,12 @@ export class FakeWorld {
     }
     st.phase = "countdown";
     this.schedule(code, start, () => {
-      if (st.phase !== "countdown" || st.round?.n !== n) return;
+      // a press may have started it already (refusal); the round still needs its timer
+      if (
+        st.round?.n !== n ||
+        (st.phase !== "countdown" && st.phase !== "playing")
+      )
+        return;
       st.phase = "playing";
       this.schedule(code, st.round!.endsAt, timeUp);
       this.emit(code);

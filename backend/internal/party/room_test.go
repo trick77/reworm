@@ -286,6 +286,23 @@ func TestCountdown_kickingTheLastPlayerEndsTheRound(t *testing.T) {
 	}
 }
 
+func TestCountdown_endedByARefusedPressStillPublishes(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	r.countdown = Countdown
+	p := join(t, r, 1)
+	start(t, r, 5)
+	seq := r.State(t0).Seq
+	// A stale press after startedAt starts the round in touch, then fails: nothing published yet.
+	wantProblem(t, r.Answer(t0.Add(Countdown), p[0], 7, "later"), "wrong_round")
+	if r.phase != PhasePlaying || r.seq != seq {
+		t.Fatalf("after the refused press = %s, seq %d (was %d)", r.phase, r.seq, seq)
+	}
+	r.Tick(t0.Add(Countdown + time.Millisecond))
+	if r.seq != seq+1 {
+		t.Errorf("the tick did not publish the start: seq %d, want %d", r.seq, seq+1)
+	}
+}
+
 func TestCountdown_everyRound(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	r.countdown = Countdown
