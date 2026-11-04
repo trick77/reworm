@@ -79,8 +79,9 @@ dataset keep their rows (hidden from decks).
 5. **Cover**: Apple artwork if the match is the original album; else Cover Art Archive front of the first release
    group; else none (UI draws a record).
 6. **Genres**: Last.fm top tags → the app's genre list (mapping table, tested).
-7. **Categories**, rule each; v1 = Smash Hits, Number ones, Evergreens (< 1950), Christmas, Movie & TV, Summer,
-   Party, Swiss charts, Eurovision. Later: One-hit wonders, Guilty pleasures, Love songs (fuzzy).
+7. **Categories**, rule each; v1 = Gen Alpha (2016 on, no upper bound: what kids born 2010+ know), Smash Hits,
+   Number ones, Evergreens (< 1950), Christmas, Movie & TV, Summer, Party, Swiss charts, Eurovision. Later: One-hit
+   wonders, Guilty pleasures, Love songs (fuzzy).
 8. **Output**: `data/songs.jsonl` (diffable) + `data/overrides.json` (hand fixes by song id, applied last) + import
    report (unmatched, no preview, year conflicts, low-confidence matches, per-deck counts).
 9. **Politeness**: MusicBrainz 1 req/s with app name + contact in the User-Agent (D8); retries for truncated Apple

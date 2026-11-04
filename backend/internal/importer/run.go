@@ -174,6 +174,7 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 	for i, r := range kept {
 		songs[i] = r.Song
 	}
+	categorize(songs)
 	jsonl, err := song.Encode(songs)
 	if err != nil {
 		return err

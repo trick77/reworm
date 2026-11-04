@@ -131,6 +131,7 @@ const BY_ID: Record<string, Art> = {
   "screen-hits": A.clapper,
   "christmas-hits": A.tree,
   "radio-gold": A.radio,
+  "gen-alpha": A.popper,
   "smash-hits": A.star,
   "number-ones": A.crown,
   evergreens: A.gramophone,

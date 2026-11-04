@@ -20,6 +20,7 @@ var known = []struct{ id, name string }{
 	{"christmas-hits", "Christmas Hits"},
 	{"radio-gold", "Radio Gold"},
 
+	{"gen-alpha", "Gen Alpha"},
 	{"smash-hits", "Smash Hits"},
 	{"number-ones", "Number ones"},
 	{"evergreens", "Evergreens (pre-1950)"},
