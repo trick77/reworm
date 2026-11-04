@@ -1,0 +1,26 @@
+# Local run of the image built from this checkout: docker compose -f compose.dev.yaml up --build
+# http://localhost:8080, no Traefik; the one-time setup link for the first device is in the log
+# (docker compose -f compose.dev.yaml logs | grep setup).
+services:
+  reworm:
+    build:
+      context: .
+      dockerfile: backend/Containerfile
+    # distroless nonroot's own uid, never 1000 (the host's first user).
+    user: "65532:65532"
+    ports:
+      - "127.0.0.1:8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BACKEND_ADDR: ":8080"
+      BACKEND_DATA_DIR: "/data"
+      BACKEND_LOG_LEVEL: "${BACKEND_LOG_LEVEL:-debug}"
+      # No proxy in front: the client address is the connection's.
+      BACKEND_TRUSTED_PROXIES: "0"
+      # Plain http on localhost: no PUBLIC_FQDN, so cookies are not Secure-only.
+      PUBLIC_FQDN: ""
+    volumes:
+      # Same host dir as `make run` (ignored by git).
+      - ./data/dev:/data

@@ -27,9 +27,13 @@ pairs its first device through the setup link from the log. Dev mode is for loca
 
 ## Run
 
-`compose.yaml` runs a released image behind Traefik, so it works from the first release on (`0.1.0`): set
-`PUBLIC_FQDN` in `.env`, `mkdir -p data && sudo chown -R 65532:65532 data`, then `docker compose up -d`. Settings are `BACKEND_*`
-variables (`BACKEND_ADDR`, `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
+`compose.yaml` runs a released image behind Traefik: `cp .env.example .env` and set `PUBLIC_FQDN`,
+`mkdir -p data && sudo chown -R 65532:65532 data`, then `docker compose up -d`. The first device pairs with the
+one-time setup link from `docker compose logs`. Settings are `BACKEND_*` variables (`BACKEND_ADDR`,
+`BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
+
+`compose.dev.yaml` builds the image from the checkout and serves it on http://localhost:8080 without Traefik:
+`docker compose -f compose.dev.yaml up --build` (database in `data/dev`, as `make run`).
 
 ## Licence
 
