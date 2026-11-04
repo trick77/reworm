@@ -7,6 +7,8 @@ import (
 
 	"github.com/trick77/ship/kit/httpx"
 	"github.com/trick77/ship/kit/version"
+
+	"github.com/trick77/reworm/internal/preview"
 )
 
 // Options configures New.
@@ -40,11 +42,16 @@ func New(o Options) http.Handler {
 	// Recover, so the 500 keeps them.
 	return httpx.Chain(mux,
 		httpx.AccessLog(nil, httpx.AccessLogOptions{ClientIP: ClientIP(o.TrustedProxies), RoutineLevel: slog.LevelInfo}),
-		httpx.SecurityHeaders(""),
+		httpx.SecurityHeaders(csp),
 		httpx.Recover(nil),
 		httpx.CrossOrigin,
 	)
 }
+
+// csp is kit's default plus the clips: the player streams Apple's previews straight from Apple's audio host, and its
+// unlock plays a data: WAV. Without media-src, default-src 'self' blocks both and no clip makes a sound. kit's
+// default has no media-src of its own (a second one would be ignored; the test checks there is one).
+const csp = httpx.DefaultCSP + "; media-src 'self' data: https://" + preview.AudioHost
 
 // ClientIP resolves the caller's address behind trustedProxies proxies, what the access log and rate limits key on.
 func ClientIP(trustedProxies int) func(*http.Request) string {

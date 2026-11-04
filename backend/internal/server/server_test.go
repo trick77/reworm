@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -43,6 +44,23 @@ func TestVersion(t *testing.T) {
 	}
 	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Errorf("security headers missing: %v", rec.Header())
+	}
+}
+
+func TestCSPAllowsPreviews(t *testing.T) {
+	csp := get(newHandler(), "/").Header().Get("Content-Security-Policy")
+	// Browsers honour only the first of a repeated directive: exactly one media-src, and it is ours.
+	var media []string
+	for d := range strings.SplitSeq(csp, ";") {
+		if f := strings.Fields(d); len(f) > 0 && f[0] == "media-src" {
+			media = append(media, strings.Join(f[1:], " "))
+		}
+	}
+	if want := "'self' data: https://audio-ssl.itunes.apple.com"; len(media) != 1 || media[0] != want {
+		t.Errorf("media-src = %q, want once %q (CSP %q)", media, want, csp)
+	}
+	if !strings.Contains(csp, "default-src 'self'") {
+		t.Errorf("CSP %q lost kit's default-src", csp)
 	}
 }
 

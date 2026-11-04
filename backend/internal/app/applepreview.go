@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sync"
 	"time"
@@ -33,6 +34,22 @@ type applePreviews struct{ catalog Catalog }
 var isrcStorefronts = []string{"ch", "de", "us"}
 
 func (a applePreviews) PreviewURL(ctx context.Context, s deck.Song) (string, error) {
+	u, err := a.lookup(ctx, s)
+	if err == nil {
+		warnOffHost(u)
+	}
+	return u, err
+}
+
+// warnOffHost logs a preview off preview.AudioHost: the CSP's media-src allows only that host, so the browser
+// would block the clip and the round play silently.
+func warnOffHost(u string) {
+	if p, err := url.Parse(u); err != nil || p.Host != preview.AudioHost {
+		slog.Warn("apple preview off the CSP's media host: the browser blocks it", "url", u, "allowed", preview.AudioHost)
+	}
+}
+
+func (a applePreviews) lookup(ctx context.Context, s deck.Song) (string, error) {
 	if s.AppleID != "" {
 		sf := s.Storefront
 		if sf == "" {

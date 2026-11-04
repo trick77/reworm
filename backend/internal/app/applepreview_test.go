@@ -1,12 +1,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -86,6 +89,21 @@ func TestApplePreviews(t *testing.T) {
 	before := calls.Load()
 	if got, _ := src.PreviewURL(ctx, deck.Song{ID: "a", AppleID: "1", Storefront: "ch"}); got != "https://audio.example/1.m4a" || calls.Load() != before {
 		t.Errorf("cached lookup: %q, %d new calls", got, calls.Load()-before)
+	}
+}
+
+func TestWarnOffHost(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	warnOffHost("https://" + preview.AudioHost + "/itunes-assets/x.m4a")
+	if buf.Len() != 0 {
+		t.Errorf("on host warned: %s", buf.String())
+	}
+	warnOffHost("https://audio.example/1.m4a")
+	if !strings.Contains(buf.String(), "audio.example") {
+		t.Errorf("off host not warned: %q", buf.String())
 	}
 }
 
