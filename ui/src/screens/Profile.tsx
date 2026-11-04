@@ -437,12 +437,13 @@ export function Pair({ code: given }: { code?: string }) {
   );
 }
 
-export function Setup() {
+// Setup is the server log's one-time link, /setup/<token> (?token= works too).
+export function Setup({ token: given }: { token?: string }) {
   const api = useApi();
   const [, go] = useLocation();
   const [params] = useSearchParams();
   const { reload } = useMe();
-  const token = params.get("token") ?? "";
+  const token = given ?? params.get("token") ?? "";
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState("vinyl");
   const [busy, setBusy] = useState(false);

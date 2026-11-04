@@ -85,7 +85,8 @@ describe("setup", () => {
   it("creates the first profile from the setup link, once", async () => {
     const world = new FakeWorld({ seed: false });
     const first = world.device();
-    const r = renderApp("/setup?token=fake-setup", first);
+    // the link exactly as the server log prints it: /setup/<token>
+    const r = renderApp("/setup/fake-setup", first);
     fireEvent.change(screen.getByLabelText("Your name"), {
       target: { value: "Jan" },
     });
