@@ -47,8 +47,8 @@ func TestOpen_migratesAndReopens(t *testing.T) {
 	}
 	defer func() { _ = db.Close() }()
 	var n int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 4 {
-		t.Errorf("schema_migrations rows = %d, %v; want 4", n, err)
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&n); err != nil || n != 5 {
+		t.Errorf("schema_migrations rows = %d, %v; want 5", n, err)
 	}
 }
 

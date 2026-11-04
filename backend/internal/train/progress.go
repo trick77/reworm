@@ -4,7 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"time"
+
+	// The zone database in the binary: the distroless image may not carry one.
+	_ "time/tzdata"
 )
 
 // masteredBox is the box from which a song counts as mastered: three first-try hits in a row, days apart.
@@ -76,7 +80,7 @@ func loadProgress(ctx context.Context, q querier, profileID, songID string) (pro
 
 // saveAnswer updates the song's progress and the profile's XP and streak for one answer, in tx. A first-try answer
 // moves the box (a hit up, a miss back to 0); a re-ask only counts toward the accuracy.
-func saveAnswer(ctx context.Context, tx *sql.Tx, profileID string, a answer, now time.Time) error {
+func saveAnswer(ctx context.Context, tx *sql.Tx, profileID string, a answer, now time.Time, loc *time.Location) error {
 	p, err := loadProgress(ctx, tx, profileID, a.SongID)
 	if err != nil {
 		return err
@@ -113,8 +117,8 @@ ON CONFLICT (profile_id, song_id) DO UPDATE SET box = excluded.box, due_at = exc
 	if err != nil {
 		return err
 	}
-	today := day(now)
-	yesterday := day(now.AddDate(0, 0, -1))
+	today := day(now, loc)
+	yesterday := day(now.In(loc).AddDate(0, 0, -1), loc)
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO train_profiles (profile_id, xp, streak_days, last_day) VALUES (?, ?, 1, ?)
 ON CONFLICT (profile_id) DO UPDATE SET xp = xp + excluded.xp,
@@ -123,5 +127,44 @@ ON CONFLICT (profile_id) DO UPDATE SET xp = xp + excluded.xp,
 	return err
 }
 
-// day is the local calendar day of t, what the daily streak counts.
-func day(t time.Time) string { return t.Local().Format(time.DateOnly) }
+// day is the calendar day of t in the player's zone, what the daily streak counts.
+func day(t time.Time, loc *time.Location) string { return t.In(loc).Format(time.DateOnly) }
+
+// TimezoneHeader carries the client's IANA zone (Intl.DateTimeFormat().resolvedOptions().timeZone).
+const TimezoneHeader = "X-Timezone"
+
+// zoneOf is the zone a request names, nil when it names none or an invalid one. "Local" is refused: it would be the
+// server's zone, not the player's.
+func zoneOf(r *http.Request) *time.Location {
+	name := r.Header.Get(TimezoneHeader)
+	if name == "" || name == "Local" || len(name) > 64 {
+		return nil
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return nil
+	}
+	return loc
+}
+
+// zone is the player's zone: the request's (remembered on the profile when it changed), else the profile's,
+// else UTC.
+func zone(ctx context.Context, db *sql.DB, r *http.Request, profileID string) (*time.Location, error) {
+	if loc := zoneOf(r); loc != nil {
+		_, err := db.ExecContext(ctx, `UPDATE profiles SET tz = ? WHERE id = ? AND tz != ?`, loc.String(), profileID, loc.String())
+		return loc, err
+	}
+	var name string
+	err := db.QueryRowContext(ctx, `SELECT tz FROM profiles WHERE id = ?`, profileID).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.UTC, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	loc, lerr := time.LoadLocation(name)
+	if lerr != nil {
+		return time.UTC, nil //nolint:nilerr // a zone the tz database lost: count in UTC
+	}
+	return loc, nil
+}

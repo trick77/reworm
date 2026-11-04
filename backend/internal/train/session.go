@@ -141,14 +141,8 @@ func judge(c card, mode, choice string, guess int) (correct bool, tier engine.Ti
 		return correct, tier, xp, nil
 	}
 	y, p := c.Year, c.Proposed
-	switch choice {
-	case "earlier":
-		correct = y < p
-	case "later":
-		correct = y > p
-	case "exact":
-		correct = y == p
-	default:
+	correct, valid := engine.Correct(choice, y, p)
+	if !valid {
 		return false, 0, 0, api.Fail(http.StatusBadRequest, "invalid_choice", `choice is "earlier", "exact" or "later"`)
 	}
 	if correct {

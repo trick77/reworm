@@ -10,6 +10,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/trick77/ship/kit/httpx"
@@ -213,24 +214,13 @@ func (s *Service) create(ctx context.Context, profile string, cfg Config) (creat
 	if err != nil {
 		return createResponse{}, err
 	}
-	// Fill up to Length with songs that have a preview; one without is passed over, a failing source is not.
 	st := &stored{id: api.ID(), profile: profile, s: session{Config: cfg}}
-	for _, song := range order {
-		if len(st.s.Queue) == cfg.Length {
-			break
-		}
-		_, err := s.o.Previews.PreviewURL(ctx, song)
-		if errors.Is(err, preview.ErrNone) {
-			continue
-		}
-		if err != nil {
-			slog.WarnContext(ctx, "preview lookup failed", "song", song.ID, logging.Err(err))
-			return createResponse{}, errPreviews
-		}
-		st.s.Queue = append(st.s.Queue, card{ID: api.ID(), SongID: song.ID, Year: song.Year, From: engine.ClipFrom(rng, cfg.Clip)})
+	playable, err := s.playable(ctx, order, cfg.Length)
+	if err != nil {
+		return createResponse{}, err
 	}
-	if len(st.s.Queue) == 0 {
-		return createResponse{}, errDeckEmpty
+	for _, song := range playable {
+		st.s.Queue = append(st.s.Queue, card{ID: api.ID(), SongID: song.ID, Year: song.Year, From: engine.ClipFrom(rng, cfg.Clip)})
 	}
 	c, _, err := s.present(ctx, st, rng)
 	if err != nil {
@@ -246,6 +236,52 @@ func (s *Service) create(ctx context.Context, profile string, cfg Config) (creat
 	_, err = s.o.DB.ExecContext(ctx, `INSERT INTO train_sessions (id, profile_id, created_at, updated_at, state) VALUES (?, ?, ?, ?, ?)`,
 		st.id, profile, now.UnixMilli(), now.UnixMilli(), string(b))
 	return createResponse{ID: st.id, Card: c, Now: api.Millis(s.o.Now())}, err
+}
+
+// Preview scan bounds for a new session: at most scanFactor × length songs are tried, scanWorkers at a time.
+const (
+	scanFactor  = 3
+	scanWorkers = 4
+)
+
+// playable is the first n songs of order that have a preview, trying at most scanFactor × n of them in parallel
+// batches. A song without a preview (preview.ErrNone) is passed over; when none is found, a failing source is 503
+// and a deck of songs without previews 422.
+func (s *Service) playable(ctx context.Context, order []deck.Song, n int) ([]deck.Song, error) {
+	cand := order[:min(scanFactor*n, len(order))]
+	var out []deck.Song
+	var failed error
+	for len(cand) > 0 && len(out) < n {
+		batch := cand[:min(max(n-len(out), scanWorkers), len(cand))]
+		cand = cand[len(batch):]
+		errs := make([]error, len(batch))
+		sem := make(chan struct{}, scanWorkers)
+		var wg sync.WaitGroup
+		for i, song := range batch {
+			sem <- struct{}{}
+			wg.Go(func() {
+				defer func() { <-sem }()
+				_, errs[i] = s.o.Previews.PreviewURL(ctx, song)
+			})
+		}
+		wg.Wait()
+		for i, song := range batch {
+			switch {
+			case errs[i] == nil && len(out) < n:
+				out = append(out, song)
+			case errs[i] != nil && !errors.Is(errs[i], preview.ErrNone):
+				slog.WarnContext(ctx, "preview lookup failed", "song", song.ID, logging.Err(errs[i]))
+				failed = errPreviews
+			}
+		}
+	}
+	if len(out) == 0 {
+		if failed != nil {
+			return nil, failed
+		}
+		return nil, errDeckEmpty
+	}
+	return out, nil
 }
 
 // songs is what a session draws from: the drilled songs (a summary's misses) when songIds is set, else the deck.
@@ -362,7 +398,10 @@ type answerResponse struct {
 	XP      int           `json:"xp"`
 	Song    deck.Revealed `json:"song"`
 	Next    *cardJSON     `json:"next"`
-	Now     int64         `json:"now"`
+	// NextError is set (next is then null) when the answer was saved but the next card could not be readied:
+	// "previews_unavailable" or "internal"; GET the session to retry. Null otherwise.
+	NextError *string `json:"nextError"`
+	Now       int64   `json:"now"`
 }
 
 func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request, id account.Identity) {
@@ -370,7 +409,11 @@ func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request, id accoun
 	if !api.Decode(w, r, &req) {
 		return
 	}
-	resp, err := s.answer(r.Context(), r.PathValue("id"), id.ProfileID, req)
+	loc, err := zone(r.Context(), s.o.DB, r, id.ProfileID)
+	var resp answerResponse
+	if err == nil {
+		resp, err = s.answer(r.Context(), r.PathValue("id"), id.ProfileID, req, loc)
+	}
 	if err != nil {
 		api.WriteError(w, r, err)
 		return
@@ -378,7 +421,9 @@ func (s *Service) handleAnswer(w http.ResponseWriter, r *http.Request, id accoun
 	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
-func (s *Service) answer(ctx context.Context, sessionID, profile string, req answerRequest) (answerResponse, error) {
+// answer judges and saves the answer first, then readies the next card: a failure there (the preview source)
+// never loses the answer; it comes back as nextError with next null, and GET of the session retries.
+func (s *Service) answer(ctx context.Context, sessionID, profile string, req answerRequest, loc *time.Location) (answerResponse, error) {
 	st, err := s.load(ctx, sessionID, profile)
 	if err != nil {
 		return answerResponse{}, err
@@ -411,21 +456,33 @@ func (s *Service) answer(ctx context.Context, sessionID, profile string, req ans
 		a.Choice = ""
 	}
 	st.s.record(a, api.ID)
-	next, _, err := s.present(ctx, st, rng)
-	if err != nil {
-		return answerResponse{}, err
-	}
 	now := s.o.Now()
 	err = store.InTx(ctx, s.o.DB, func(tx *sql.Tx) error {
 		if err := s.save(ctx, tx, st); err != nil {
 			return err
 		}
-		return saveAnswer(ctx, tx, profile, a, now)
+		return saveAnswer(ctx, tx, profile, a, now, loc)
 	})
 	if err != nil {
 		return answerResponse{}, err
 	}
-	return answerResponse{Correct: correct, Tier: tier, XP: xp, Song: song.Reveal(), Next: next, Now: api.Millis(s.o.Now())}, nil
+	resp := answerResponse{Correct: correct, Tier: tier, XP: xp, Song: song.Reveal(), Now: api.Millis(s.o.Now())}
+	next, changed, err := s.present(ctx, st, rng)
+	if err == nil && changed {
+		err = store.InTx(ctx, s.o.DB, func(tx *sql.Tx) error { return s.save(ctx, tx, st) })
+	}
+	if err != nil {
+		slog.WarnContext(ctx, "next training card not ready", "session", st.id, logging.Err(err))
+		code := "internal"
+		var p *api.Problem
+		if errors.As(err, &p) {
+			code = p.Code
+		}
+		resp.NextError = &code
+		return resp, nil
+	}
+	resp.Next = next
+	return resp, nil
 }
 
 type missJSON struct {
@@ -490,7 +547,11 @@ type statsResponse struct {
 }
 
 func (s *Service) handleStats(w http.ResponseWriter, r *http.Request, id account.Identity) {
-	out, err := s.stats(r.Context(), id.ProfileID)
+	loc, err := zone(r.Context(), s.o.DB, r, id.ProfileID)
+	var out statsResponse
+	if err == nil {
+		out, err = s.stats(r.Context(), id.ProfileID, loc)
+	}
 	if err != nil {
 		api.WriteError(w, r, err)
 		return
@@ -498,7 +559,7 @@ func (s *Service) handleStats(w http.ResponseWriter, r *http.Request, id account
 	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
-func (s *Service) stats(ctx context.Context, profile string) (statsResponse, error) {
+func (s *Service) stats(ctx context.Context, profile string, loc *time.Location) (statsResponse, error) {
 	var out statsResponse
 	var lastDay sql.NullString
 	err := s.o.DB.QueryRowContext(ctx, `SELECT xp, streak_days, last_day FROM train_profiles WHERE profile_id = ?`, profile).
@@ -507,7 +568,7 @@ func (s *Service) stats(ctx context.Context, profile string) (statsResponse, err
 		return out, err
 	}
 	now := s.o.Now()
-	if lastDay.String != day(now) && lastDay.String != day(now.AddDate(0, 0, -1)) {
+	if lastDay.String != day(now, loc) && lastDay.String != day(now.In(loc).AddDate(0, 0, -1), loc) {
 		out.StreakDays = 0 // a day without training broke it
 	}
 	out.Award, out.NextAt = AwardFor(out.XP)

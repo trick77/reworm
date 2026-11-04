@@ -32,6 +32,7 @@ type env struct {
 	now  time.Time
 	year map[string]int
 	ck   []*http.Cookie
+	tz   string
 }
 
 func newEnv(t *testing.T, previews preview.Source, n int) *env {
@@ -87,6 +88,9 @@ func (e *env) do(method, path string, body any) *httptest.ResponseRecorder {
 		_ = json.NewEncoder(&buf).Encode(body)
 	}
 	r := httptest.NewRequest(method, path, &buf)
+	if e.tz != "" {
+		r.Header.Set(TimezoneHeader, e.tz)
+	}
 	for _, c := range e.ck {
 		r.AddCookie(c)
 	}
@@ -311,6 +315,95 @@ func TestSession_skipsSongsWithoutPreview(t *testing.T) {
 	}
 }
 
+// switchable is a preview source whose songs go down on demand.
+type switchable struct {
+	mu   sync.Mutex
+	down bool
+}
+
+func (s *switchable) set(down bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.down = down
+}
+
+func (s *switchable) PreviewURL(_ context.Context, song deck.Song) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.down {
+		return "", errors.New("apple: 503")
+	}
+	return "https://previews.invalid/" + song.ID, nil
+}
+
+func TestAnswer_savedWhenTheNextCardFails(t *testing.T) {
+	src := &switchable{}
+	e := newEnv(t, src, 4)
+	cr := decodeBody[createResponse](t, e.do(http.MethodPost, "/api/train/sessions", Config{Length: 3}))
+	c := e.songOf(cr.ID, cr.Card.ID)
+	src.set(true)
+	rec := e.do(http.MethodPost, "/api/train/sessions/"+cr.ID+"/answer", answerRequest{CardID: c.ID, Choice: choiceFor(c, true)})
+	ar := decodeBody[answerResponse](t, rec)
+	if rec.Code != http.StatusOK || !ar.Correct || ar.Next != nil || ar.NextError == nil || *ar.NextError != "previews_unavailable" {
+		t.Fatalf("answer = %d %+v", rec.Code, ar)
+	}
+	if sum := decodeBody[summaryJSON](t, e.do(http.MethodGet, "/api/train/sessions/"+cr.ID+"/summary", nil)); sum.Total != 1 || sum.Correct != 1 {
+		t.Errorf("answer lost: %+v", sum)
+	}
+	if rec := e.do(http.MethodGet, "/api/train/sessions/"+cr.ID, nil); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("resume while down = %d", rec.Code)
+	}
+	src.set(false)
+	if g := decodeBody[getResponse](t, e.do(http.MethodGet, "/api/train/sessions/"+cr.ID, nil)); g.Card == nil || g.Index != 1 {
+		t.Errorf("resume after = %+v", g)
+	}
+}
+
+func TestCreate_previewScanIsBounded(t *testing.T) {
+	missing := map[string]bool{}
+	for i := range 20 {
+		missing[fmt.Sprintf("s%d", i)] = true
+	}
+	f := &preview.Fake{Missing: missing}
+	e := newEnv(t, f, 20)
+	if rec := e.do(http.MethodPost, "/api/train/sessions", Config{Length: 3}); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("create = %d", rec.Code)
+	}
+	if n := f.Calls(); n != scanFactor*3 {
+		t.Errorf("lookups = %d, want %d", n, scanFactor*3)
+	}
+}
+
+func TestStreak_inThePlayersZone(t *testing.T) {
+	e := newEnv(t, &preview.Fake{}, 3)
+	e.mu.Lock()
+	e.now = time.Date(2026, 11, 4, 23, 30, 0, 0, time.UTC) // already Nov 5 on Kiritimati (UTC+14)
+	e.mu.Unlock()
+	e.tz = "Pacific/Kiritimati"
+	cr := decodeBody[createResponse](t, e.do(http.MethodPost, "/api/train/sessions", Config{}))
+	c := e.songOf(cr.ID, cr.Card.ID)
+	e.do(http.MethodPost, "/api/train/sessions/"+cr.ID+"/answer", answerRequest{CardID: c.ID, Choice: choiceFor(c, true)})
+	var tz, last string
+	_ = e.db.QueryRow(`SELECT tz FROM profiles`).Scan(&tz)
+	_ = e.db.QueryRow(`SELECT last_day FROM train_profiles`).Scan(&last)
+	if tz != "Pacific/Kiritimati" || last != "2026-11-05" {
+		t.Errorf("tz %q, last day %q", tz, last)
+	}
+	// No (or a bogus) header: the stored zone counts.
+	e.tz = "Mars/Olympus"
+	if st := decodeBody[statsResponse](t, e.do(http.MethodGet, "/api/train/stats", nil)); st.StreakDays != 1 {
+		t.Errorf("streak = %d", st.StreakDays)
+	}
+	if zoneOf(httptest.NewRequest(http.MethodGet, "/", nil)) != nil {
+		t.Error("zone without a header")
+	}
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set(TimezoneHeader, "Local")
+	if zoneOf(r) != nil {
+		t.Error("Local accepted")
+	}
+}
+
 type downSource struct{}
 
 func (downSource) PreviewURL(context.Context, deck.Song) (string, error) {
@@ -351,7 +444,7 @@ func TestProgress_spacedRepetitionAndStreak(t *testing.T) {
 	hit := func(song string) {
 		t.Helper()
 		if err := store.InTx(ctx, e.db, func(tx *sql.Tx) error {
-			return saveAnswer(ctx, tx, profile, answer{SongID: song, Year: 1960, Correct: true, XP: 10}, e.clock())
+			return saveAnswer(ctx, tx, profile, answer{SongID: song, Year: 1960, Correct: true, XP: 10}, e.clock(), time.UTC)
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -375,7 +468,7 @@ func TestProgress_spacedRepetitionAndStreak(t *testing.T) {
 	if box("s0") != 2 {
 		t.Fatalf("early hit moved the box: %d", box("s0"))
 	}
-	if st, _ := e.svc.stats(ctx, profile); st.StreakDays != 3 {
+	if st, _ := e.svc.stats(ctx, profile, time.UTC); st.StreakDays != 3 {
 		t.Errorf("streak = %d, want 3", st.StreakDays)
 	}
 	e.advance(2 * 24 * time.Hour)
@@ -384,7 +477,7 @@ func TestProgress_spacedRepetitionAndStreak(t *testing.T) {
 	if p.box != 3 || p.state() != "mastered" || p.attempts != 6 {
 		t.Errorf("progress = %+v", p)
 	}
-	st, _ := e.svc.stats(ctx, profile)
+	st, _ := e.svc.stats(ctx, profile, time.UTC)
 	if st.Mastered != 1 || st.XP != 60 {
 		t.Errorf("stats = %+v", st)
 	}
@@ -396,8 +489,8 @@ func TestProgress_spacedRepetitionAndStreak(t *testing.T) {
 	}
 	// A miss sends it back to box 0, due at once; a re-ask does not move the box.
 	tx, _ := e.db.BeginTx(ctx, nil)
-	_ = saveAnswer(ctx, tx, profile, answer{SongID: "s0", Year: 1960}, e.clock())
-	_ = saveAnswer(ctx, tx, profile, answer{SongID: "s0", Year: 1960, Correct: true, Retry: true}, e.clock())
+	_ = saveAnswer(ctx, tx, profile, answer{SongID: "s0", Year: 1960}, e.clock(), time.UTC)
+	_ = saveAnswer(ctx, tx, profile, answer{SongID: "s0", Year: 1960, Correct: true, Retry: true}, e.clock(), time.UTC)
 	_ = tx.Commit()
 	p, _ = loadProgress(ctx, e.db, profile, "s0")
 	if p.box != 0 || p.attempts != 8 || p.correct != 7 {
@@ -409,7 +502,7 @@ func TestProgress_spacedRepetitionAndStreak(t *testing.T) {
 	}
 	// Two days off: the streak is gone.
 	e.advance(48 * time.Hour)
-	if st, _ := e.svc.stats(ctx, profile); st.StreakDays != 0 {
+	if st, _ := e.svc.stats(ctx, profile, time.UTC); st.StreakDays != 0 {
 		t.Errorf("streak after a gap = %d", st.StreakDays)
 	}
 }
