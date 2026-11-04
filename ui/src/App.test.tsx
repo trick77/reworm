@@ -53,13 +53,35 @@ describe("App", () => {
     go("Join", "/join");
   });
 
-  it("shows home on an unpaired device with Join and the way to pair", async () => {
-    renderApp("/", new FakeWorld().device());
+  it("leads with Host on a paired device", async () => {
+    renderApp("/", new FakeWorld().device("p-jan"));
+    await screen.findByText("Gold record");
+    const host = screen.getByRole("button", { name: "Host a game" });
+    const join = screen.getByRole("button", { name: "Join" });
     expect(
-      await screen.findByText("This device isn't paired"),
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Join" })).toBeInTheDocument();
+      host.compareDocumentPosition(join) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Pair this device" }),
+    ).toBeNull();
+  });
+
+  it("leads with Join on an unpaired device, pairing an optional link", async () => {
+    const r = renderApp("/", new FakeWorld().device());
+    await screen.findByRole("button", { name: "Pair this device" });
+    expect(screen.queryByText("This device isn't paired")).toBeNull();
+    expect(screen.getByText(/no account needed/)).toBeInTheDocument();
+    const join = screen.getByRole("button", { name: "Join a game" });
+    const host = screen.getByRole("button", { name: "Host" });
+    expect(
+      join.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.queryByText("Solo training")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Pair this device" }));
+    expect(r.path()).toBe("/pair");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Join a game" }));
+    expect(r.path()).toBe("/join");
   });
 
   it("says when a page doesn't exist", () => {
