@@ -20,11 +20,14 @@ type Listening interface {
 
 // tagAll sets every song's Last.fm listeners and genres (tag), on Workers goroutines (Last.fm's throttle serializes
 // them); a song skip names (one an override excludes) is not looked up. Any error fails the run; the cache makes
-// the next one cheap.
+// the next one cheap. A refused key (lastfm.ErrKey) stops the run at once: every further request would be refused.
 func (p *Pipeline) tagAll(ctx context.Context, rs []resolved, skip func(id string) bool) error {
 	if p.LastFM == nil {
 		return nil
 	}
+	parent := ctx
+	ctx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
 	errs := make([]error, len(rs))
 	jobs := make(chan int)
 	var wg sync.WaitGroup
@@ -34,6 +37,9 @@ func (p *Pipeline) tagAll(ctx context.Context, rs []resolved, skip func(id strin
 		wg.Go(func() {
 			for i := range jobs {
 				errs[i] = p.tag(ctx, &rs[i])
+				if errors.Is(errs[i], lastfm.ErrKey) {
+					stop(errs[i])
+				}
 				mu.Lock()
 				done++
 				if done%250 == 0 || done == len(rs) {
@@ -54,8 +60,11 @@ func (p *Pipeline) tagAll(ctx context.Context, rs []resolved, skip func(id strin
 	}
 	close(jobs)
 	wg.Wait()
-	if err := ctx.Err(); err != nil {
+	if err := parent.Err(); err != nil {
 		return err
+	}
+	if cause := context.Cause(ctx); errors.Is(cause, lastfm.ErrKey) {
+		return cause
 	}
 	var all []error
 	for i, err := range errs {
@@ -70,10 +79,10 @@ func (p *Pipeline) tagAll(ctx context.Context, rs []resolved, skip func(id strin
 	return nil
 }
 
-// tag looks the song up on Last.fm by each of its readings (readings): the most listened track counts, its
-// listeners are the song's, its top tags give the genres; no genre among them (Udo Lindenberg's tracks carry no
-// tags), the artist's top tags do. Offline, a song whose answers are not cached keeps what the previous dataset has,
-// its sets' genres as they are now added.
+// tag looks the song up on Last.fm by its readings in order (readings): the first track found counts, its listeners
+// are the song's, its top tags give the genres; no genre among them (Udo Lindenberg's tracks carry no tags), the
+// artist's top tags do. Offline, a song whose answers are not cached keeps what the previous dataset has, its sets'
+// genres as they are now added (a set it left keeps its genre until the next online run).
 func (p *Pipeline) tag(ctx context.Context, r *resolved) error {
 	err := p.tagOnline(ctx, r)
 	if !errors.Is(err, httpcache.ErrOffline) {
@@ -95,6 +104,8 @@ func (p *Pipeline) tag(ctx context.Context, r *resolved) error {
 }
 
 func (p *Pipeline) tagOnline(ctx context.Context, r *resolved) error {
+	// The first reading Last.fm knows: a looser one (the main artist alone) can autocorrect to another, more
+	// listened track, whose listeners and tags are not the song's.
 	var best lastfm.Track
 	found := false
 	for _, q := range readings(*r) {
@@ -102,8 +113,9 @@ func (p *Pipeline) tagOnline(ctx context.Context, r *resolved) error {
 		if err != nil {
 			return err
 		}
-		if ok && (!found || t.Listeners > best.Listeners) {
+		if ok {
 			best, found = t, true
+			break
 		}
 	}
 	artist := musicbrainz.MainArtist(r.Artist)

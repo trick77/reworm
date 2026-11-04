@@ -35,12 +35,18 @@ const (
 // Last.fm's error codes (https://www.last.fm/api/errorcodes) the client tells apart. It answers them with a 200 as
 // often as with a 4xx/5xx: the body decides.
 const (
-	errNotFound    = 6  // "Track not found", "The artist you supplied could not be found"
+	errAuth        = 4  // authentication failed
+	errNotFound    = 6  // "Track not found", "The artist you supplied could not be found"; also invalid parameters
 	errOperation   = 8  // operation failed, try again
+	errInvalidKey  = 10 // invalid API key
 	errOffline     = 11 // service offline
 	errUnavailable = 16 // temporarily unavailable
+	errSuspended   = 26 // API key suspended
 	errRateLimited = 29
 )
+
+// ErrKey wraps an answer that refuses the key (4, 10, 26): every further request would be refused alike.
+var ErrKey = errors.New("lastfm: the API key is refused")
 
 // Client reads Last.fm. BaseURL defaults to BaseURL; HTTP to a 30 s client.
 type Client struct {
@@ -129,8 +135,12 @@ func number(raw json.RawMessage) int {
 	return n
 }
 
-// Track looks a track up by artist and title (Last.fm's autocorrect on); found false when Last.fm has none.
+// Track looks a track up by artist and title (Last.fm's autocorrect on); found false when Last.fm has none. An empty
+// artist or title is not asked: Last.fm's "invalid parameters" shares error 6 with "not found".
 func (c *Client) Track(ctx context.Context, artist, title string) (Track, bool, error) {
+	if strings.TrimSpace(artist) == "" || strings.TrimSpace(title) == "" {
+		return Track{}, false, nil
+	}
 	var b struct {
 		Track struct {
 			Name      string          `json:"name"`
@@ -149,8 +159,11 @@ func (c *Client) Track(ctx context.Context, artist, title string) (Track, bool, 
 	return Track{Name: t.Name, Artist: t.Artist.Name, Listeners: number(t.Listeners), Tags: t.TopTags.tags()}, true, nil
 }
 
-// ArtistTags are an artist's top tags, heaviest first; none when Last.fm does not know the artist.
+// ArtistTags are an artist's top tags, heaviest first; none when Last.fm does not know the artist (or it is empty).
 func (c *Client) ArtistTags(ctx context.Context, artist string) ([]Tag, error) {
+	if strings.TrimSpace(artist) == "" {
+		return nil, nil
+	}
 	var b struct {
 		TopTags tagsBody `json:"toptags"`
 	}
@@ -202,6 +215,9 @@ func (c *Client) call(ctx context.Context, q url.Values, out any) (bool, error) 
 				return false, nil
 			case decodeErr == nil && e.Error != 0:
 				err := fmt.Errorf("lastfm: %s: error %d: %s", method, e.Error, e.Message)
+				if e.Error == errAuth || e.Error == errInvalidKey || e.Error == errSuspended {
+					err = fmt.Errorf("%w: %w", ErrKey, err)
+				}
 				if !transient(e.Error) {
 					return false, evict(err)
 				}

@@ -33,9 +33,9 @@ func (r report) markdown() []byte {
 	w("after the card's, the earliest official one wins. Apple, per storefront ch → de → us: ISRC lookup (title and\n")
 	w("artist must match), in ch also the MusicBrainz original album by name; the first original-album track wins,\n")
 	w("else the first ISRC hit, else an artist + title search in ch and us. Only tracks with a preview count. Songs\n")
-	w("without one stay in the dataset (no clip until an override). Last.fm, by the card's artist + title, the main\n")
-	w("artist and the MusicBrainz credit: the most listened track gives the listeners and, by its top tags, the\n")
-	w("genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre.\n\n")
+	w("without one stay in the dataset (no clip until an override). Last.fm, by the card's artist + title, else the\n")
+	w("main artist, else the MusicBrainz credit: the first track found gives the listeners and, by its top tags, the\n")
+	w("genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre, overrides included.\n\n")
 
 	bySet := map[string]*struct{ songs, mb, preview int }{}
 	for slug := range r.sets {

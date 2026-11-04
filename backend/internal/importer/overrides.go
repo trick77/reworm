@@ -94,7 +94,8 @@ func (p *Pipeline) applyOverrides(ctx context.Context, rs []resolved, ov map[str
 			r.Song.Year, r.Song.YearSource = o.Year, song.YearOverride
 		}
 		if o.Genres != nil {
-			r.Song.Genres = slices.Sorted(slices.Values(o.Genres))
+			// The sets' genres stay: every song of the set has it, whatever its tags or a hand fix say.
+			r.Song.Genres = withSetGenres(o.Genres, r.Song.Sets)
 		}
 		if o.AppleID != "" {
 			sf := o.Storefront

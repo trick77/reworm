@@ -2,6 +2,7 @@ package lastfm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -104,8 +105,16 @@ func TestClient_errorsNeverShowTheKey(t *testing.T) {
 	c := &Client{BaseURL: srv.URL, Key: "s3cret", HTTP: srv.Client(), Sleep: noSleep,
 		Evict: func(string, string) error { evicted++; return nil }}
 	_, _, err := c.Track(context.Background(), "A", "B")
-	if err == nil || !strings.Contains(err.Error(), "error 10") || hits.Load() != 1 || strings.Contains(err.Error(), "s3cret") || evicted != 1 {
+	if err == nil || !errors.Is(err, ErrKey) || !strings.Contains(err.Error(), "error 10") || hits.Load() != 1 ||
+		strings.Contains(err.Error(), "s3cret") || evicted != 1 {
 		t.Errorf("bad key: %v after %d requests, %d evicted", err, hits.Load(), evicted)
+	}
+	// Nothing to ask: no request (Last.fm's invalid parameters would read as not found).
+	if _, ok, err := c.Track(context.Background(), " ", "B"); ok || err != nil || hits.Load() != 1 {
+		t.Errorf("empty artist: %v, %v, %d requests", ok, err, hits.Load())
+	}
+	if tags, err := c.ArtistTags(context.Background(), ""); tags != nil || err != nil || hits.Load() != 1 {
+		t.Errorf("empty artist tags: %v, %v, %d requests", tags, err, hits.Load())
 	}
 	if _, err := c.ArtistTags(context.Background(), "Page"); err == nil || !strings.Contains(err.Error(), "status 404") || evicted != 2 {
 		t.Errorf("404 page: %v, %d evicted", err, evicted)

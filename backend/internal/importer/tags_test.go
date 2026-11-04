@@ -2,7 +2,10 @@ package importer
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/trick77/reworm/internal/httpcache"
@@ -19,6 +22,42 @@ func (offlineLastFM) Track(context.Context, string, string) (lastfm.Track, bool,
 
 func (offlineLastFM) ArtistTags(context.Context, string) ([]lastfm.Tag, error) {
 	return nil, httpcache.ErrOffline
+}
+
+// refusingLastFM refuses the key, counting the requests.
+type refusingLastFM struct{ calls *atomic.Int32 }
+
+func (f refusingLastFM) Track(context.Context, string, string) (lastfm.Track, bool, error) {
+	f.calls.Add(1)
+	return lastfm.Track{}, false, fmt.Errorf("%w: error 10", lastfm.ErrKey)
+}
+
+func (f refusingLastFM) ArtistTags(context.Context, string) ([]lastfm.Tag, error) {
+	f.calls.Add(1)
+	return nil, lastfm.ErrKey
+}
+
+// A refused key stops the run at once: not one request per song.
+func TestTagAll_stopsAtARefusedKey(t *testing.T) {
+	var calls atomic.Int32
+	p := &Pipeline{LastFM: refusingLastFM{&calls}, Workers: 1}
+	rs := make([]resolved, 50)
+	for i := range rs {
+		rs[i] = resolved{entry: entry{Artist: "A", Title: fmt.Sprint(i)}, Song: song.Song{Title: fmt.Sprint(i)}}
+	}
+	err := p.tagAll(context.Background(), rs, nil)
+	if !errors.Is(err, lastfm.ErrKey) || calls.Load() > 3 {
+		t.Errorf("err %v after %d requests", err, calls.Load())
+	}
+}
+
+// An override's genres keep the set's genre.
+func TestApplyOverrides_genresKeepTheSetGenre(t *testing.T) {
+	rs := []resolved{{Song: song.Song{ID: "s", Sets: []string{"schlager-fest"}, Genres: []string{"rock", "schlager"}}}}
+	kept, _, _, err := (&Pipeline{}).applyOverrides(context.Background(), rs, map[string]Override{"s": {Genres: []string{"pop"}}})
+	if err != nil || !slices.Equal(kept[0].Song.Genres, []string{"pop", "schlager"}) {
+		t.Errorf("genres %v, %v", kept[0].Song.Genres, err)
+	}
 }
 
 // Offline, a song whose Last.fm answers are not cached keeps the previous dataset's genres and listeners, found by

@@ -5,9 +5,9 @@ always win); MusicBrainz and Apple years are only compared. MusicBrainz: recordi
 after the card's, the earliest official one wins. Apple, per storefront ch → de → us: ISRC lookup (title and
 artist must match), in ch also the MusicBrainz original album by name; the first original-album track wins,
 else the first ISRC hit, else an artist + title search in ch and us. Only tracks with a preview count. Songs
-without one stay in the dataset (no clip until an override). Last.fm, by the card's artist + title, the main
-artist and the MusicBrainz credit: the most listened track gives the listeners and, by its top tags, the
-genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre.
+without one stay in the dataset (no clip until an override). Last.fm, by the card's artist + title, else the
+main artist, else the MusicBrainz credit: the first track found gives the listeners and, by its top tags, the
+genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre, overrides included.
 
 ## Totals
 
@@ -26,7 +26,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | cover: Cover Art Archive | 627 |
 | cover: none | 277 |
 | Last.fm track found | 2718 |
-| no genre | 195 |
+| no genre | 216 |
 | overrides applied | 0 |
 
 ## Sets
@@ -57,18 +57,18 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 |---|---:|---:|---:|---:|
 | chanson | 4 | 4 | 9898 | 9972 |
 | country | 51 | 50 | 831 | 185335 |
-| dance | 396 | 395 | 14092 | 325703 |
-| disco-funk | 171 | 171 | 18637 | 284259 |
-| hip-hop | 143 | 142 | 25673 | 257856 |
+| dance | 389 | 388 | 13675 | 329962 |
+| disco-funk | 170 | 170 | 15981 | 280344 |
+| hip-hop | 136 | 135 | 24852 | 292386 |
 | indie | 306 | 304 | 74823 | 971808 |
 | italo | 5 | 5 | 69228 | 125341 |
-| latin | 68 | 68 | 3181 | 187732 |
-| metal | 210 | 210 | 97737 | 582831 |
-| pop | 1167 | 1161 | 8575 | 301859 |
-| reggae | 54 | 54 | 58338 | 241940 |
-| rnb-soul | 337 | 336 | 32404 | 341092 |
-| rock | 882 | 880 | 30753 | 568294 |
-| schlager | 409 | 402 | 107 | 3350 |
+| latin | 67 | 67 | 2256 | 195586 |
+| metal | 210 | 210 | 94384 | 582831 |
+| pop | 1157 | 1151 | 7579 | 301965 |
+| reggae | 53 | 53 | 58338 | 250451 |
+| rnb-soul | 329 | 328 | 30283 | 341497 |
+| rock | 880 | 878 | 32221 | 572595 |
+| schlager | 409 | 402 | 84 | 3295 |
 
 ## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (361)
 
