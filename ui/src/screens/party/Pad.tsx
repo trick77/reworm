@@ -24,7 +24,6 @@ import {
   ROUND_S,
   roundKey,
   roundView,
-  usePhaseBeforePause,
   winTime,
   type RoundView,
 } from "./Stage";
@@ -415,7 +414,6 @@ export function Pad({
 }) {
   const { state: s, error, live } = useRoom(code);
   const [sent, setSent] = useState<Sent>(null);
-  const before = usePhaseBeforePause(s);
   const me = s?.players.find((p) => p.id === playerId);
   const gone = (!!s && !me) || error?.status === 404;
   useEffect(() => {
@@ -447,7 +445,7 @@ export function Pad({
       setSent((cur) => (cur === press ? null : cur));
     });
   };
-  const view = roundView(s, before);
+  const view = roundView(s);
 
   let body: ReactNode;
   if (s.phase === "lobby")

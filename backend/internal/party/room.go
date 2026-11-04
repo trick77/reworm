@@ -255,6 +255,9 @@ func (r *Room) state() State {
 		slices.Clone(set.Deck.Genres)
 	s := State{Code: r.code, Seq: r.seq, Now: api.Millis(r.clock()), Mode: r.mode, Phase: r.phase, HostID: r.hostProfile,
 		ToWin: r.toWin, Settings: set, Players: make([]PlayerState, len(r.players))}
+	if r.phase == PhasePaused {
+		s.PausedFrom = r.pausedFrom
+	}
 	for i, p := range r.players {
 		s.Players[i] = PlayerState{ID: p.id, Name: p.name, Avatar: p.avatar, Score: p.score, Connected: r.connected(p), State: p.state}
 	}

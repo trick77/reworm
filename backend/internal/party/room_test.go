@@ -247,10 +247,16 @@ func TestGame_toWinPauseNextRematch(t *testing.T) {
 	if r.phase != PhasePaused {
 		t.Fatal("a paused round timed out")
 	}
+	if got := r.state().PausedFrom; got != PhasePlaying {
+		t.Fatalf("pausedFrom while paused = %q, want %q", got, PhasePlaying)
+	}
 	wantProblem(t, r.Pause(now, host), "wrong_phase")
 	now = now.Add(time.Minute)
 	if err := r.Resume(now, host); err != nil {
 		t.Fatal(err)
+	}
+	if got := r.state().PausedFrom; got != "" {
+		t.Fatalf("pausedFrom after resume = %q, want none", got)
 	}
 	if got := r.round.endsAt; !got.Equal(t0.Add(RoundTime + time.Minute)) {
 		t.Errorf("endsAt after pause = %v, want +1 min", got)

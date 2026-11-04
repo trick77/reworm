@@ -641,14 +641,16 @@ export class FakeWorld {
         this.newRound(code);
         break;
       case "pause":
+        // as Room.Pause: only a running round
         if (
-          st.phase === "paused" ||
-          st.phase === "lobby" ||
-          st.phase === "over"
+          st.phase !== "playing" &&
+          st.phase !== "buzzed" &&
+          st.phase !== "judging"
         )
           return fail(409, "wrong_phase");
         clearTimeout(r.timer);
         r.pausedFrom = st.phase;
+        st.pausedFrom = st.phase;
         r.pausedAt = Date.now();
         st.phase = "paused";
         break;
@@ -656,6 +658,7 @@ export class FakeWorld {
         if (st.phase !== "paused") return fail(409, "wrong_phase");
         const gap = Date.now() - r.pausedAt;
         st.phase = (r.pausedFrom ?? "playing") as RoomState["phase"];
+        delete st.pausedFrom;
         if (st.round && st.phase === "playing") {
           st.round.endsAt += gap;
           this.schedule(code, st.round.endsAt, () =>
