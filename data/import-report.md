@@ -15,14 +15,14 @@ without one stay in the dataset (no clip until an override).
 | cards without a year (dropped) | 0 |
 | songs | 2757 |
 | card spellings merged into one recording | 27 |
-| MusicBrainz matched | 2657 |
+| MusicBrainz matched | 2656 |
 | MusicBrainz matched, no low-confidence note | 2115 |
-| Apple track with preview | 2665 |
-| no Apple preview | 92 |
-| Apple track on the original album | 1856 |
-| cover: Apple (original album) | 1856 |
-| cover: Cover Art Archive | 625 |
-| cover: none | 276 |
+| Apple track with preview | 2663 |
+| no Apple preview | 94 |
+| Apple track on the original album | 1853 |
+| cover: Apple (original album) | 1853 |
+| cover: Cover Art Archive | 627 |
+| cover: none | 277 |
 | overrides applied | 0 |
 
 ## Sets
@@ -30,18 +30,18 @@ without one stay in the dataset (no clip until an override).
 | set | cards | no year | songs | MusicBrainz | Apple preview |
 |---|---:|---:|---:|---:|---:|
 | cheesy-classics | 308 | 0 | 308 | 304 | 302 |
-| christmas-hits | 154 | 0 | 154 | 147 | 152 |
+| christmas-hits | 154 | 0 | 154 | 147 | 151 |
 | crowd-pleasers | 226 | 0 | 226 | 225 | 224 |
 | essentials | 308 | 0 | 308 | 300 | 302 |
 | mega-mix | 500 | 0 | 500 | 497 | 498 |
-| party-starters | 308 | 0 | 308 | 306 | 305 |
+| party-starters | 308 | 0 | 308 | 305 | 305 |
 | radio-gold | 154 | 0 | 154 | 151 | 150 |
 | rock-anthems | 308 | 0 | 308 | 308 | 307 |
 | schlager-fest | 308 | 0 | 307 | 282 | 290 |
 | screen-hits | 154 | 0 | 154 | 113 | 106 |
-| sunshine | 308 | 0 | 308 | 302 | 307 |
+| sunshine | 308 | 0 | 308 | 302 | 306 |
 
-## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (366)
+## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (361)
 
 | artist | title | year | MusicBrainz | Apple | Apple on original album |
 |---|---|---:|---:|---:|---|
@@ -71,7 +71,6 @@ without one stay in the dataset (no clip until an override).
 | Bing Crosby | White Christmas | 1941 | 1942 | 1947 |  |
 | Black Stone Cherry | White Trash Millionaire | 2011 | 2001 | 2011 | yes |
 | Bonnie Bianco | Stay | 1984 | 1987 | – |  |
-| Booker T. & the M.G.'s | Green Onions | 1962 | 2024 | 1962 | yes |
 | Brad Fiedel | Terminator 2 | 1991 | 1996 | – |  |
 | Brian Hyland | Itsy Bitsy Teeny Weeny Yellow Polka Dot Bikini | 1960 | 1975 | 2003 |  |
 | Bronski Beat | Why ? | 1984 | 2001 | 1984 | yes |
@@ -99,7 +98,6 @@ without one stay in the dataset (no clip until an override).
 | Danyel Gerard | Butterfly | 1971 | 1970 | 2006 |  |
 | Danzel | Pump It Up! | 2004 | 2004 | 2024 |  |
 | Dave Stewart (feat. Candy Dulfer) | Lily Was Here | 1989 | 1990 | 2008 |  |
-| David Bowie & Pat Metheny Group | This Is Not America | 1985 | 2001 | 1985 |  |
 | Demis Roussos | My Friend The Wind | 1973 | 1973 | 1983 |  |
 | Demis Roussos | Schönes Madchen aus Arcadia | 1973 | 1973 | 1998 |  |
 | Dennie Christian | Rosamunde | 1974 | 1975 | 1990 |  |
@@ -169,7 +167,6 @@ without one stay in the dataset (no clip until an override).
 | Gerhard Wendland | Tanze mit mir in den Morgen | 1961 | 1961 | 1996 |  |
 | G.G. Anderson | Nein heißt ja | 1981 | 2000 | 2000 | yes |
 | G.G. Anderson | Sommernacht in Rom | 1985 | 1985 | 1993 |  |
-| Gianna Nannini & Edoardo Bennato | Un'Estate Italiana | 1989 | 2014 | 1989 |  |
 | Gibson Brothers | Que Sera Mi Vida | 1979 | 1979 | 1981 |  |
 | Gipsy Kings | Djobi, Djoba | 1987 | 1988 | 1982 |  |
 | Gitte Haenning | Freu dich bloß nicht zu früh | 1980 | 1980 | 1991 |  |
@@ -224,13 +221,12 @@ without one stay in the dataset (no clip until an override).
 | Jonathan Wolff | Seinfeld | 1989 | 1996 | – |  |
 | Joseito Fernandez | Guajira Guantanamera | 1929 | 1940 | 1995 |  |
 | Juliane Werding | Am Tag als Conny Kramer starb | 1972 | 1972 | 1992 |  |
-| Jürgen Drews | Ich bau dir ein Schloss | 2009 | 2009 | 2011 | yes |
 | Jürgen Drews | Wieder Alles im Griff | 1999 | 1999 | 2017 |  |
 | Jürgen Marcus | Ein Festival der Liebe | 1973 | 1973 | 1975 |  |
 | Justin Wellington | Iko Iko (My Bestie) (feat. Small Jam) | 2019 | 2019 | 2017 |  |
 | Karel Gott | Die Biene Maja | 1975 | 1977 | 1977 |  |
 | Karl Dall | Millionen Frauen lieben mich | 1987 | 1987 | 1992 |  |
-| Karl Jenkins | Adiemus | 1995 | 2002 | 2017 | yes |
+| Karl Jenkins | Adiemus | 1995 | 2002 | 2017 |  |
 | Kastelruther Spatzen | Ein Leben lang | 2000 | 2000 | 1991 |  |
 | Kate Bush | Wuthering Heights | 1978 | 1978 | 2022 |  |
 | Katja Ebstein | Wunder gibt es immer wieder | 1970 | 1970 | 1994 |  |
@@ -291,7 +287,6 @@ without one stay in the dataset (no clip until an override).
 | Mr. President | Jojo Action | 1997 | 1997 | 1995 |  |
 | Nana Darkman | Lonely | 1997 | 2021 | 1997 |  |
 | Nana Mouskouri | Ich Steh An Deiner Krippe Hier | 1989 | 1976 | 1964 |  |
-| Nancy Sinatra & Lee Hazlewood | Summer Wine | 1966 | 1968 | 1966 |  |
 | Nat King Cole Trio | The Christmas Song (Merry Christmas To You) | 1946 | 1949 | 1990 |  |
 | Nena | Irgendwie, irgendwo, irgendwann | 1984 | 1983 | 1982 |  |
 | Nick Straker | Walk In The Park | 1979 | 1996 | – |  |
@@ -367,7 +362,7 @@ without one stay in the dataset (no clip until an override).
 | The Animals | House of the Rising Sun | 1964 | 1970 | 1963 |  |
 | The B-52's | Love Shack | 1989 | 1989 | 1981 |  |
 | The Bangles | Eternal Flame | 1988 | 1997 | 1988 |  |
-| The Beach Boys | Barbara Ann | 1961 | 1965 | 1965 | yes |
+| The Beach Boys | Barbara Ann | 1961 | 1965 | 1965 |  |
 | The Beatles | I Want To Hold Your Hand | 1963 | 1963 | 2014 |  |
 | The Beatles | Yellow Submarine | 1968 | 1969 | 1966 |  |
 | The Beloved | Sweet Harmony | 1993 | 1992 | 1989 |  |
@@ -406,7 +401,7 @@ without one stay in the dataset (no clip until an override).
 | Wet Wet Wet | Love Is All Around | 1994 | 1994 | 1986 |  |
 | Willy Millowitsch | Schnaps, das war sein letztes Wort | 1960 | 1960 | 1999 |  |
 | Wind | Lass die Sonne in dein Herz | 1987 | 1987 | 1996 |  |
-| Wizzard | I Wish It Could Be Christmas Everyday | 1973 | 1985 | 2006 | yes |
+| Wizzard | I Wish It Could Be Christmas Everyday | 1973 | 1985 | 1973 |  |
 | Wolfgang Fierek | Resi, i hol di mit mei'm Traktor ab | 1985 | 1986 | 2007 |  |
 | Wolfgang Petry | Wahnsinn | 1983 | 1983 | 1994 |  |
 | Wolfgang Ziegler | Ich küss dir die Angst von deiner Haut | 2003 | 2003 | 1999 |  |
@@ -463,7 +458,7 @@ without one stay in the dataset (no clip until an override).
 | The Rembrandts | I'll Be There for You (Theme from "Friends') | The Rembrandts | I'll Be There for You |
 | Whitney Houston | I Will Always Love You | Whitney Houston | Bodyguard (I Will Always Love You) |
 
-## Low-confidence matches (584)
+## Low-confidence matches (582)
 
 | artist | title | why |
 |---|---|---|
@@ -488,13 +483,11 @@ without one stay in the dataset (no clip until an override).
 | Anna-Maria Zimmermann, Olaf Henning | Freundschaftsring | Apple track found by search (Anna-Maria Zimmermann – Freundschaftsring (Duett mit Olaf Henning) [Party Mix]) |
 | Annie Lennox | Bram Stoker's Dracula (Love Song for a Vampire) | MusicBrainz matched as Annie Lennox – Love Song for a Vampire |
 | Anthony Gonzalez, Gael Garcia Bernal | Coco - Lebendiger als das Leben! (Un Poco Loco) | MusicBrainz matched as Anthony Gonzalez – Un Poco Loco |
-| Asaf Avidan | One Day / Reckoning Song | Apple track found by search (Asaf Avidan & The Mojos – One Day / Reckoning Song (Club Mix)) |
 | Ashley Park | Emily in Paris (Mon Soleil) | MusicBrainz matched as Ashley Park – Mon Soleil; Apple track found by search (Ashley Park – Mon Soleil (from "Emily in Paris" Soundtrack)) |
 | Atlantis | Lass mi bei Dir sein | MusicBrainz has it only from 1997, after the card year |
 | Audrey Hepburn | Frühstück bei Tiffany (Moon River) | MusicBrainz matched as Audrey Hepburn – Moon River |
 | Avicii, Sandro Cavazza | Without You (feat. Sandro Cavazza) | MusicBrainz matched as Avicii – Without You |
 | Avicii | Levels - Radio Edit | MusicBrainz matched as Avicii – Levels |
-| Axwell/Ingrosso | Sun Is Shining | MusicBrainz matched as Axwell – Sun Is Shining |
 | AYLIVA | Sie weiß (feat. Mero) | MusicBrainz matched as AYLIVA – Sie weiß |
 | B 3 | I.O.I.O. | Apple track found by search (B 3 – I.O.I.O. (Radio Edit)) |
 | Barbra Streisand | So wie wir waren - The Way We Were | MusicBrainz matched as Barbra Streisand – The Way We Were |
@@ -532,7 +525,7 @@ without one stay in the dataset (no clip until an override).
 | Bob Sinclar | Love Generation | Apple track found by search (Bob Sinclar – Love Generation (feat. Gary Pine) [Radio Edit]) |
 | Bobby Lewis | Tossin' And Turnin' | Apple track found by search (Bobby Lewis – Tossin' and Turnin' (Stereo Version)) |
 | Bonnie Bianco | Stay | MusicBrainz has it only from 1987, after the card year |
-| Booker T. & the M.G.'s | Green Onions | MusicBrainz has it only from 2024, after the card year |
+| Booker T. & the M.G.'s | Green Onions | MusicBrainz matched as Booker T. – Green Onions |
 | Brad Fiedel | Terminator 2 | MusicBrainz has it only from 1996, after the card year |
 | Brian Hyland | Itsy Bitsy Teeny Weeny Yellow Polka Dot Bikini | MusicBrainz has it only from 1975, after the card year; Apple track found by search (Brian Hyland – Itsy Bitsy Teeny Weeny Yellow Polka Dot Bikini) |
 | Bronski Beat | Why ? | MusicBrainz has it only from 2001, after the card year; Apple track found by search (Bronski Beat – Why? (12" Version)) |
@@ -588,7 +581,7 @@ without one stay in the dataset (no clip until an override).
 | Danny Elfman | Batman | MusicBrainz has it only from 2010, after the card year |
 | Das Bo | Türlich, Türlich (Sicher, Dicker) | Apple track found by search (Das Bo – Türlich, Türlich (Sicher, Dicker)) |
 | Dave Stewart (feat. Candy Dulfer) | Lily Was Here | Apple track found by search (Dave Stewart – Lily Was Here) |
-| David Bowie & Pat Metheny Group | This Is Not America | MusicBrainz has it only from 2001, after the card year; Apple track found by search (David Bowie – This Is Not America (with Pat Metheny Group)) |
+| David Bowie & Pat Metheny Group | This Is Not America | MusicBrainz matched as David Bowie – This Is Not America |
 | David Bowie | Heroes - 2017 Remaster | MusicBrainz matched as David Bowie – Heroes |
 | David Guetta | Hey Mama (feat. Nicki Minaj, Bebe Rexha & Afrojack) - Afrojack Remix | MusicBrainz matched as David Guetta – Hey Mama |
 | David Guetta | Lovers on the Sun (feat. Sam Martin) | Apple track found by search (David Guetta – Lovers on the Sun (feat. Sam Martin)) |
@@ -647,6 +640,7 @@ without one stay in the dataset (no clip until an override).
 | Eros Ramazzotti | Cose Della Vita (with Tina Turner) | MusicBrainz matched as Eros Ramazzotti – Cose Della Vita |
 | Eternal | I Wanna Be the Only One (feat. Bebe Winans) | MusicBrainz matched as Eternal – I Wanna Be the Only One |
 | Eurythmics, Annie Lennox, Dave Stewart | Sweet Dreams (Are Made Of This) | MusicBrainz has it only from 2024, after the card year; Apple track found by search (Eurythmics – Sweet Dreams (Are Made of This)) |
+| Fantasy | Flaschenpost | Apple track found by search (Fantasy – Flaschenpost) |
 | Fats Domino | Blueberry Hill | Apple track found by search (Fats Domino – Blueberry Hill) |
 | Fats Domino | I'm Walkin' | MusicBrainz has it only from 1959, after the card year |
 | Felice Taylor | It May Be Winter Outside (But in My Heart It's Spring) | MusicBrainz has it only from 2003, after the card year; Apple track found by search (Felice Taylor – It May Be Winter Outside (But in My Heart It's Spring)) |
@@ -677,7 +671,7 @@ without one stay in the dataset (no clip until an override).
 | George Michael, Aretha Franklin | I Knew You Were Waiting (For Me) | MusicBrainz matched as George Michael – I Knew You Were Waiting (For Me) |
 | Georgie Fame & The Blue Flames | Yeh, Yeh | Apple track found by search (Georgie Fame & The Blue Flames – Yeh, Yeh) |
 | G.G. Anderson | Nein heißt ja | MusicBrainz has it only from 2000, after the card year |
-| Gianna Nannini & Edoardo Bennato | Un'Estate Italiana | MusicBrainz has it only from 2014, after the card year; Apple track found by search (Gianna Nannini & Edoardo Bennato – Un'Estate Italiana (Notti Magiche) [Stadio Version]) |
+| Gianna Nannini & Edoardo Bennato | Un'Estate Italiana | MusicBrainz matched as Gianna Nannini – Un'Estate Italiana |
 | Gipsy Kings | Baila Me | Apple track found by search (Gipsy Kings – Baila Me) |
 | Gipsy Kings | Djobi, Djoba | Apple track found by search (Gipsy Kings – Djobi Djoba) |
 | Gipsy Kings | Volare (Nel Blu di Pinto di Blu) | MusicBrainz matched as Gipsy Kings – Volare |
@@ -691,7 +685,6 @@ without one stay in the dataset (no clip until an override).
 | Gunter Gabriel, Linda Feller | Wenn ich nur ein Trucker wär | MusicBrainz matched as Gunter Gabriel – Wenn ich nur ein Trucker wär; Apple track found by search (Gunter Gabriel & Linda Feller – Wenn ich nur ein Trucker wär) |
 | Gwen Stefani | You Make It Feel Like Christmas (feat. Blake Shelton) | MusicBrainz matched as Gwen Stefani – You Make It Feel Like Christmas |
 | H-Blockx | Risin' High - Def Core Grind Version | MusicBrainz matched as H-Blockx – Risin' High |
-| Hanson | MMMBop | Apple track found by search (Hanson – MMMBop (Single Version)) |
 | Harry Belafonte | Day-O (The Banana Boat Song) | MusicBrainz matched as Harry Belafonte – Day-O |
 | Harry Nilsson | Without You | MusicBrainz has it only from 1991, after the card year; Apple track found by search (Harry Nilsson – Without You) |
 | Harry Simeone Chorale | The Little Drummer Boy | Apple track found by search (Harry Simeone Chorale – The Little Drummer Boy) |
@@ -733,7 +726,6 @@ without one stay in the dataset (no clip until an override).
 | John Carpenter | Halloween - Die Nacht des Grauens | Apple track found by search (John Carpenter – Halloween) |
 | John E. Davis | Beverly Hills 90210 | MusicBrainz has it only from 2000, after the card year |
 | John Kincade | Dreams Are Ten A Penny | MusicBrainz has it only from 1991, after the card year |
-| John Lennon | Happy Xmas (War Is Over) - Remastered 2010 | Apple track found by search (John Lennon, The Harlem Community Choir, The Plastic Ono Band & Yoko Ono – Happy Xmas (War Is Over) [Remastered]) |
 | John Travolta, Olivia Newton-John | Grease (Summer Nights) | MusicBrainz matched as John Travolta, Olivia Newton-John – Summer Nights |
 | John Williams | Harry Potter und der Stein der Weisen (Prologue) | MusicBrainz matched as John Williams – Prologue |
 | John Williams | Jäger des verlorenen Schatzes (Indiana Jones) | Apple track found by search (John Williams – Jäger des verlorenen Schatzes (March and Love Theme)) |
@@ -778,6 +770,7 @@ without one stay in the dataset (no clip until an override).
 | Kristina Bach | ...es kribbelt und es prickelt... | Apple track found by search (Kristina Bach – ... es kribbelt und es prickelt...) |
 | Kristine W | Feel What You Want | Apple track found by search (Kristine W – Feel What You Want (Our Tribe Vocal Mix)) |
 | Kygo | It Ain't Me (with Selena Gomez) | MusicBrainz matched as Kygo – It Ain't Me |
+| Kylie Minogue | Every Day's Like Christmas | Apple track found by search (Kylie Minogue – Every Day's Like Christmas) |
 | Lady A | Need You Now | Apple track found by search (Lady A – Need You Now) |
 | Lady Gaga, Bradley Cooper | Shallow | MusicBrainz matched as Lady Gaga – Shallow |
 | Lady Gaga | A Star Is Born (Always Remember Us This Way) | MusicBrainz matched as Lady Gaga – Always Remember Us This Way |
@@ -856,7 +849,7 @@ without one stay in the dataset (no clip until an override).
 | MusikApostel | Ich bin wer ich sein will (feat. Allessa) | MusicBrainz matched as MusikApostel – Ich bin wer ich sein will |
 | Nana Darkman | Lonely | MusicBrainz has it only from 2021, after the card year; Apple track found by search (Nana Darkman – Lonely (feat. Alexandra Prince) [2021 Remastered Version]) |
 | Nana Mouskouri | Ich Steh An Deiner Krippe Hier | Apple track found by search (Nana Mouskouri – Ich Steh an Deiner Krippe Hier) |
-| Nancy Sinatra & Lee Hazlewood | Summer Wine | MusicBrainz has it only from 1968, after the card year |
+| Nancy Sinatra & Lee Hazlewood | Summer Wine | MusicBrainz matched as Nancy Sinatra – Summer Wine; Apple track found by search (Nancy Sinatra – Summer Wine) |
 | Nat King Cole Trio | The Christmas Song (Merry Christmas To You) | MusicBrainz has it only from 1949, after the card year |
 | Nathan Evans | Wellerman - Sea Shanty | Apple track found by search (Nathan Evans – Wellerman (Sea Shanty)) |
 | Neil Diamond | Sweet Caroline | Apple track found by search (Neil Diamond – Sweet Caroline (Single Version)) |
@@ -882,7 +875,7 @@ without one stay in the dataset (no clip until an override).
 | Oliver Haidt | Lebenslänglich Du | Apple track found by search (Oliver Haidt – Lebenslänglich Du) |
 | Oliver Onions | Flying Through the Air | Apple track found by search (Oliver Onions – Flying Through the Air) |
 | Oliver Onions | Santamaria | Apple track found by search (Oliver Onions – Santamaria) |
-| Olivia Newton-John & Electric Light Orchestra | Xanadu | MusicBrainz knows no release date for it; Apple track found by search (Olivia Newton-John – Xanadu (Remastered 2022) [feat. Electric Light Orchestra]) |
+| Olivia Newton-John & Electric Light Orchestra | Xanadu | MusicBrainz matched as Olivia Newton-John – Xanadu |
 | Olivia Newton-John | Physical - Remastered 2021 | MusicBrainz matched as Olivia Newton-John – Physical |
 | Olly Murs | Troublemaker (feat. Flo Rida) | MusicBrainz matched as Olly Murs – Troublemaker |
 | OMI (feat. Felix Jaehn) | Cheerleader | MusicBrainz matched as OMI – Cheerleader |
@@ -1052,13 +1045,14 @@ without one stay in the dataset (no clip until an override).
 | Youssou N'Dour | 7 Seconds (feat. Neneh Cherry) | MusicBrainz matched as Youssou N'Dour – 7 Seconds |
 | Yusuf / Cat Stevens | Father And Son | MusicBrainz matched as Yusuf – Father And Son |
 
-## Not found on MusicBrainz (100)
+## Not found on MusicBrainz (101)
 
 | artist | title |
 |---|---|
 | Alisha | Deine braunen Augen |
 | Andrew Lloyd Webber, Gerard Butler, Emmy Rossum | Das Phantom der Opera |
 | Axwell Ingrosso | More Than You Know |
+| Axwell/Ingrosso | Sun Is Shining |
 | B 3 | I.O.I.O. |
 | Bata Illic | Bella Isola |
 | Beagle Music | Like Ice in the Sunshine |
@@ -1157,12 +1151,13 @@ without one stay in the dataset (no clip until an override).
 | Wencke Myhre | Ich Glou'an Den Weihnachtsmann |
 | Wolfram | Trödler Abraham |
 
-## No Apple track with a preview (92)
+## No Apple track with a preview (94)
 
 | artist | title |
 |---|---|
 | Alex Parker | Aber sonst geht's mir gut |
 | Andrew Lloyd Webber, Gerard Butler, Emmy Rossum | Das Phantom der Opera |
+| Asaf Avidan | One Day / Reckoning Song |
 | Axwell Ingrosso | More Than You Know |
 | Axwell/Ingrosso | Sun Is Shining |
 | Bear McCreary | The Walking Dead |
@@ -1210,6 +1205,7 @@ without one stay in the dataset (no clip until an override).
 | John Addison | Mord ist ihr Hobby |
 | John Beal | Akte X - The X Files |
 | John E. Davis | Beverly Hills 90210 |
+| John Lennon | Happy Xmas (War Is Over) - Remastered 2010 |
 | John Williams | Der weiße Hai |
 | John Williams | Jurassic Park |
 | John Williams | Krieg der Sterne (Star Wars) |

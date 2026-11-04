@@ -308,9 +308,10 @@ func (p *Pipeline) setTrack(ctx context.Context, r *resolved, t apple.Song, sf s
 
 // findRecording searches MusicBrainz for recordings first released by the year after the card's: as the card
 // writes it, then with the main artist and each other reading of the title (musicbrainz.SongTitles); then without
-// the year bound; last, missed by all of those, with the card's first name and each reading (MusicBrainz finds
-// "Queen, David Bowie" only as Queen), the pick checked against the card's whole artist: "Earth" or "Simon" alone
-// is not the card's. Only the first search can match exactly; the others are low confidence, why says how.
+// the year bound; last, missed by all of those or matched there only undated or later than the card, with the
+// card's first name and each reading (MusicBrainz finds "Queen, David Bowie" only as Queen), the pick checked
+// against the card's whole artist: "Earth" or "Simon" alone is not the card's. Only the first search can match
+// exactly; the others are low confidence, why says how.
 func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Match, ok bool, why string, err error) {
 	type query struct{ artist, title string }
 	titles := musicbrainz.SongTitles(e.Title, e.Artist)
@@ -340,20 +341,22 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 	}
 	m, ok = musicbrainz.Pick(recs, e.Artist, e.Title, e.Year)
 	m.Exact = false
-	switch {
-	case !ok:
-		if lead := musicbrainz.Lead(e.Artist); lead != main {
-			for _, t := range titles {
-				recs, err := p.MB.Search(ctx, lead, t, e.Year+1)
-				if err != nil {
-					return m, false, "", err
-				}
-				if m, ok := musicbrainz.Pick(recs, e.Artist, t, e.Year); ok {
-					m.Exact = false
-					return m, true, "MusicBrainz matched as " + lead + " – " + t, nil
-				}
+	// The first name's searches also when the unbounded match is weak, undated or after the card's time: theirs are
+	// bounded by it, so a pick there is the better one.
+	if lead := musicbrainz.Lead(e.Artist); lead != main && (!ok || m.Recording.FirstReleaseDate == "" || m.Year > e.Year+1) {
+		for _, t := range titles {
+			recs, err := p.MB.Search(ctx, lead, t, e.Year+1)
+			if err != nil {
+				return m, false, "", err
+			}
+			if lm, lok := musicbrainz.Pick(recs, e.Artist, t, e.Year); lok {
+				lm.Exact = false
+				return lm, true, "MusicBrainz matched as " + lead + " – " + t, nil
 			}
 		}
+	}
+	switch {
+	case !ok:
 	case m.Recording.FirstReleaseDate == "":
 		why = "MusicBrainz knows no release date for it"
 	case m.Year > e.Year+1:
@@ -368,12 +371,19 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 // findTrack looks the song up on Apple, only tracks with a preview counting. Per storefront (ch → de → us): the
 // ISRC lookup, then (ch only) the original album found by name. The first original-album track wins; else the
 // first storefront's best ISRC hit; else an artist+title search in ch and us (viaSearch: low confidence). Every
-// hit must be the card's song by title and artist (target). Apple's search endpoint has a quota of its own: a full
-// import that searched every storefront hit 429s that lasted ~3.5 h (2026-11-04), while the ISRC lookups kept
-// answering.
+// hit must be the card's song by title and artist (target). A live take, remix, … the card does not name (one the
+// matched recording is: a song MusicBrainz knows only from "MTV Unplugged") is taken last, when no plain take turned
+// up anywhere. Apple's search endpoint has a quota of its own: a full import that searched every storefront hit
+// 429s that lasted ~3.5 h (2026-11-04), while the ISRC lookups kept answering.
 func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) (t apple.Song, sf string, viaSearch bool, err error) {
-	var fallback apple.Song
-	var fallbackSF string
+	var fallback, weak apple.Song
+	var fallbackSF, weakSF string
+	weakSearch := false
+	keepWeak := func(t apple.Song, sf string, search bool) {
+		if weak.ID == "" {
+			weak, weakSF, weakSearch = t, sf, search
+		}
+	}
 	tg := newTarget(e, m)
 	for i, sf := range storefronts {
 		if len(m.ISRCs) > 0 {
@@ -382,10 +392,12 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 				return apple.Song{}, "", false, err
 			}
 			if t, ok := best(songs, m, e, tg.isrcHit); ok {
-				if onOriginal(t, m, e.Year) {
+				switch {
+				case !plainTake(t, e):
+					keepWeak(t, sf, false)
+				case onOriginal(t, m, e.Year):
 					return t, sf, false, nil
-				}
-				if fallback.ID == "" {
+				case fallback.ID == "":
 					fallback, fallbackSF = t, sf
 				}
 			}
@@ -397,8 +409,11 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 		if err != nil {
 			return apple.Song{}, "", false, err
 		}
-		if ok {
+		if ok && plainTake(t, e) {
 			return t, sf, false, nil
+		}
+		if ok {
+			keepWeak(t, sf, false)
 		}
 	}
 	if fallback.ID != "" {
@@ -417,12 +432,18 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 				return apple.Song{}, "", false, err
 			}
 			if t, ok := best(songs, m, e, tg.searchHit); ok {
-				return t, sf, true, nil
+				if plainTake(t, e) {
+					return t, sf, true, nil
+				}
+				keepWeak(t, sf, true)
 			}
 		}
 	}
-	return apple.Song{}, "", false, nil
+	return weak, weakSF, weakSearch, nil
 }
+
+// plainTake says a track's name marks no live take, remix, … the card title does not ask for.
+func plainTake(t apple.Song, e entry) bool { return !musicbrainz.Version(t.Name, e.Title) }
 
 // target is the card's song as Apple hits are checked against it, worked out once per song: the card title's
 // readings (musicbrainz.SongTitles), their keys with the matched recording's title, and who it is by.
@@ -496,7 +517,7 @@ func (p *Pipeline) originalAlbumTrack(ctx context.Context, sf string, e entry, m
 			for _, t := range tracks {
 				hit := slices.Contains(m.ISRCs, t.ISRC)
 				if !byISRC {
-					hit = tg.title(t) && !musicbrainz.Version(t.Name, versionAsked(e))
+					hit = tg.title(t) && !musicbrainz.Version(t.Name, recordingIs(e, m))
 				}
 				if hit && t.Preview {
 					return t, true, nil
@@ -511,23 +532,31 @@ func (p *Pipeline) originalAlbumTrack(ctx context.Context, sf string, e entry, m
 func withinAYear(a, b int) bool { return a == 0 || b == 0 || (a-b <= 1 && b-a <= 1) }
 
 // best picks among songs those with a preview (and passing keep, when set), never a track whose name marks a live
-// take, remix, re-recording, … the song is not (versionAsked): no clip beats a wrong recording ("Father and Son
-// (Re-Recorded Version)" for the 1970 card, "Glory … [Live]"). Then the original-album track first, then one on no
-// album named like such a version either, then one on the artist's own album (not a various-artists compilation),
-// then the earliest release, then the lowest id.
+// take, remix, re-recording, … neither the card nor the matched recording is (recordingIs): no clip beats a wrong
+// recording ("Father and Son (Re-Recorded Version)" for the 1970 card, "Glory … [Live]"). Then a plain take (by
+// the card title, plainTake) before such a version the recording is, then the original-album track, then one on no
+// album named like a version either, then one on the artist's own album (not a various-artists compilation), then
+// the earliest release, then the lowest id.
 func best(songs []apple.Song, m musicbrainz.Match, e entry, keep func(apple.Song) bool) (apple.Song, bool) {
-	asked := versionAsked(e)
+	is := recordingIs(e, m)
 	var cands []apple.Song
 	for _, s := range songs {
-		if s.Preview && !musicbrainz.Version(s.Name, asked) && (keep == nil || keep(s)) {
+		if s.Preview && !musicbrainz.Version(s.Name, is) && (keep == nil || keep(s)) {
 			cands = append(cands, s)
 		}
 	}
 	if len(cands) == 0 {
 		return apple.Song{}, false
 	}
-	plain := func(s apple.Song) bool { return !musicbrainz.Version(s.Album, asked) }
+	// By the card title only: "Layla (Live)" asks for the live one.
+	plain := func(s apple.Song) bool { return !musicbrainz.Version(s.Album, e.Title) }
 	slices.SortFunc(cands, func(a, b apple.Song) int {
+		if pa, pb := plainTake(a, e), plainTake(b, e); pa != pb {
+			if pa {
+				return -1
+			}
+			return 1
+		}
 		oa, ob := onOriginal(a, m, e.Year), onOriginal(b, m, e.Year)
 		switch {
 		case oa && !ob:
@@ -555,9 +584,13 @@ func best(songs []apple.Song, m musicbrainz.Match, e entry, keep func(apple.Song
 	return cands[0], true
 }
 
-// versionAsked is what names the version the song is: the card title ("Layla (Live)"). Not the matched recording's:
-// MusicBrainz takes a remix for the song when only it is credited exactly as the card ("One Kiss … Jauz Remix").
-func versionAsked(e entry) string { return e.Title }
+// recordingIs is what names the version the song is: the card title ("Layla (Live)") and the matched recording's
+// title and note, for a song MusicBrainz knows only live ("MTV Unplugged"). Such a take still yields to a plain one
+// (plainTake): MusicBrainz takes a remix for the song when only it is credited exactly as the card ("One Kiss …
+// Jauz Remix").
+func recordingIs(e entry, m musicbrainz.Match) string {
+	return e.Title + " " + m.Recording.Title + " " + m.Recording.Disambiguation
+}
 
 // onOriginal says the Apple track is on the song's original release: its album is the MusicBrainz original album
 // (else the first release, for a song that only came out as a single) by name, from the original's time.

@@ -314,7 +314,7 @@ func TestPick_looseAndNone(t *testing.T) {
 // band name is not: Simon is not Simon & Garfunkel, and Yusuf is the act of "Yusuf / Cat Stevens".
 func TestPick_backingBandAliasesAndBandNames(t *testing.T) {
 	recs := []Recording{{ID: "dury", Title: "Hit Me With Your Rhythm Stick", Credit: "Ian Dury & the Blockheads",
-		Artists: []string{"Ian Dury & the Blockheads"}, FirstReleaseDate: "1978-11-23"}}
+		Artists: []string{"Ian Dury & the Blockheads"}, SortNames: []string{"Dury, Ian & The Blockheads"}, FirstReleaseDate: "1978-11-23"}}
 	if m, ok := Pick(recs, "Ian Dury", "Hit Me with Your Rhythm Stick", 1978); !ok || m.Exact || m.Recording.ID != "dury" {
 		t.Errorf("ok=%v %+v", ok, m)
 	}
@@ -324,9 +324,28 @@ func TestPick_backingBandAliasesAndBandNames(t *testing.T) {
 	}
 	// A band MusicBrainz knows as one act, named for the card's artist.
 	harley := []Recording{{ID: "cr", Title: "Make Me Smile (Come Up and See Me)", Credit: "Steve Harley & Cockney Rebel",
-		Artists: []string{"Steve Harley & Cockney Rebel"}, FirstReleaseDate: "1975"}}
+		Artists: []string{"Steve Harley & Cockney Rebel"}, SortNames: []string{"Harley, Steve & Cockney Rebel"}, FirstReleaseDate: "1975"}}
 	if m, ok := Pick(harley, "Steve Harley", "Make Me Smile (Come up and See Me)", 1975); !ok || m.Exact || m.Recording.ID != "cr" {
 		t.Errorf("Steve Harley: ok=%v %+v", ok, m)
+	}
+	// The band's article sorted last is no person: "Dekker, Desmond & Aces, The".
+	aces := []Recording{{ID: "da", Title: "Israelites", Credit: "Desmond Dekker & the Aces", Artists: []string{"Desmond Dekker & the Aces"},
+		SortNames: []string{"Dekker, Desmond & Aces, The"}, FirstReleaseDate: "1968"}}
+	if m, ok := Pick(aces, "Desmond Dekker", "Israelites", 1968); !ok || m.Recording.ID != "da" {
+		t.Errorf("Desmond Dekker: ok=%v %+v", ok, m)
+	}
+	// Not a band of the card's artist: a duo of two people, a duo of two names, an orchestra of its own, a group
+	// MusicBrainz sent no sort name for.
+	for _, tc := range []struct{ card, title, group, sort string }{
+		{"Daryl Hall", "Rich Girl", "Daryl Hall & John Oates", "Hall, Daryl & Oates, John"},
+		{"Simon", "Mrs. Robinson", "Simon & Garfunkel", "Simon & Garfunkel"},
+		{"Elvis Presley", "Love Me Tender", "Elvis Presley & The Royal Philharmonic Orchestra", "Presley, Elvis & The Royal Philharmonic Orchestra"},
+		{"Steve Harley", "Make Me Smile", "Steve Harley & Cockney Rebel", ""},
+	} {
+		recs := []Recording{{ID: "g", Title: tc.title, Credit: tc.group, Artists: []string{tc.group}, SortNames: []string{tc.sort}}}
+		if _, ok := Pick(recs, tc.card, tc.title, 0); ok {
+			t.Errorf("%s taken for %s", tc.group, tc.card)
+		}
 	}
 	plus := []Recording{{ID: "ql", Title: "Bohemian Rhapsody", Credit: "Queen + Adam Lambert", Artists: []string{"Queen + Adam Lambert"}}}
 	if _, ok := Pick(plus, "Queen", "Bohemian Rhapsody", 1975); ok {
@@ -353,6 +372,16 @@ func TestPick_originalAlbumFromASiblingRecording(t *testing.T) {
 	m, ok := Pick(recs, "The Moody Blues", "Nights In White Satin", 1967)
 	if !ok || m.Recording.ID != "single" || m.Original.ID != "Days of Future Passed" || m.First.ID != "Single" {
 		t.Errorf("ok=%v id=%s original=%s first=%s", ok, m.Recording.ID, m.Original.ID, m.First.ID)
+	}
+	// A sibling's album from outside the card's time is none: the chosen recording's own stays.
+	recs[1].Releases = []Release{rel("Days of Future Passed (2017 Reissue)", "Album", "2017")}
+	if m, _ := Pick(recs, "The Moody Blues", "Nights In White Satin", 1967); m.Original.ID != "A Bronx Tale" {
+		t.Errorf("late sibling album: original=%s", m.Original.ID)
+	}
+	// Nor a sibling that is a re-recording.
+	recs[1].Title, recs[1].Releases = "Nights in White Satin (re-recorded)", []Release{rel("Days of Future Passed", "Album", "1967-11-10")}
+	if m, _ := Pick(recs, "The Moody Blues", "Nights In White Satin", 1967); m.Original.ID != "A Bronx Tale" {
+		t.Errorf("re-recorded sibling: original=%s", m.Original.ID)
 	}
 }
 
@@ -393,9 +422,15 @@ func TestCredit(t *testing.T) {
 		{"Cat Stevens", "Yusuf / Cat Stevens", "", rec("Yusuf", "Yusuf"), true, true},
 		{"Yusuf / Cat Stevens", "Yusuf / Cat Stevens", "", rec("Yusuf", "Yusuf"), true, true},
 		// An act the song does not name is not its artist; by ISRC, led by the main artist, it may be.
-		{"Queen + Adam Lambert", "Queen", "", rec("Queen", "Queen"), false, true},
-		{"Queen + Adam Lambert", "Queen", "", Recording{}, false, true},
+		{"Queen + Adam Lambert", "Queen", "", rec("Queen", "Queen"), false, false},
+		{"Queen + Adam Lambert", "Queen", "", Recording{}, false, false},
+		// A featuring mark ("feat.", "x") keeps its main artist the act (MainArtist), as for Calvin Harris x Dua Lipa.
+		{"Queen feat. Adam Lambert", "Queen", "", rec("Queen", "Queen"), true, true},
 		{"Nino Rota & Carlo Savina", "Nino Rota", "", rec("Nino Rota", "Nino Rota"), false, true},
+		{"Nino Rota, Carlo Savina", "Nino Rota", "", rec("Nino Rota", "Nino Rota"), false, true},
+		{"Elvis Presley & The Royal Philharmonic Orchestra", "Elvis Presley", "", rec("Elvis Presley", "Elvis Presley"), false, true},
+		{"AC/DC", "AC/DC", "", Recording{}, true, true},
+		{"DC/AC", "AC/DC", "", Recording{}, false, false},
 		{"Adam Lambert & Queen", "Queen", "", rec("Queen", "Queen"), false, false},
 		// A backing band.
 		{"Glenn Miller and His Orchestra", "Glenn Miller", "", rec("Glenn Miller", "Glenn Miller"), true, true},
@@ -548,6 +583,9 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 		{"Queen, David Bowie", "Queen", false},
 		{"Queen", "Queen & David Bowie", false},
 		{"Simon & Garfunkel", "Simon & Somebody", false},
+		// An unspaced slash is in the name.
+		{"AC/DC", "DC/AC", false},
+		{"AC/DC", "AC/DC", true},
 	} {
 		if got := SameArtist(tc.a, tc.b); got != tc.want {
 			t.Errorf("SameArtist(%q, %q) = %v", tc.a, tc.b, got)
@@ -584,7 +622,7 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 		{"Feathers & Gold", []string{"Feathers", "Gold"}},
 		{"Yusuf / Cat Stevens", []string{"Yusuf", "Cat Stevens"}},
 		// Band names split too: a part alone says nothing (Credit).
-		{"AC/DC", []string{"AC", "DC"}},
+		{"AC/DC", []string{"AC/DC"}},
 		{"Florence + the Machine", []string{"Florence", "the Machine"}},
 		{"EAV (Erste Allgemeine Verunsicherung)", []string{"EAV (Erste Allgemeine Verunsicherung)"}},
 		{"Malcolm X", []string{"Malcolm X"}},
