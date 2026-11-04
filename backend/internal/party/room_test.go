@@ -46,10 +46,24 @@ func newTestRoom(t *testing.T, mode string) *Room {
 
 func fixed(t time.Time) func() time.Time { return func() time.Time { return t } }
 
-// next plays the next round at now.
-func next(r *Room, now time.Time) (string, error) {
+// setClock waits for background prefetches and sets the room's clock to now.
+func setClock(r *Room, now time.Time) {
+	r.bg.Wait()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.clock = fixed(now)
-	return r.Next(context.Background(), host)
+}
+
+// next plays the next round at now and waits for its prefetch.
+func next(r *Room, now time.Time) (string, error) {
+	setClock(r, now)
+	id, err := r.Next(context.Background(), host)
+	r.bg.Wait()
+	return id, err
+}
+
+func joinAs(r *Room, now time.Time, session, profile, name, avatar string) (string, error) {
+	return r.Join(now, Joiner{Session: session, ProfileID: profile, Name: name, Avatar: avatar})
 }
 
 // join adds n players and returns their ids.
@@ -57,7 +71,7 @@ func join(t *testing.T, r *Room, n int) []string {
 	t.Helper()
 	ids := make([]string, n)
 	for i := range ids {
-		id, err := r.Join(t0, "", "", fmt.Sprintf("P%d", i), "mic")
+		id, err := joinAs(r, t0, "", "", fmt.Sprintf("P%d", i), "mic")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,6 +85,7 @@ func start(t *testing.T, r *Room, n int) {
 	if _, err := r.Start(context.Background(), host, loaderOf(songs(n))); err != nil {
 		t.Fatal(err)
 	}
+	r.bg.Wait()
 }
 
 func wantProblem(t *testing.T, err error, code string) {
@@ -156,7 +171,7 @@ func TestYears_firstCorrectWinsWithPhotoFinish(t *testing.T) {
 		t.Errorf("players = %+v", s.Players)
 	}
 	// After the window nothing more counts.
-	other, _ := r.Join(t0, "", "", "Late", "worm")
+	other, _ := joinAs(r, t0, "", "", "Late", "worm")
 	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), other, 1, right(r)), "late")
 	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), p[2], 1, right(r)), "already_answered")
 }
@@ -281,6 +296,7 @@ func TestNext_deckRunsOutAndSkipsMissingPreviews(t *testing.T) {
 	if _, err := r.Start(context.Background(), host, loaderOf(songs(3))); err != nil {
 		t.Fatal(err)
 	}
+	r.bg.Wait()
 	if r.next == nil || r.next.song.ID != "s2" {
 		t.Fatalf("next = %+v, want s2 (s1 has no preview)", r.next)
 	}
@@ -339,6 +355,7 @@ func TestPrefetch_onlyNoPreviewDropsASong(t *testing.T) {
 	if _, err := r.Start(context.Background(), host, loaderOf(songs(4))); err != nil {
 		t.Fatal(err)
 	}
+	r.bg.Wait()
 	// s1 is down while prefetching: no nextClip, s1 still queued; Next tries again and fails cleanly.
 	if r.next != nil || r.queue[0].ID != "s1" {
 		t.Fatalf("next = %+v, queue head %s", r.next, r.queue[0].ID)
@@ -411,6 +428,114 @@ func TestStart_slowPreviewsHoldNothingUp(t *testing.T) {
 	}
 }
 
+func TestStart_settingsChangedWhileLoadingDiscardsTheOldDeck(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	join(t, r, 1)
+	loading, release := make(chan struct{}), make(chan struct{})
+	slowLoad := func(context.Context, deck.Selector) ([]deck.Song, error) {
+		close(loading)
+		<-release
+		return songs(3), nil
+	}
+	done := make(chan error, 1)
+	go func() { _, err := r.Start(context.Background(), host, slowLoad); done <- err }()
+	<-loading
+	c := Config{Mode: ModeYears, ToWin: 3, Deck: deck.Selector{Sets: []string{"other"}}}
+	_ = c.Normalize(2026)
+	if err := r.Configure(t0, host, c); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	wantProblem(t, <-done, "wrong_phase")
+	if r.phase != PhaseLobby || r.queue != nil {
+		t.Errorf("phase %s, queue %d", r.phase, len(r.queue))
+	}
+}
+
+func TestStart_answersBeforeTheNextClipResolves(t *testing.T) {
+	slow := &blocking{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	first := true
+	var mu sync.Mutex
+	resolve := func(ctx context.Context, s deck.Song) (string, error) {
+		mu.Lock()
+		isFirst := first
+		first = false
+		mu.Unlock()
+		if isFirst {
+			return "https://previews.invalid/" + s.ID, nil
+		}
+		return slow.PreviewURL(ctx, s)
+	}
+	r := newRoom("K7Q4", host, Config{Mode: ModeYears, ToWin: 3}, fixed(t0), rand.New(rand.NewPCG(1, 2)), resolve)
+	join(t, r, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	if _, err := r.Start(ctx, host, loaderOf(songs(3))); err != nil {
+		t.Fatal(err)
+	}
+	cancel() // the host's request is over; the prefetch is not tied to it
+	<-slow.entered
+	if s := r.State(t0); s.Phase != PhasePlaying || s.NextClip != nil {
+		t.Fatalf("state = %s, nextClip %v", s.Phase, s.NextClip)
+	}
+	close(slow.release)
+	r.bg.Wait()
+	if s := r.State(t0); s.NextClip == nil {
+		t.Error("nextClip never arrived")
+	}
+}
+
+func TestState_snapshotsDoNotRace(t *testing.T) {
+	r := newTestRoom(t, ModeBuzzer)
+	p := join(t, r, MaxPlayers)
+	start(t, r, 3)
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_, _ = json.Marshal(r.State(t0))
+			}
+		})
+	}
+	_ = r.Buzz(t0, p[0], 1)
+	for _, id := range p[1:] {
+		_ = r.Buzz(t0.Add(10*time.Millisecond), id, 1)
+	}
+	_ = r.Reveal(t0, p[0], 1)
+	_ = r.Reveal(t0, p[1], 1)
+	for _, id := range p {
+		_ = r.Judge(t0, id, 1, 1)
+	}
+	r.Tick(t0.Add(time.Hour))
+	close(stop)
+	wg.Wait()
+	if s := r.State(t0); s.Round.Result == nil || len(s.Round.Result.PhotoFinish) != MaxPlayers-1 {
+		t.Errorf("result = %+v", s.Round.Result)
+	}
+}
+
+func TestSubscribe_streamOpenedBeforeJoinCounts(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	_, stop, _, _ := r.Subscribe("guest-session", "")
+	defer stop()
+	_, stopDev, _, _ := r.Subscribe(deviceSession("dev-1"), "")
+	defer stopDev()
+	id, err := joinAs(r, t0, "guest-session", "", "Mia", "mic")
+	if err != nil || id != "guest-session" {
+		t.Fatalf("join = %q, %v", id, err)
+	}
+	pro, _ := r.Join(t0, Joiner{ProfileID: "profile-1", DeviceID: "dev-1", Name: "Jan", Avatar: "vinyl"})
+	s := r.State(t0)
+	if !playerOf(s, id).Connected || !playerOf(s, pro).Connected {
+		t.Errorf("players = %+v", s.Players)
+	}
+}
+
 func TestStart_refusals(t *testing.T) {
 	ctx := context.Background()
 	r := newTestRoom(t, ModeYears)
@@ -439,27 +564,27 @@ func TestStart_refusals(t *testing.T) {
 func TestJoin(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	p := join(t, r, MaxPlayers-1)
-	pro, err := r.Join(t0, "", "profile-1", "Jan", "vinyl")
+	pro, err := joinAs(r, t0, "", "profile-1", "Jan", "vinyl")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again, err := r.Join(t0, "", "profile-1", "Jan B.", "keys"); err != nil || again != pro {
+	if again, err := joinAs(r, t0, "", "profile-1", "Jan B.", "keys"); err != nil || again != pro {
 		t.Errorf("profile rejoin = %q, %v", again, err)
 	}
 	if r.PlayerOf("profile-1") != pro || r.PlayerOf("nobody") != "" {
 		t.Error("PlayerOf")
 	}
-	if again, err := r.Join(t0, p[0], "", "P0", "mic"); err != nil || again != p[0] {
+	if again, err := joinAs(r, t0, p[0], "", "P0", "mic"); err != nil || again != p[0] {
 		t.Errorf("guest rejoin = %q, %v", again, err)
 	}
-	_, err = r.Join(t0, "", "", "Ninth", "mic")
+	_, err = joinAs(r, t0, "", "", "Ninth", "mic")
 	wantProblem(t, err, "room_full")
 
 	// Late join mid-round: late for this round, in from the next.
 	r2 := newTestRoom(t, ModeYears)
 	q := join(t, r2, 1)
 	start(t, r2, 3)
-	late, _ := r2.Join(t0, "", "", "Late", "worm")
+	late, _ := joinAs(r2, t0, "", "", "Late", "worm")
 	if s := r2.State(t0); playerOf(s, late).State != StateLate {
 		t.Errorf("late joiner state = %q", playerOf(s, late).State)
 	}
@@ -476,19 +601,19 @@ func TestJoin(t *testing.T) {
 func TestKick_bansForTheRoomsLife(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	guest := join(t, r, 1)[0]
-	pro, _ := r.Join(t0, "", "profile-1", "Jan", "vinyl")
+	pro, _ := joinAs(r, t0, "", "profile-1", "Jan", "vinyl")
 	for _, id := range []string{guest, pro} {
 		if err := r.Kick(t0, host, id); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, err := r.Join(t0, guest, "", "Again", "mic")
+	_, err := joinAs(r, t0, guest, "", "Again", "mic")
 	wantProblem(t, err, "kicked")
-	_, err = r.Join(t0, "", "profile-1", "Jan", "vinyl")
+	_, err = joinAs(r, t0, "", "profile-1", "Jan", "vinyl")
 	wantProblem(t, err, "kicked")
 	wantProblem(t, r.Member(guest), "kicked")
 	wantProblem(t, r.Member("never"), "not_in_room")
-	_, _ = r.Join(t0, "", "", "Mia", "mic")
+	_, _ = joinAs(r, t0, "", "", "Mia", "mic")
 	start(t, r, 3)
 	wantProblem(t, r.Answer(t0, guest, 1, right(r)), "kicked")
 }

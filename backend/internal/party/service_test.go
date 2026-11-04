@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"math/rand/v2"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -421,6 +422,37 @@ func TestSubscribe_perKeyCap(t *testing.T) {
 	}
 	if _, _, _, ok := r.Subscribe("", "198.51.100.2"); !ok {
 		t.Error("another address refused")
+	}
+}
+
+func TestEvents_padStreamBeforeJoinIsConnected(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	h := e.pairedHost()
+	code := e.createRoom(h, Config{})
+	srv := httptest.NewServer(e.mux)
+	defer srv.Close()
+	jar, _ := cookiejar.New(nil)
+	pad := &http.Client{Jar: jar}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/rooms/"+code+"/events", nil)
+	resp, err := pad.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	r := bufio.NewReader(resp.Body)
+	readEvent(t, r)
+	// The pad joins on the guest session its stream was given: connected at once.
+	body, _ := json.Marshal(joinRequest{Name: "Mia", Avatar: "mic"})
+	jr, err := pad.Post(srv.URL+"/api/rooms/"+code+"/join", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = jr.Body.Close()
+	var s State
+	if err := json.Unmarshal([]byte(readEvent(t, r)), &s); err != nil || len(s.Players) != 1 || !s.Players[0].Connected {
+		t.Errorf("after join = %+v, %v", s.Players, err)
 	}
 }
 

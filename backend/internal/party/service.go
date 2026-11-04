@@ -313,8 +313,27 @@ func (s *Service) playerID(r *http.Request, room *Room) string {
 	return ""
 }
 
+// streamSession is the session a stream counts for: a paired device's, else the guest cookie's for this room. A
+// browser with neither gets a guest cookie now, before the stream opens, and joins later under that same id, so
+// the stream it already has counts for it.
+func (s *Service) streamSession(w http.ResponseWriter, r *http.Request, room *Room) (string, error) {
+	if id, err := s.o.Accounts.Identify(r); err == nil {
+		return deviceSession(id.DeviceID), nil
+	}
+	if c, ok := s.guests.Read(r); ok && c.Name == room.Code() {
+		return c.Subject, nil
+	}
+	id := api.ID()
+	return id, s.guests.Issue(w, auth.Claims{Subject: id, Name: room.Code()})
+}
+
 func (s *Service) handleEvents(w http.ResponseWriter, r *http.Request, room *Room) {
-	ch, cancel, first, ok := room.Subscribe(s.playerID(r, room), s.o.ClientKey(r))
+	session, err := s.streamSession(w, r, room)
+	if err != nil {
+		api.WriteError(w, r, err)
+		return
+	}
+	ch, cancel, first, ok := room.Subscribe(session, s.o.ClientKey(r))
 	if !ok {
 		httpx.SetRetryAfter(w, 5*time.Second)
 		api.WriteError(w, r, api.Fail(http.StatusServiceUnavailable, "too_many_streams", "too many open streams"))
@@ -361,22 +380,22 @@ func (s *Service) handleJoin(w http.ResponseWriter, r *http.Request, room *Room)
 	if !api.DecodeOptional(w, r, &req) {
 		return
 	}
-	var profileID string
+	var j Joiner
 	if id, err := s.o.Accounts.Identify(r); err == nil {
 		// A paired device plays as its profile.
-		profileID, req.Name, req.Avatar = id.ProfileID, id.Name, id.Avatar
+		j.ProfileID, j.DeviceID, req.Name, req.Avatar = id.ProfileID, id.DeviceID, id.Name, id.Avatar
 	}
 	name, err := account.CheckName(req.Name)
 	if err == nil {
 		err = account.CheckAvatar(req.Avatar)
 	}
-	var prev string
 	if c, ok := s.guests.Read(r); ok && c.Name == room.Code() {
-		prev = c.Subject
+		j.Session = c.Subject
 	}
+	j.Name, j.Avatar = name, req.Avatar
 	var playerID string
 	if err == nil {
-		playerID, err = room.Join(s.o.Now(), prev, profileID, name, req.Avatar)
+		playerID, err = room.Join(s.o.Now(), j)
 	}
 	if err == nil {
 		err = s.guests.Issue(w, auth.Claims{Subject: playerID, Name: room.Code()})

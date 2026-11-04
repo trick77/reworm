@@ -73,11 +73,12 @@ type Loader func(ctx context.Context, sel deck.Selector) ([]deck.Song, error)
 type player struct {
 	id        string
 	profileID string
-	name      string
-	avatar    string
-	score     int
-	state     string
-	streams   int
+	// device is the paired device a profile player joined from; its streams are the player's connection.
+	device string
+	name   string
+	avatar string
+	score  int
+	state  string
 }
 
 // pick is a song with its clip, ready to play.
@@ -137,6 +138,10 @@ type Room struct {
 	gen        int
 	seq        int64
 	lastActive time.Time
+	// streams counts the open streams per session (Subscribe).
+	streams map[string]int
+	// bg tracks background prefetches (tests wait on it).
+	bg sync.WaitGroup
 	// idle mirrors lastActive (unix ms) for the reaper, which must not wait for a busy room.
 	idle atomic.Int64
 
@@ -186,7 +191,7 @@ func (c *Config) Normalize(thisYear int) error {
 }
 
 func newRoom(code, hostProfile string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
-	r := &Room{code: code, hostProfile: hostProfile, phase: PhaseLobby, banned: map[string]bool{}, clock: clock,
+	r := &Room{code: code, hostProfile: hostProfile, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{}, clock: clock,
 		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey})}
 	r.lastActive = clock()
 	r.idle.Store(r.lastActive.UnixMilli())
@@ -194,7 +199,9 @@ func newRoom(code, hostProfile string, c Config, clock func() time.Time, rng *ra
 	return r
 }
 
+// configure applies c; a Start still loading the old deck is discarded (gen).
 func (r *Room) configure(c Config) {
+	r.gen++
 	r.mode, r.toWin = c.Mode, c.ToWin
 	r.settings = Settings{Deck: c.Deck, Clip: c.Clip, Difficulty: c.Difficulty}
 }
@@ -212,16 +219,49 @@ func millisOrNil(t time.Time) *int64 {
 	return &ms
 }
 
+// clonePtr is a copy of *p, nil for nil.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// cloneResult is a deep copy: a snapshot is marshalled after the lock is gone, while the room goes on changing.
+func cloneResult(res *ResultState) *ResultState {
+	if res == nil {
+		return nil
+	}
+	c := *res
+	c.Song.Cover = clonePtr(res.Song.Cover)
+	c.WinnerID, c.WinnerMs = clonePtr(res.WinnerID), clonePtr(res.WinnerMs)
+	c.PhotoFinish = append([]PhotoFinish{}, res.PhotoFinish...)
+	return &c
+}
+
+// connected reports whether a stream is open for p: on its guest session, or on the device it joined from.
+func (r *Room) connected(p *player) bool {
+	return r.streams[p.id] > 0 || (p.device != "" && r.streams[deviceSession(p.device)] > 0)
+}
+
+// deviceSession is the stream session of a paired device.
+func deviceSession(deviceID string) string { return "device:" + deviceID }
+
+// state is a snapshot sharing nothing with the room.
 func (r *Room) state() State {
-	s := State{Code: r.code, Seq: r.seq, Now: api.Millis(r.clock()), Mode: r.mode, Phase: r.phase, HostID: r.hostProfile, ToWin: r.toWin,
-		Settings: r.settings, Players: make([]PlayerState, len(r.players))}
+	set := r.settings
+	set.Deck.Sets, set.Deck.Categories, set.Deck.Genres = slices.Clone(set.Deck.Sets), slices.Clone(set.Deck.Categories),
+		slices.Clone(set.Deck.Genres)
+	s := State{Code: r.code, Seq: r.seq, Now: api.Millis(r.clock()), Mode: r.mode, Phase: r.phase, HostID: r.hostProfile,
+		ToWin: r.toWin, Settings: set, Players: make([]PlayerState, len(r.players))}
 	for i, p := range r.players {
-		s.Players[i] = PlayerState{ID: p.id, Name: p.name, Avatar: p.avatar, Score: p.score, Connected: p.streams > 0, State: p.state}
+		s.Players[i] = PlayerState{ID: p.id, Name: p.name, Avatar: p.avatar, Score: p.score, Connected: r.connected(p), State: p.state}
 	}
 	if rd := r.round; rd != nil {
 		rs := &RoundState{N: rd.n, StartedAt: api.Millis(rd.startedAt), EndsAt: api.Millis(rd.endsAt), Clip: rd.pick.clip,
 			RevealVotes: slices.Clone(rd.reveal), JudgeVotes: map[string]int{}, JudgeEndsAt: millisOrNil(rd.judgeEnds),
-			Result: rd.result}
+			Result: cloneResult(rd.result)}
 		if rs.RevealVotes == nil {
 			rs.RevealVotes = []string{}
 		}
@@ -266,18 +306,19 @@ func (r *Room) publish() {
 	r.hub.PublishLatest(string(b))
 }
 
-// Subscribe opens a stream for the room, counting playerID ("" for the stage) as connected while it is open. It
-// returns the current state as the stream's first event; ok is false when a stream cap is reached.
-func (r *Room) Subscribe(playerID string, key string) (ch <-chan string, cancel func(), first string, ok bool) {
+// Subscribe opens a stream for the room on session: a guest session id (the player id it joins as) or a paired
+// device's deviceSession. The stream counts as the player's connection whenever a player is on that session, also
+// one who joins after the stream opened. It returns the current state as the stream's first event; ok is false
+// when a stream cap is reached.
+func (r *Room) Subscribe(session, key string) (ch <-chan string, cancel func(), first string, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ch, stop, ok := r.hub.Subscribe(key)
 	if !ok {
 		return nil, stop, "", false
 	}
-	p := r.player(playerID)
-	if p != nil {
-		p.streams++
+	r.streams[session]++
+	if r.onSession(session) {
 		r.publish()
 	}
 	b, _ := json.Marshal(r.state()) // plain structs
@@ -287,12 +328,21 @@ func (r *Room) Subscribe(playerID string, key string) (ch <-chan string, cancel 
 			stop()
 			r.mu.Lock()
 			defer r.mu.Unlock()
-			if p != nil && p.streams > 0 {
-				p.streams--
+			if r.streams[session]--; r.streams[session] <= 0 {
+				delete(r.streams, session)
+			}
+			if r.onSession(session) {
 				r.publish()
 			}
 		})
 	}, string(b), true
+}
+
+// onSession reports whether a player is on session.
+func (r *Room) onSession(session string) bool {
+	return session != "" && slices.ContainsFunc(r.players, func(p *player) bool {
+		return p.id == session || (p.device != "" && deviceSession(p.device) == session)
+	})
 }
 
 // close ends every stream of the room.
@@ -345,18 +395,32 @@ func (r *Room) member(playerID string) error {
 // HostProfile is the profile that created the room.
 func (r *Room) HostProfile() string { return r.hostProfile }
 
-// Join adds a player, or returns the one rejoining: a guest by the player id its cookie carries, a paired profile by
-// its profile. A player who joins mid-round is "late" and plays from the next round. The kicked stay out.
-func (r *Room) Join(now time.Time, playerID, profileID, name, avatar string) (string, error) {
+// Joiner is who joins: a guest by its session id (the player id its cookie carries), or a paired profile from a
+// device.
+type Joiner struct {
+	Session   string
+	ProfileID string
+	DeviceID  string
+	Name      string
+	Avatar    string
+}
+
+// Join adds a player, or returns the one rejoining: a guest by its session, a paired profile by its profile. A new
+// guest plays under its session id, so a stream it opened before joining counts for it at once. A player who joins
+// mid-round is "late" and plays from the next round. The kicked stay out.
+func (r *Room) Join(now time.Time, j Joiner) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.touch(now)
-	if (playerID != "" && r.banned[playerID]) || (profileID != "" && r.banned[profileID]) {
+	if (j.Session != "" && r.banned[j.Session]) || (j.ProfileID != "" && r.banned[j.ProfileID]) {
 		return "", errKicked
 	}
 	for _, p := range r.players {
-		if (playerID != "" && p.id == playerID) || (profileID != "" && p.profileID == profileID) {
-			p.name, p.avatar = name, avatar
+		if (j.ProfileID != "" && p.profileID == j.ProfileID) || (j.ProfileID == "" && j.Session != "" && p.id == j.Session) {
+			p.name, p.avatar = j.Name, j.Avatar
+			if j.DeviceID != "" {
+				p.device = j.DeviceID
+			}
 			r.publish()
 			return p.id, nil
 		}
@@ -364,7 +428,11 @@ func (r *Room) Join(now time.Time, playerID, profileID, name, avatar string) (st
 	if len(r.players) >= MaxPlayers {
 		return "", errFull
 	}
-	p := &player{id: api.ID(), profileID: profileID, name: name, avatar: avatar, state: StateThinking}
+	id := j.Session
+	if id == "" || j.ProfileID != "" || r.player(id) != nil {
+		id = api.ID()
+	}
+	p := &player{id: id, profileID: j.ProfileID, device: j.DeviceID, name: j.Name, avatar: j.Avatar, state: StateThinking}
 	if r.phase != PhaseLobby {
 		p.state = StateLate
 	}
@@ -499,14 +567,15 @@ func (r *Room) Start(ctx context.Context, profileID string, load Loader) (string
 		return "", errPhase
 	}
 	r.gen++
-	r.queue, r.next = q, nil
+	r.queue, r.next, gen = q, nil, r.gen
 	r.mu.Unlock()
 	if err := r.prefetch(ctx); err != nil {
 		return "", err
 	}
 	r.mu.Lock()
 	now := r.touch(r.clock())
-	if err := r.canStart(profileID); err != nil {
+	// The settings changed meanwhile (configure bumps gen): this queue is for the old deck.
+	if err := r.canStart(profileID); err != nil || r.gen != gen {
 		r.mu.Unlock()
 		return "", errPhase
 	}
@@ -564,11 +633,22 @@ func (r *Room) Next(ctx context.Context, profileID string) (string, error) {
 	return cur.song.ID, nil
 }
 
-// prefetchNext resolves the next clip for the stage; a failure only leaves nextClip empty until Next tries again.
+// prefetchTimeout bounds a background prefetch.
+const prefetchTimeout = 30 * time.Second
+
+// prefetchNext resolves the next clip for the stage in the background, so the host's Start or Next answers at once;
+// it outlives the request. A failure only leaves nextClip empty until Next tries again; a lookup for a queue that
+// was replaced meanwhile is dropped (prefetch's gen check).
 func (r *Room) prefetchNext(ctx context.Context) {
-	if err := r.prefetch(ctx); err != nil {
-		slog.WarnContext(ctx, "next clip not prefetched", "room", r.code, logging.Err(err))
-	}
+	r.bg.Add(1)
+	go func() {
+		defer r.bg.Done()
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), prefetchTimeout)
+		defer cancel()
+		if err := r.prefetch(ctx); err != nil {
+			slog.WarnContext(ctx, "next clip not prefetched", "room", r.code, logging.Err(err))
+		}
+	}()
 }
 
 // prefetch resolves the head of the queue into r.next, outside the room lock. A song without a preview
@@ -811,7 +891,9 @@ func (r *Room) Answer(now time.Time, playerID string, n int, choice string) erro
 	if err != nil {
 		return err
 	}
-	if choice != "earlier" && choice != "exact" && choice != "later" {
+	rd := r.round
+	correct, valid := engine.Correct(choice, rd.pick.song.Year, rd.proposed)
+	if !valid {
 		return api.Fail(http.StatusBadRequest, "invalid_choice", `choice is "earlier", "exact" or "later"`)
 	}
 	switch p.state {
@@ -821,9 +903,6 @@ func (r *Room) Answer(now time.Time, playerID string, n int, choice string) erro
 	default:
 		return errAnswered
 	}
-	rd := r.round
-	y, prop := rd.pick.song.Year, rd.proposed
-	correct := (choice == "earlier" && y < prop) || (choice == "later" && y > prop) || (choice == "exact" && y == prop)
 	switch {
 	case r.phase == PhasePlaying:
 	case (r.phase == PhaseResult || r.phase == PhaseOver) && r.inPhotoWindow(now):
