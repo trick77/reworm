@@ -140,6 +140,22 @@ func TestOffset_directionFiftyFiftyUnlessAnEdge(t *testing.T) {
 	}
 }
 
+func TestCorrect(t *testing.T) {
+	for _, c := range []struct {
+		choice         string
+		year, proposed int
+		correct, valid bool
+	}{
+		{"earlier", 1976, 1980, true, true}, {"earlier", 1980, 1980, false, true}, {"later", 1981, 1980, true, true},
+		{"later", 1979, 1980, false, true}, {"exact", 1980, 1980, true, true}, {"exact", 1981, 1980, false, true},
+		{"sideways", 1980, 1980, false, false},
+	} {
+		if ok, valid := Correct(c.choice, c.year, c.proposed); ok != c.correct || valid != c.valid {
+			t.Errorf("Correct(%q, %d, %d) = %v %v", c.choice, c.year, c.proposed, ok, valid)
+		}
+	}
+}
+
 func TestPickTier_degenerateMix(t *testing.T) {
 	if got := PickTier(seeded(4), Mix{0, 0, 0, 1}); got != TierExact {
 		t.Errorf("all exact = %s", got)

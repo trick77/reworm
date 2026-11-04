@@ -158,6 +158,21 @@ func Offset(rng *rand.Rand, year int, t Tier, maxYear int) int {
 	return year - d
 }
 
+// Correct judges an answer to a proposed year, the one rule party and training share: "earlier" is right when the
+// song is older than the year shown, "later" when newer, "exact" when it is that year. valid is false for any other
+// choice.
+func Correct(choice string, year, proposed int) (correct, valid bool) {
+	switch choice {
+	case "earlier":
+		return year < proposed, true
+	case "later":
+		return year > proposed, true
+	case "exact":
+		return year == proposed, true
+	}
+	return false, false
+}
+
 // Propose draws a tier from the difficulty's mix shifted by shift and places the proposal: the year shown for a
 // song from year.
 func Propose(rng *rand.Rand, year int, difficulty string, shift, maxYear int) (int, Tier) {
