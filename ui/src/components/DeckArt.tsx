@@ -1,5 +1,5 @@
-// Deck tiles: a picture per theme (record, cassette, bolt, sun, …) on its own colours, picked from the deck's
-// name. Letters were dropped: "RT" told nobody it was Rock Anthems.
+// Deck tiles: a picture per theme (record, cassette, bolt, sun, …) on its own colours, keyed by the deck's slug,
+// else guessed from whole words of its name. Letters were dropped: "RT" told nobody it was Rock Anthems.
 import type { ReactNode } from "react";
 
 type Art = { glyph: ReactNode; from: string; to: string };
@@ -101,34 +101,62 @@ const G = {
   ),
 };
 
-// First matching rule wins; keys are lower-case words of the deck name.
+const A = {
+  tree: { glyph: G.tree, from: "#2f9e6b", to: "#7a1f14" },
+  bolt: { glyph: G.bolt, from: "#3a3a44", to: "#e5482f" },
+  heart: { glyph: G.heart, from: "#ff6f91", to: "#9c2a5a" },
+  sun: { glyph: G.sun, from: "#ffcf4a", to: "#ff7a3d" },
+  disco: { glyph: G.disco, from: "#c86bd9", to: "#3a2a7a" },
+  popper: { glyph: G.popper, from: "#ff5ab4", to: "#ffb347" },
+  mic: { glyph: G.mic, from: "#69aee8", to: "#5a2a9a" },
+  clapper: { glyph: G.clapper, from: "#2c2c34", to: "#e9b44c" },
+  radio: { glyph: G.radio, from: "#e9b44c", to: "#8a4b1c" },
+  cassette: { glyph: G.cassette, from: "#3dbb8c", to: "#1f4a7a" },
+  star: { glyph: G.star, from: "#e5482f", to: "#e9b44c" },
+  crown: { glyph: G.crown, from: "#f2c14e", to: "#b0702a" },
+  gramophone: { glyph: G.gramophone, from: "#b08a5a", to: "#4a3020" },
+  vinyl: { glyph: G.vinyl, from: "#e5482f", to: "#3a1410" },
+} satisfies Record<string, Art>;
+
+// The slugs of backend/internal/deck/names.go (sets, categories).
+const BY_ID: Record<string, Art> = {
+  essentials: A.vinyl,
+  "mega-mix": A.cassette,
+  "rock-anthems": A.bolt,
+  "schlager-fest": A.heart,
+  sunshine: A.sun,
+  "cheesy-classics": A.disco,
+  "party-starters": A.popper,
+  "crowd-pleasers": A.mic,
+  "screen-hits": A.clapper,
+  "christmas-hits": A.tree,
+  "radio-gold": A.radio,
+  "smash-hits": A.star,
+  "number-ones": A.crown,
+  evergreens: A.gramophone,
+  christmas: A.tree,
+  "movie-tv": A.clapper,
+  summer: A.sun,
+  party: A.popper,
+  "swiss-charts": A.crown,
+  eurovision: A.mic,
+};
+
+// A deck without a slug entry: first rule matching a whole word of its name wins.
 const RULES: [RegExp, Art][] = [
-  [
-    /christmas|xmas|weihnacht/,
-    { glyph: G.tree, from: "#2f9e6b", to: "#7a1f14" },
-  ],
-  [/rock|metal|punk/, { glyph: G.bolt, from: "#3a3a44", to: "#e5482f" }],
-  [/schlager|love/, { glyph: G.heart, from: "#ff6f91", to: "#9c2a5a" }],
-  [/sun|summer/, { glyph: G.sun, from: "#ffcf4a", to: "#ff7a3d" }],
-  [/cheesy|disco|guilty/, { glyph: G.disco, from: "#c86bd9", to: "#3a2a7a" }],
-  [/party|starter/, { glyph: G.popper, from: "#ff5ab4", to: "#ffb347" }],
-  [
-    /crowd|eurovision|karaoke/,
-    { glyph: G.mic, from: "#69aee8", to: "#5a2a9a" },
-  ],
-  [
-    /screen|movie|film|\btv\b/,
-    { glyph: G.clapper, from: "#2c2c34", to: "#e9b44c" },
-  ],
-  [/radio/, { glyph: G.radio, from: "#e9b44c", to: "#8a4b1c" }],
-  [/mix/, { glyph: G.cassette, from: "#3dbb8c", to: "#1f4a7a" }],
-  [/smash|\bhits?\b/, { glyph: G.star, from: "#e5482f", to: "#e9b44c" }],
-  [/number|\bones\b|chart/, { glyph: G.crown, from: "#f2c14e", to: "#b0702a" }],
-  [
-    /evergreen|classic|oldie/,
-    { glyph: G.gramophone, from: "#b08a5a", to: "#4a3020" },
-  ],
-  [/essential/, { glyph: G.vinyl, from: "#e5482f", to: "#3a1410" }],
+  [/\b(christmas|xmas)\b/, A.tree],
+  [/\b(rock|metal|punk)\b/, A.bolt],
+  [/\b(schlager|love)\b/, A.heart],
+  [/\b(sun|sunshine|summer)\b/, A.sun],
+  [/\b(cheesy|disco)\b/, A.disco],
+  [/\bparty\b/, A.popper],
+  [/\b(eurovision|karaoke)\b/, A.mic],
+  [/\b(movie|film|tv|screen)\b/, A.clapper],
+  [/\bradio\b/, A.radio],
+  [/\bmix\b/, A.cassette],
+  [/\b(smash|hits?)\b/, A.star],
+  [/\b(number|charts?)\b/, A.crown],
+  [/\b(evergreens?|oldies?)\b/, A.gramophone],
 ];
 
 const FALLBACK: [string, string][] = [
@@ -136,9 +164,13 @@ const FALLBACK: [string, string][] = [
   ["#3dbb8c", "#1f6a6a"],
   ["#c86bd9", "#5a2a7a"],
   ["#e9b44c", "#c0662b"],
+  ["#e5482f", "#7a1f14"],
+  ["#cfd3d8", "#5d636b"],
 ];
 
-export function deckArt(name: string, i = 0): Art {
+export function deckArt(id: string, name: string, i = 0): Art {
+  const known = BY_ID[id];
+  if (known) return known;
   const n = name.toLowerCase();
   const hit = RULES.find(([re]) => re.test(n));
   if (hit) return hit[1];
@@ -165,8 +197,16 @@ function Glyph({
   );
 }
 
-export function DeckArt({ name, i = 0 }: { name: string; i?: number }) {
-  const { glyph, from, to } = deckArt(name, i);
+export function DeckArt({
+  id,
+  name,
+  i = 0,
+}: {
+  id: string;
+  name: string;
+  i?: number;
+}) {
+  const { glyph, from, to } = deckArt(id, name, i);
   return (
     <div
       className="art"

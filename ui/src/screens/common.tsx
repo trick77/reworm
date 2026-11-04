@@ -226,8 +226,6 @@ export const accColor = (p: number) =>
         ? "#e9b44c"
         : "#e0675d";
 
-export { DeckArt } from "../components/DeckArt";
-
 // deckLabel names a deck selector: "Essentials + Smash Hits", "All songs · 1960–1989".
 export function deckLabel(deck: Deck, decks?: Decks): string {
   const names = [

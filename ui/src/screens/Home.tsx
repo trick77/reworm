@@ -4,13 +4,13 @@ import type { Decks, TrainSettings, TrainStats } from "../api/types";
 import { avatarInfo } from "../avatars";
 import { Avatar } from "../components/Avatar";
 import { AwardBadge } from "../components/AwardBadge";
-import { Button, Card, Pill } from "../components/Controls";
+import { Button, Card, IconButton, Pill } from "../components/Controls";
+import { DeckArt } from "../components/DeckArt";
 import { Icon } from "../components/Icon";
 import { allYears, defaultTraining, load, save } from "../lib/prefs";
 import {
   accColor,
   Brand,
-  DeckArt,
   deckLabel,
   Problem,
   Screen,
@@ -203,24 +203,19 @@ export function Home() {
                   </div>
                 </div>
                 <div className="row" style={{ gap: 6, flex: "none" }}>
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    title="Change deck"
-                    aria-label="Change deck"
+                  <IconButton
+                    icon="train"
+                    label="Change deck"
                     onClick={() => go("/train")}
-                  >
-                    <Icon name="train" />
-                  </button>
+                  />
                   <Button
                     small
                     variant="sky"
                     icon="play"
-                    aria-label="Start training"
                     disabled={training.busy}
                     onClick={() => training.start(today)}
                   >
-                    Train
+                    Start
                   </Button>
                 </div>
               </div>
@@ -295,7 +290,7 @@ export function Home() {
                   className="deck"
                   onClick={() => pickDeck(allYears({ sets: [s.id] }))}
                 >
-                  <DeckArt name={s.name} i={i} />
+                  <DeckArt id={s.id} name={s.name} i={i} />
                   <div className="meta">
                     <div className="t">{s.name}</div>
                     <div className="s">
@@ -311,7 +306,7 @@ export function Home() {
                   className="deck"
                   onClick={() => pickDeck(allYears({ categories: [c.id] }))}
                 >
-                  <DeckArt name={c.name} i={i + 4} />
+                  <DeckArt id={c.id} name={c.name} i={i + 4} />
                   <div className="meta">
                     <div className="t">{c.name}</div>
                     <div className="s">Category · {c.count} songs</div>

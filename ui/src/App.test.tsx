@@ -10,7 +10,7 @@ import { FakeWorld } from "./test/fakeApi";
 import { renderApp } from "./test/render";
 
 describe("App", () => {
-  it("shows home for a paired device: game night, today's round, progress, decades, decks", async () => {
+  it("shows home for a paired device: game night, solo training, progress, decades, decks", async () => {
     const r = renderApp("/", new FakeWorld().device("p-jan"));
     expect(await screen.findByText("Gold record")).toBeInTheDocument();
     expect(screen.getByText("Play with friends")).toBeInTheDocument();
@@ -59,7 +59,7 @@ describe("App", () => {
       await screen.findByText("This device isn't paired"),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Join" })).toBeInTheDocument();
-    expect(screen.queryByText("Today's round")).toBeNull();
+    expect(screen.queryByText("Solo training")).toBeNull();
   });
 
   it("says when a page doesn't exist", () => {
