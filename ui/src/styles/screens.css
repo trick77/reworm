@@ -154,6 +154,18 @@
   position: relative;
   overflow: hidden;
 }
+.art .art-bg {
+  position: absolute;
+  right: -18px;
+  bottom: -18px;
+  opacity: 0.18;
+  transform: rotate(-14deg);
+}
+.art .art-fg {
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+}
 .art::after {
   content: "";
   position: absolute;

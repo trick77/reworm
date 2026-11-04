@@ -226,38 +226,7 @@ export const accColor = (p: number) =>
         ? "#e9b44c"
         : "#e0675d";
 
-// initials: the deck art's letters, as the mock's initials().
-export function initials(s: string): string {
-  return s
-    .split(/[\s,&+/-]+/)
-    .filter((w) => /^[\p{L}\d(]/u.test(w))
-    .slice(0, 2)
-    .map((w) => w.replace(/[^\p{L}\d]/gu, "")[0] ?? "")
-    .join("")
-    .toUpperCase();
-}
-
-const DECK_COLORS: [string, string][] = [
-  ["#e5482f", "#7a1f14"],
-  ["#e9b44c", "#c0662b"],
-  ["#cfd3d8", "#5d636b"],
-  ["#69aee8", "#3a4f9a"],
-  ["#3dbb8c", "#1f6a6a"],
-  ["#c86bd9", "#5a2a7a"],
-];
-
-export function DeckArt({ name, i = 0 }: { name: string; i?: number }) {
-  const [a, b] = DECK_COLORS[i % DECK_COLORS.length];
-  return (
-    <div
-      className="art"
-      style={{ background: `linear-gradient(135deg,${a},${b})` }}
-      aria-hidden="true"
-    >
-      {initials(name)}
-    </div>
-  );
-}
+export { DeckArt } from "../components/DeckArt";
 
 // deckLabel names a deck selector: "Essentials + Smash Hits", "All songs · 1960–1989".
 export function deckLabel(deck: Deck, decks?: Decks): string {

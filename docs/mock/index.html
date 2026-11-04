@@ -616,22 +616,23 @@ function scrHome(){
     <div class="row"><span class="pill">${ICON.flame}<b class="num">12</b> days</span><button data-go="me" title="Profile & devices" style="padding:0;border-radius:50%;box-shadow:0 0 0 2px var(--ink),0 0 0 3.5px ${AVATARS[S.me.av].bg}">${av(S.me.av,36)}</button></div>
   </div>
   <div class="cols"><div class="col">
-  <div class="card party-card" style="margin-top:18px;padding:14px 16px">
-    <div class="row between"><div><div class="kata" style="color:var(--sky)">Game night</div>
-      <div style="font-weight:700;font-size:16px;margin-top:3px">Play with friends</div>
-      <div class="sub" style="font-size:12.5px;margin-top:2px">One screen plays, phones are buzzers. Fastest right answer wins.</div></div>
-      <div style="display:flex">${PLAYERS.slice(0,3).map(([n,c],i)=>`<span style="margin-left:${i?-10:0}px;box-shadow:0 0 0 2px var(--panel);border-radius:50%">${avatar(n,c,30)}</span>`).join("")}</div></div>
-    <div class="row" style="margin-top:12px;gap:8px">
-      <button class="btn small" style="flex:1;background:var(--sky);color:#13110f" data-go="host">${ICON.party} Host a game</button>
-      <button class="btn ghost small" style="flex:1" data-go="join">${ICON.qr} Join</button></div>
-  </div>
-  <div class="card hero" style="margin-top:10px;padding:18px">
-    <div class="kata">Today's round</div>
-    <div style="font-size:24px;font-weight:750;margin:6px 0 2px;letter-spacing:-.3px">Essentials + Smash Hits</div>
-    <div class="sub">10 songs · ~4 min · 6 due for review</div>
+  <div class="card hero party-card" style="margin-top:18px;padding:18px">
+    <div class="kata">Game night</div>
+    <div style="font-size:24px;font-weight:750;margin:6px 0 2px;letter-spacing:-.3px">Play with friends</div>
+    <div class="sub">One screen plays, phones are buzzers. Fastest right answer wins.</div>
+    <div style="display:flex;margin-top:12px">${PLAYERS.slice(0,3).map(([n,c],i)=>`<span style="margin-left:${i?-10:0}px;box-shadow:0 0 0 2px var(--panel);border-radius:50%">${avatar(n,c,30)}</span>`).join("")}</div>
     <div class="row" style="margin-top:16px;gap:8px">
-      <button class="btn primary" style="flex:1" data-act="start">${ICON.play} Start training</button>
-      <button class="icon-btn" style="height:54px;width:54px;border-radius:16px" data-go="setup" title="Change deck">${ICON.train}</button>
+      <button class="btn primary" style="flex:2" data-go="host">${ICON.party} Host a game</button>
+      <button class="btn ghost" style="flex:1" data-go="join">${ICON.qr} Join</button></div>
+  </div>
+  <div class="card" style="margin-top:10px;padding:12px 14px">
+    <div class="row between" style="gap:8px"><div style="min-width:0">
+      <div class="kata" style="color:var(--sky)">Solo training</div>
+      <div style="font-weight:650;font-size:15px;margin-top:2px">Essentials + Smash Hits</div>
+      <div class="sub" style="font-size:12.5px">10 songs · ~4 min · 6 due for review</div></div>
+      <div class="row" style="gap:6px;flex:none">
+        <button class="icon-btn" data-go="setup" title="Change deck">${ICON.train}</button>
+        <button class="btn small" style="background:var(--sky);color:#13110f" data-act="start">${ICON.play} Train</button></div>
     </div>
   </div>
   <div class="label">Your progress</div>

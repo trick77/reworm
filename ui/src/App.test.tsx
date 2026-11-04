@@ -14,7 +14,7 @@ describe("App", () => {
     const r = renderApp("/", new FakeWorld().device("p-jan"));
     expect(await screen.findByText("Gold record")).toBeInTheDocument();
     expect(screen.getByText("Play with friends")).toBeInTheDocument();
-    expect(screen.getByText("Today's round")).toBeInTheDocument();
+    expect(screen.getByText("Solo training")).toBeInTheDocument();
     expect(
       await screen.findByText("Card set · 1908–2021 · 308 cards"),
     ).toBeInTheDocument();
