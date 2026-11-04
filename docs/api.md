@@ -21,7 +21,11 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   refreshed at most every 5 min); `DELETE /api/devices/{id}` → 204 (own profile's devices; the admin: any). Removing
   the current device clears its cookie.
 - `POST /api/pair` `{kind: "device"|"invite"}` → 201 `{code: "H4K9QZ", url: "https://<host>/pair/H4K9QZ", expiresAt}`
-  (5 min, single use; alphabet without 0/O/1/I; rate-limited per client address)
+  (5 min, single use; alphabet without 0/O/1/I; rate-limited per client address). `url` is absolute only when the
+  server has `PUBLIC_FQDN`; otherwise it is the path `/pair/<code>` and the client prefixes its own origin (never
+  built from the request's Host header).
+- The admin profile's only device cannot leave it: switching away, deleting it or claiming a code over it → 409
+  `last_admin` (pair a second device first).
 - `POST /api/pair/claim` `{code, name?, avatar?}` → 201 + `/api/me` body, sets the cookie. `device` adds this device to
   the code's profile, `invite` creates a new profile (name+avatar required, a bad one leaves the code usable). A
   browser already paired drops its old device row. 404 `invalid_code` (wrong, used or expired). Rate-limited.
@@ -49,7 +53,10 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - `GET  /api/rooms/{code}` → `RoomState` (snapshot; also used after SSE reconnect) | 404 `unknown_room`
 - `GET  /api/rooms/{code}/events` → SSE, event `state` with the full `RoomState` on every change, the current one
   first (small payload; simplest correct). `: keepalive` comments every 25 s. 503 `too_many_streams` past 64 per
-  room or 12 per client address (a party shares one router).
+  room or 12 per client address (a party shares one router). A browser that is neither paired nor holds a guest
+  cookie for the room gets one with the stream; joining later on that cookie makes the open stream count as the
+  player's connection (`connected`). `nextClip` is resolved in the background after start/next and arrives with a
+  later `state` event.
 - `GET  /api/rooms/{code}/me` → `{playerId}` the guest cookie or paired profile plays as | 401 `not_in_room` (no
   session for this room) | 403 `kicked`. The pad asks this instead of trusting its own storage.
 - `POST /api/rooms/{code}/join` `{name, avatar}` → guest cookie, `{playerId}` (paired profiles join with their
@@ -116,9 +123,13 @@ server; years: other correct answers only; buzzer: all buzzes; < 50 ms shown as 
 - `GET  /api/train/sessions/{id}` → `{id, index, total, card, stats, now}` (resume; `card` null when done; `stats` =
   `{correct, answered, streak, bestStreak, learning, xp}`; 404 `unknown_session`, also for another profile's)
 - `now` (server unix ms) in create, resume and answer responses, for the client's clock offset.
+- Training requests should carry `X-Timezone: <IANA zone>` (e.g. `Europe/Zurich`); the daily streak counts days in
+  that zone, remembered on the profile (no or an invalid header: the stored zone, else UTC).
+- Create tries at most 3 × length songs for previews (4 at a time).
 - card = `{ id, retry, proposedYear?, clip: {previewUrl, from, length} }` (`proposedYear` in years mode only)
 - `POST /api/train/sessions/{id}/answer` `{cardId, choice? | year?}` → `{correct, tier: "easy"|"clear"|"tight"|"exact",
-  xp, song, next: card|null, now}`. 409 `wrong_card` (not the current card), 409 `conflict` (answered twice at once).
+  xp, song, next: card|null, nextError: null|"previews_unavailable"|"internal", now}`. The answer is saved before
+  the next card is readied: when that fails, `next` is null with `nextError` set — GET the session to retry. 409 `wrong_card` (not the current card), 409 `conflict` (answered twice at once).
   Pin mode: right within ±1 year; `tier` is how far the pin was. XP for a right answer: 30 exact, 20 within 2
   years (years mode: of the proposed year; pin: ±1), else 10. A first miss comes back 3 cards later with another year
   (`retry: true`, `total` grows).
