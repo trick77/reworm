@@ -13,16 +13,16 @@ without one stay in the dataset (no clip until an override).
 |---|---:|
 | cards | 3036 |
 | cards without a year (dropped) | 0 |
-| songs | 2755 |
-| card spellings merged into one recording | 29 |
-| MusicBrainz matched | 2660 |
-| MusicBrainz matched, no low-confidence note | 2100 |
-| Apple track with preview | 2675 |
-| no Apple preview | 80 |
-| Apple track on the original album | 1754 |
-| cover: Apple (original album) | 1754 |
-| cover: Cover Art Archive | 714 |
-| cover: none | 287 |
+| songs | 2756 |
+| card spellings merged into one recording | 28 |
+| MusicBrainz matched | 2662 |
+| MusicBrainz matched, no low-confidence note | 2101 |
+| Apple track with preview | 2677 |
+| no Apple preview | 79 |
+| Apple track on the original album | 1751 |
+| cover: Apple (original album) | 1751 |
+| cover: Cover Art Archive | 717 |
+| cover: none | 288 |
 | overrides applied | 0 |
 
 ## Sets
@@ -37,11 +37,11 @@ without one stay in the dataset (no clip until an override).
 | party-starters | 308 | 0 | 308 | 307 | 306 |
 | radio-gold | 154 | 0 | 154 | 151 | 150 |
 | rock-anthems | 308 | 0 | 308 | 308 | 308 |
-| schlager-fest | 308 | 0 | 307 | 285 | 293 |
+| schlager-fest | 308 | 0 | 307 | 286 | 294 |
 | screen-hits | 154 | 0 | 154 | 114 | 111 |
 | sunshine | 308 | 0 | 308 | 302 | 307 |
 
-## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (360)
+## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (361)
 
 | artist | title | year | MusicBrainz | Apple | Apple on original album |
 |---|---|---:|---:|---:|---|
@@ -175,6 +175,7 @@ without one stay in the dataset (no clip until an override).
 | Gitte Haenning | Freu dich bloß nicht zu früh | 1980 | 1980 | 1991 |  |
 | Gitte Haenning | Ich will alles | 1983 | 1984 | 1986 |  |
 | Gitte Hænning | Ich will 'nen Cowboy als Mann | 1963 | 1988 | 2004 |  |
+| Gitti Und Erica | Heidi | 1977 | 1977 | 1995 |  |
 | Glenn Frey | The Heat Is On | 1984 | 1984 | 1995 |  |
 | Gölä, Trauffer | Büetzer Buebe | 2019 | 2009 | 2019 | yes |
 | Gottlieb Wendehals | Polonase Blankenese | 1981 | 1981 | 2000 |  |
@@ -425,7 +426,7 @@ without one stay in the dataset (no clip until an override).
 | Red Hot Chili Peppers | Under the Bridge | 1991, 1992 |
 | The Guess Who | American Woman | 1970, 1971 |
 
-## Cards merged into another card's recording (29)
+## Cards merged into another card's recording (28)
 
 | artist | title | kept as artist | kept as title |
 |---|---|---|---|
@@ -449,7 +450,6 @@ without one stay in the dataset (no clip until an override).
 | Lady Gaga | Shallow | Lady Gaga, Bradley Cooper | Shallow |
 | Las Ketchup | The Ketchup Song (Aserejé) | Las Ketchup | The Ketchup Song |
 | Led Zeppelin | Stairway to Heaven - Remaster | Led Zeppelin | Stairway to Heaven |
-| Major Lazer | Lean On | Major Lazer & DJ Snake | Lean On (feat. MØ) |
 | Phil Collins | In The Air Tonight - 2015 Remastered | Phil Collins | In The Air Tonight |
 | Queen | We Will Rock You - Remastered 2011 | Queen | We Will Rock You |
 | Roxette | Pretty Woman (It Must Have Been Love) | Roxette | It Must Have Been Love |
@@ -459,7 +459,7 @@ without one stay in the dataset (no clip until an override).
 | The Rembrandts | I'll Be There for You (Theme from "Friends') | The Rembrandts | I'll Be There for You |
 | Whitney Houston | I Will Always Love You | Whitney Houston | Bodyguard (I Will Always Love You) |
 
-## Low-confidence matches (602)
+## Low-confidence matches (601)
 
 | artist | title | why |
 |---|---|---|
@@ -490,7 +490,7 @@ without one stay in the dataset (no clip until an override).
 | Audrey Hepburn | Frühstück bei Tiffany (Moon River) | MusicBrainz matched as Audrey Hepburn – Moon River |
 | Avicii, Sandro Cavazza | Without You (feat. Sandro Cavazza) | MusicBrainz matched as Avicii – Without You |
 | Avicii | Levels - Radio Edit | MusicBrainz matched as Avicii – Levels |
-| Axwell/Ingrosso | Sun Is Shining | kept from the previous import (offline, needs the network) |
+| Axwell/Ingrosso | Sun Is Shining | MusicBrainz matched as Axwell – Sun Is Shining |
 | AYLIVA | Sie weiß (feat. Mero) | MusicBrainz matched as AYLIVA – Sie weiß |
 | B 3 | I.O.I.O. | Apple track found by search (B 3 – I.O.I.O. (Radio Edit)) |
 | Barbra Streisand | So wie wir waren - The Way We Were | MusicBrainz matched as Barbra Streisand – The Way We Were |
@@ -679,13 +679,13 @@ without one stay in the dataset (no clip until an override).
 | George Michael, Aretha Franklin | I Knew You Were Waiting (For Me) | MusicBrainz matched as George Michael – I Knew You Were Waiting (For Me); Apple track found by search (George Michael & Aretha Franklin – I Knew You Were Waiting (For Me)) |
 | Georgie Fame & The Blue Flames | Yeh, Yeh | Apple track found by search (Georgie Fame & The Blue Flames – Yeh, Yeh) |
 | G.G. Anderson | Nein heißt ja | MusicBrainz has it only from 2000, after the card year |
-| Gianna Nannini & Edoardo Bennato | Un'Estate Italiana | kept from the previous import (offline, needs the network) |
+| Gianna Nannini & Edoardo Bennato | Un'Estate Italiana | MusicBrainz matched as Gianna Nannini – Un'Estate Italiana |
 | Gipsy Kings | Baila Me | Apple track found by search (Gipsy Kings – Baila Me) |
 | Gipsy Kings | Djobi, Djoba | Apple track found by search (Gipsy Kings – Djobi Djoba) |
 | Gipsy Kings | Volare (Nel Blu di Pinto di Blu) | MusicBrainz matched as Gipsy Kings – Volare |
 | Gitte Haenning | Ich will alles | Apple track found by search (Gitte Hænning – Ich will alles) |
 | Gitte Hænning | Ich will 'nen Cowboy als Mann | MusicBrainz has it only from 1988, after the card year; Apple track found by search (Gitte Hænning – Ich will 'nen Cowboy als Mann (Remastered 2004)) |
-| Gitti Und Erica | Heidi | kept from the previous import (offline, needs the network) |
+| Gitti Und Erica | Heidi | MusicBrainz matched as Gitti – Heidi |
 | Glen Hansard, Markéta Irglová | Once (Falling Slowly) | MusicBrainz matched as Glen Hansard – Once |
 | Glenn Miller | In the Mood | Apple track found by search (Glenn Miller and His Orchestra – In the Mood) |
 | Gölä, Trauffer | Büetzer Buebe | MusicBrainz matched as Gölä – Büetzer Buebe |
@@ -704,7 +704,7 @@ without one stay in the dataset (no clip until an override).
 | Hermes House Band | Country Roads (Dance Radio Version) | Apple track found by search (Hermes House Band – Country Roads (Radio Dance Version)) |
 | High School Musical Cast | High School Musical (We're All In This Together) | MusicBrainz matched as High School Musical Cast – We're All In This Together |
 | Howard Shore | Der Herr der Ringe (The Shire) | Apple track found by search (Howard Shore – The Shire) |
-| Ian Dury | Hit Me with Your Rhythm Stick | kept from the previous import (offline, needs the network) |
+| Ian Dury | Hit Me with Your Rhythm Stick | MusicBrainz artist matched loosely (Ian Dury & the Blockheads) |
 | Ibo | Ein Himmelbett im Internet | Apple track found by search (Ibo – Ein Himmelbett im Internet) |
 | Ibo | Ratzfatz nach Mallorca | Apple track found by search (Ibo – Ratzfatz nach Mallorca) |
 | Ich + Ich | So soll es bleiben - Single Edit | MusicBrainz matched as Ich + Ich – So soll es bleiben |
@@ -813,7 +813,7 @@ without one stay in the dataset (no clip until an override).
 | Macklemore & Ryan Lewis | Thrift Shop (feat. Wanz) | MusicBrainz matched as Macklemore & Ryan Lewis – Thrift Shop |
 | Madcon (with Ray Dalton) | Don't Worry | MusicBrainz matched as Madcon – Don't Worry |
 | MadHouse | Like a Prayer | Apple track found by search (Mad'House – Like a Prayer (Radio Edit)) |
-| Major Lazer & DJ Snake | Lean On (feat. MØ) | kept from the previous import (offline, needs the network) |
+| Major Lazer & DJ Snake | Lean On (feat. MØ) | MusicBrainz matched as Major Lazer & DJ Snake – Lean On; Apple track found by search (Major Lazer – Lean On (feat. MØ & DJ Snake)) |
 | Måneskin | GOSSIP (feat. Tom Morello) | MusicBrainz matched as Måneskin – GOSSIP |
 | Manuela Fellner | 7 Tage hat die Woche | Apple track found by search (Manuela Fellner – 7 Tage hat die Woche (Album-Version)) |
 | Margaret Whiting | Baby, It's Cold Outside | Apple track found by search (Margaret Whiting – Baby, it's cold outside) |
@@ -910,7 +910,7 @@ without one stay in the dataset (no clip until an override).
 | Peter Maffay | Brief an den Weihnachtsmann | MusicBrainz has it only from 2007, after the card year; Apple track found by search (Peter Maffay – Brief an den Weihnachtsmann) |
 | Peter Maffay | Über sieben Brücken musst du geh'n - Digitally Remastered | MusicBrainz matched as Peter Maffay – Über sieben Brücken musst du geh'n |
 | Phil Collins | A Groovy Kind of Love | MusicBrainz has it only from 1990, after the card year; Apple track found by search (Phil Collins – A Groovy Kind of Love) |
-| Phil Harris, Bruce Reitherman | Das Dschungelbuch (The Bare Necessities) | kept from the previous import (offline, needs the network) |
+| Phil Harris, Bruce Reitherman | Das Dschungelbuch (The Bare Necessities) | MusicBrainz matched as Phil Harris – The Bare Necessities |
 | Pink Floyd | Another Brick In The Wall, Pt. 2 | MusicBrainz has it only from 1999, after the card year; Apple track found by search (Pink Floyd – Another Brick In the Wall, Pt. 2) |
 | Pink Floyd | Money - 2023 Remaster | MusicBrainz matched as Pink Floyd – Money |
 | Pitbull | Give Me Everything (feat. Nayer) | MusicBrainz matched as Pitbull – Give Me Everything |
@@ -948,8 +948,8 @@ without one stay in the dataset (no clip until an override).
 | Roy Black | Wünsche und Gedanken | Apple track found by search (Roy Black, Hans Bertram & Axel Weingarten – Wünsche und Gedanken) |
 | Rudi Carrell | Goethe war gut | Apple track found by search (Rudi Carrell – Goethe war gut) |
 | Rudimental | Waiting All Night (feat. Ella Eyre) | MusicBrainz matched as Rudimental – Waiting All Night |
-| Rufus, Chaka Khan | Ain't Nobody | kept from the previous import (offline, needs the network) |
-| Ryan Gosling, Emma Stone | La La Land (City Of Stars) | kept from the previous import (offline, needs the network) |
+| Rufus, Chaka Khan | Ain't Nobody | MusicBrainz matched as Rufus – Ain't Nobody |
+| Ryan Gosling, Emma Stone | La La Land (City Of Stars) | MusicBrainz matched as Ryan Gosling, Emma Stone – City Of Stars |
 | Ryan Gosling | Barbie (I'm Just Ken) | MusicBrainz matched as Ryan Gosling – I'm Just Ken |
 | S Club | Bring It All Back | Apple track found by search (S Club – Bring It All Back) |
 | S Club | Don't Stop Movin' | MusicBrainz has it only from 2004, after the card year |
@@ -967,7 +967,6 @@ without one stay in the dataset (no clip until an override).
 | Sarah Connor | Living To Love You - Single Version | MusicBrainz matched as Sarah Connor – Living To Love You |
 | Sarah-Jane | Einmal hin, einmal her | Apple track found by search (Sarah-Jane – Einmal Hin, Einmal Her) |
 | Schnappi, Joy | Schnappi, das kleine Krokodil | MusicBrainz matched as Schnappi – Schnappi, das kleine Krokodil |
-| Seiler und Speer | Ham kummst Single | kept from the previous import (offline, needs the network) |
 | Shaggy, Rik Rok | It Wasn't Me | MusicBrainz matched as Shaggy – It Wasn't Me |
 | Shaggy | Mr Boombastic | MusicBrainz has it only from 2007, after the card year |
 | Shakespears Sister | Hello - Turn Your Radio On | MusicBrainz matched as Shakespears Sister – Hello |
@@ -982,7 +981,7 @@ without one stay in the dataset (no clip until an override).
 | Stefan Waggershausen, Viktor Lazlo | Das erste Mal tat's noch weh (Les histoires d'amour) | MusicBrainz matched as Stefan Waggershausen – Das erste Mal tat's noch weh (Les histoires d'amour) |
 | Stefanie Hertel | Erst du, dann du | Apple track found by search (Stefanie Hertel – Erst du, dann du) |
 | Stephan Remmler | Alles hat ein Ende, nur die Wurst hat zwei (Krause und Ruth) | MusicBrainz matched as Stephan Remmler – Alles hat ein Ende, nur die Wurst hat zwei |
-| Stereoact, Kerstin Ott | Die Immer Lacht | kept from the previous import (offline, needs the network) |
+| Stereoact, Kerstin Ott | Die Immer Lacht | MusicBrainz matched as Stereoact – Die Immer Lacht |
 | Steve Harley | Make Me Smile (Come up and See Me) | MusicBrainz artist matched loosely (Steve Harley & Cockney Rebel) |
 | Stevie Wonder | Superstition - Single Version | MusicBrainz matched as Stevie Wonder – Superstition |
 | Stu Phillips | Knight Rider | MusicBrainz has it only from 1989, after the card year; Apple track found by search (Stu Phillips – Knight Rider (Anish Kumar Remix) [Mixed]) |
@@ -1066,7 +1065,7 @@ without one stay in the dataset (no clip until an override).
 | Youssou N'Dour | 7 Seconds (feat. Neneh Cherry) | MusicBrainz matched as Youssou N'Dour – 7 Seconds |
 | Yusuf / Cat Stevens | Father And Son | MusicBrainz matched as Yusuf – Father And Son; Apple track found by search (Yusuf / Cat Stevens – Father and Son (Re-Recorded Version)) |
 
-## Not found on MusicBrainz (95)
+## Not found on MusicBrainz (94)
 
 | artist | title |
 |---|---|
@@ -1109,7 +1108,6 @@ without one stay in the dataset (no clip until an override).
 | Gabriel Mann | Modern Family |
 | Gato Barbieri | Der letzte Tango in Paris |
 | Georges Delerue | Platoon |
-| Gitti Und Erica | Heidi |
 | Hans Zimmer | The Crown |
 | Hey Beautiful | How I Met Your Mother |
 | Howard Shore | Der Herr der Ringe (The Shire) |
@@ -1166,7 +1164,7 @@ without one stay in the dataset (no clip until an override).
 | Wencke Myhre | Ich Glou'an Den Weihnachtsmann |
 | Wolfram | Trödler Abraham |
 
-## No Apple track with a preview (80)
+## No Apple track with a preview (79)
 
 | artist | title |
 |---|---|
@@ -1197,7 +1195,6 @@ without one stay in the dataset (no clip until an override).
 | Gabriel Mann | Modern Family |
 | Gato Barbieri | Der letzte Tango in Paris |
 | Georges Delerue | Platoon |
-| Gitti Und Erica | Heidi |
 | Hans Zimmer | The Crown |
 | Henry Mancini | Der Rosarote Panther |
 | Hey Beautiful | How I Met Your Mother |
