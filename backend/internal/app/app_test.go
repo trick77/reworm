@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,6 +45,60 @@ func TestLoadConfig_badTrustedProxies(t *testing.T) {
 	for _, v := range []string{"-1", "one"} {
 		if _, err := LoadConfig(lookup(map[string]string{"BACKEND_TRUSTED_PROXIES": v})); err == nil {
 			t.Errorf("BACKEND_TRUSTED_PROXIES=%s: no error", v)
+		}
+	}
+}
+
+func TestLoadConfig_dev(t *testing.T) {
+	cfg, err := LoadConfig(lookup(map[string]string{"BACKEND_DEV_PREVIEWS": "/clips", "BACKEND_DEV_SONGS": "/s.jsonl"}))
+	if err != nil || cfg.DevPreviews != "/clips" || cfg.DevSongs != "/s.jsonl" {
+		t.Fatalf("dev = %+v, %v", cfg, err)
+	}
+	// never on a public server: a dev clip URL names the song
+	for _, v := range []string{"BACKEND_DEV_PREVIEWS", "BACKEND_DEV_SONGS"} {
+		if _, err := LoadConfig(lookup(map[string]string{v: "/x", "PUBLIC_FQDN": "reworm.example"})); err == nil {
+			t.Errorf("%s with PUBLIC_FQDN accepted", v)
+		}
+	}
+}
+
+func TestNewAPI_devRig(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "reworm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	clips := filepath.Join(dir, "clips")
+	songs := filepath.Join(dir, "songs.jsonl")
+	if err := os.Mkdir(clips, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(clips, "dq.wav"), []byte("RIFF"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(songs, []byte(`{"id":"dq","artist":"ABBA","title":"Dancing Queen","year":1976,"sets":["essentials"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parts, err := newAPI(ctx, Config{DataDir: dir, DevPreviews: clips, DevSongs: songs}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer parts.party.Close()
+	h := server.New(server.Options{Static: http.NotFoundHandler(), API: parts.routes})
+	for path, want := range map[string]string{"/api/dev/previews/dq.wav": "RIFF", "/api/decks": `"count":1`} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("%s = %d %s", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	for _, cfg := range []Config{{DataDir: dir, DevSongs: filepath.Join(dir, "missing")},
+		{DataDir: dir, DevPreviews: filepath.Join(dir, "missing")}} {
+		if _, err := newAPI(ctx, cfg, db); err == nil {
+			t.Errorf("%+v: no error", cfg)
 		}
 	}
 }
