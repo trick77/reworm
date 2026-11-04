@@ -1,13 +1,20 @@
 // /join/:code? — the phone's way in: the room code (from the QR or typed), a name and an avatar. Once
 // joined, the same route is the pad.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import type { ApiError } from "../../api/client";
-import { toApiError, useApi, useAsync, useMe } from "../../api/context";
+import { BACKOFF_MAX_MS, BACKOFF_MS, type ApiError } from "../../api/client";
+import { toApiError, useApi, useMe } from "../../api/context";
 import { avatarInfo } from "../../avatars";
 import { Button } from "../../components/Controls";
-import { load, save } from "../../lib/prefs";
-import { AvatarStrip, CodeBoxes, Loading, Screen, ScreenHead } from "../common";
+import { load, playerKey, save } from "../../lib/prefs";
+import {
+  AvatarStrip,
+  CodeBoxes,
+  Loading,
+  Problem,
+  Screen,
+  ScreenHead,
+} from "../common";
 import { Pad } from "./Pad";
 
 type Guest = { name: string; avatar: string };
@@ -130,17 +137,78 @@ function JoinForm({
   );
 }
 
+// handed: players just joined on /join, handed to the /join/CODE screen that opens next, which then needs
+// no rooms/{code}/me of its own.
+const handed = new Map<string, string>();
+
+type Asked = { code: string; id: string | null; refused?: ApiError };
+
+// useServerPlayer asks rooms/{code}/me for this browser's player (guest cookie or profile), the room's word
+// over any stored id. A failed ask (network, 5xx) is tried again with a backoff; a kicked player is refused.
+function useServerPlayer(code: string | null) {
+  const api = useApi();
+  const [asked, setAsked] = useState<Asked | null>(null);
+  const [failed, setFailed] = useState<{ code: string; e: ApiError } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!code) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const ask = () =>
+      api.roomMe(code).then(
+        (id) => live && setAsked({ code, id }),
+        (e: unknown) => {
+          if (!live) return;
+          const err = toApiError(e);
+          if (err.status === 403)
+            return setAsked({ code, id: null, refused: err });
+          setFailed({ code, e: err });
+          timer = setTimeout(
+            () => void ask(),
+            Math.min(BACKOFF_MAX_MS, BACKOFF_MS * 2 ** attempt++),
+          );
+        },
+      );
+    void ask();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [api, code]);
+  const mine = asked?.code === code ? asked : null;
+  return {
+    answered: !!mine,
+    id: mine?.id ?? null,
+    refused: mine?.refused,
+    error: !mine && failed?.code === code ? failed.e : undefined,
+  };
+}
+
 export function Join({ code: raw }: { code?: string }) {
   const [, go] = useLocation();
   const code = raw?.toUpperCase();
-  const api = useApi();
-  // joined: the player this page just joined as; note: why the form is back (the pad lost its player)
-  const [joined, setJoined] = useState<string | null>(null);
+  // joined: the player this page (or /join just before it) joined as: confirmed, no need to ask
+  const [joined, setJoined] = useState<string | null>(() =>
+    code ? (handed.get(code) ?? null) : null,
+  );
+  useEffect(() => {
+    if (code) handed.delete(code);
+  }, [code]);
+  // note: why the form is back (the pad lost its player)
   const [note, setNote] = useState<string | undefined>();
-  // the server knows this browser's player (guest cookie or profile): a reload, the QR again, another tab
+  // guessed: the stored id led nowhere; wait for the server's answer instead
+  const [guessed, setGuessed] = useState(false);
   const asking = !!code && !joined && !note;
-  const asked = useAsync(asking ? `me:${code}` : null, () => api.roomMe(code!));
-  const id = joined ?? (asking ? (asked.data ?? null) : null);
+  const server = useServerPlayer(asking ? code : null);
+  // the stored id plays at once on a reload; the server's answer confirms or corrects it
+  const stored = code && !guessed ? load<string>(playerKey(code)) : null;
+  const id = joined ?? (asking ? (server.answered ? server.id : stored) : null);
+  useEffect(() => {
+    if (code && asking && server.answered) save(playerKey(code), server.id);
+  }, [code, asking, server.answered, server.id]);
+
   if (code && id)
     return (
       <Pad
@@ -148,26 +216,36 @@ export function Join({ code: raw }: { code?: string }) {
         code={code}
         playerId={id}
         onGone={() => {
-          setJoined(null);
-          setNote("You're not in this game any more. Join again?");
+          save(playerKey(code), null);
+          if (joined || server.answered) {
+            setJoined(null);
+            setNote("You're not in this game any more. Join again?");
+          } else setGuessed(true);
         }}
       />
     );
-  if (asking && asked.loading)
+  // nothing stored: wait for the server, through its failures, rather than offer the form
+  if (asking && !server.answered)
     return (
       <Screen>
-        <Loading />
+        {server.error ? <Problem error={server.error} /> : <Loading />}
       </Screen>
     );
-  const refused = asking && asked.error ? joinError(asked.error, code!) : null;
+  const refused = server.refused ? joinError(server.refused, code!) : null;
   return (
     <JoinForm
       key={code ?? ""}
       code={code}
       note={note ?? refused ?? undefined}
       onJoined={(c, playerId) => {
-        if (c !== code) go(`/join/${c}`, { replace: true });
-        else setJoined(playerId);
+        save(playerKey(c), playerId);
+        if (c !== code) {
+          handed.set(c, playerId);
+          go(`/join/${c}`, { replace: true });
+        } else {
+          setNote(undefined);
+          setJoined(playerId);
+        }
       }}
     />
   );
