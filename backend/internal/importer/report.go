@@ -19,7 +19,7 @@ type report struct {
 	sets     map[string]*setStats
 	resolved []resolved
 	songs    []song.Song
-	merged   int
+	merged   []string
 	applied  []string
 	unknown  []string
 }
@@ -84,7 +84,7 @@ func (r report) markdown() []byte {
 		v int
 	}{
 		{"cards", cardsN}, {"cards without a year (dropped)", noYear}, {"songs", len(r.songs)},
-		{"card spellings merged into one recording", r.merged},
+		{"card spellings merged into one recording", len(r.merged)},
 		{"MusicBrainz matched", mb}, {"MusicBrainz matched, no low-confidence note", exact},
 		{"Apple track with preview", preview}, {"no Apple preview", len(r.songs) - preview},
 		{"Apple track on the original album", origin},
@@ -157,6 +157,14 @@ func (r report) markdown() []byte {
 			}
 			return fmt.Sprintf("| %s | %s | %s |", cell(x.Artist), cell(x.Title), strings.Join(ys, ", ")), true
 		})
+	w("\n## Cards merged into another card's recording (%d)\n\n", len(r.merged))
+	if len(r.merged) == 0 {
+		w("None.\n")
+	} else {
+		merged := slices.Clone(r.merged)
+		slices.Sort(merged)
+		w("| artist | title | kept as artist | kept as title |\n|---|---|---|---|\n%s\n", strings.Join(merged, "\n"))
+	}
 	section("Low-confidence matches", "| artist | title | why |\n|---|---|---|", func(x resolved) (string, bool) {
 		if len(x.Low) == 0 {
 			return "", false

@@ -1,6 +1,7 @@
 package importer
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -56,8 +57,12 @@ func loadOverrides(path string) (map[string]Override, error) {
 
 // templateOverrides is the empty file the import writes when there is none.
 func templateOverrides() ([]byte, error) {
-	b, err := json.MarshalIndent(overridesFile{Doc: overridesDoc, Songs: map[string]Override{}}, "", "  ")
-	return append(b, '\n'), err
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // "<id>" stays readable
+	enc.SetIndent("", "  ")
+	err := enc.Encode(overridesFile{Doc: overridesDoc, Songs: map[string]Override{}})
+	return buf.Bytes(), err
 }
 
 // applyOverrides applies ov to songs (in place) and returns the kept songs, the ids applied and the unknown ones.

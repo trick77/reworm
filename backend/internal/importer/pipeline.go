@@ -406,7 +406,7 @@ func ownAlbum(t apple.Song) bool { return musicbrainz.SameArtist(t.AlbumArtist, 
 
 // merge folds resolved entries that came out as the same song id (two card spellings of one recording) into one:
 // the sets joined, the earliest card year kept.
-func merge(rs []resolved) (out []resolved, merged int) {
+func merge(rs []resolved) (out []resolved, merged []string) {
 	byID := map[string]int{}
 	for _, r := range rs {
 		i, ok := byID[r.Song.ID]
@@ -415,8 +415,8 @@ func merge(rs []resolved) (out []resolved, merged int) {
 			out = append(out, r)
 			continue
 		}
-		merged++
 		o := &out[i]
+		merged = append(merged, fmt.Sprintf("| %s | %s | %s | %s |", cell(r.Artist), cell(r.Title), cell(o.Artist), cell(o.Title)))
 		for _, s := range r.Song.Sets {
 			if !slices.Contains(o.Song.Sets, s) {
 				o.Song.Sets = append(o.Song.Sets, s)
