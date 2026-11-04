@@ -1,4 +1,4 @@
-.PHONY: build run test tidy ui-build ui-dev ui-test
+.PHONY: build e2e run test tidy ui-build ui-dev ui-test
 
 tidy:
 	cd backend && go mod tidy
@@ -29,6 +29,11 @@ run:
 
 ui-dev: ui/node_modules/.package-lock.json
 	cd ui && npm run dev
+
+# Playwright (chromium + webkit) against the real binary on a free port, fresh data dir, dev clips and fixture
+# songs (BACKEND_DEV_*). Not part of check. Browsers once: cd ui && npx playwright install chromium webkit
+e2e: ui/node_modules/.package-lock.json
+	cd ui && npm run e2e
 
 # ship:begin (owned by ship init)
 # The gate: everything CI checks, configured in ship.yaml. Master's ship, as the pre-push hook and the @master
