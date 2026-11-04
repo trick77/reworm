@@ -143,7 +143,7 @@ func decodeFixture(t *testing.T) []Recording {
 }
 
 func TestPick_earliestExactRecordingAndItsAlbum(t *testing.T) {
-	m, ok := Pick(decodeFixture(t), "Abba", "Dancing Queen")
+	m, ok := Pick(decodeFixture(t), "Abba", "Dancing Queen", 1976)
 	if !ok {
 		t.Fatal("no match")
 	}
@@ -182,7 +182,7 @@ func TestPick_revivalBandAndVersionsStayOut(t *testing.T) {
 		{ID: "karaoke", Title: "Help!", Credit: "The Beatles Karaoke Band", Artists: []string{"The Beatles Karaoke Band"},
 			FirstReleaseDate: "2001", ISRCs: []string{"KARA1"}},
 	}
-	m, ok := Pick(recs, "Beatles", "Help!")
+	m, ok := Pick(recs, "Beatles", "Help!", 0)
 	if !ok || m.Recording.ID != "studio" || !m.Exact || m.Year != 1965 {
 		t.Fatalf("picked %+v", m.Recording)
 	}
@@ -190,12 +190,39 @@ func TestPick_revivalBandAndVersionsStayOut(t *testing.T) {
 		t.Errorf("isrcs %v, want the studio one only", m.ISRCs)
 	}
 	// A card that names the version asks for it.
-	if m, _ := Pick(recs, "The Beatles", "Help! (Demo)"); m.Recording.ID != "demo" {
+	if m, _ := Pick(recs, "The Beatles", "Help! (Demo)", 0); m.Recording.ID != "demo" {
 		t.Errorf("demo card picked %s", m.Recording.ID)
 	}
 	// Only variants left: the song still resolves, to the earliest.
-	if m, ok := Pick(recs[2:3], "The Beatles", "Help!"); !ok || m.Recording.ID != "demo" {
+	if m, ok := Pick(recs[2:3], "The Beatles", "Help!", 0); !ok || m.Recording.ID != "demo" {
 		t.Errorf("variants only: %v %s", ok, m.Recording.ID)
+	}
+}
+
+// A bootleg's earlier date or a misdated entry does not beat the official recording of the card's time; a
+// soundtrack counts as the original album.
+func TestPick_officialAndCardTimePreferred(t *testing.T) {
+	official := func(rg Group, date string) []Release {
+		return []Release{{Status: "Official", Date: date, Group: rg}}
+	}
+	recs := []Recording{
+		{ID: "bootleg", Title: "Let It Be", Credit: "The Beatles", FirstReleaseDate: "1969",
+			Releases: []Release{{Status: "Bootleg", Date: "1969", Group: Group{ID: "kum-back", PrimaryType: "Album", SecondaryTypes: []string{"Compilation"}}}}},
+		{ID: "misdated", Title: "Let It Be", Credit: "The Beatles", FirstReleaseDate: "1958",
+			Releases: official(Group{ID: "odd", PrimaryType: "Album"}, "1958")},
+		{ID: "studio", Title: "Let It Be", Credit: "The Beatles", FirstReleaseDate: "1970-03-06",
+			Releases: official(Group{ID: "help", Title: "Let It Be", PrimaryType: "Album", SecondaryTypes: []string{"Soundtrack"}}, "1970-05-08")},
+	}
+	m, ok := Pick(recs, "The Beatles", "Let It Be", 1970)
+	if !ok || m.Recording.ID != "studio" || m.Original.ID != "help" {
+		t.Errorf("picked %s, original %+v", m.Recording.ID, m.Original)
+	}
+	// Without a card year the earliest official one wins; with only a bootleg left, the bootleg.
+	if m, _ := Pick(recs, "The Beatles", "Let It Be", 0); m.Recording.ID != "misdated" {
+		t.Errorf("no card year: %s", m.Recording.ID)
+	}
+	if m, _ := Pick(recs[:1], "The Beatles", "Let It Be", 1970); m.Recording.ID != "bootleg" {
+		t.Errorf("bootleg only: %s", m.Recording.ID)
 	}
 }
 
@@ -254,7 +281,7 @@ func TestPick_looseAndNone(t *testing.T) {
 			FirstReleaseDate: "2006-02-28", Score: 100, Releases: []Release{{Date: "2006", Group: Group{ID: "single", PrimaryType: "Single"}}}},
 		{ID: "a", Title: "Hips Don't Lie (Bamboo)", Credit: "Shakira", Artists: []string{"Shakira"}, FirstReleaseDate: "2006-02-28", Score: 100},
 	}
-	m, ok := Pick(recs, "Shakira & Wyclef", "Hips Don't Lie")
+	m, ok := Pick(recs, "Shakira & Wyclef", "Hips Don't Lie", 0)
 	if !ok || m.Exact {
 		t.Fatalf("ok=%v exact=%v", ok, m.Exact)
 	}
@@ -263,14 +290,14 @@ func TestPick_looseAndNone(t *testing.T) {
 		t.Errorf("picked %+v", m)
 	}
 	recs[0].Releases = nil
-	if m, _ := Pick(recs, "Shakira & Wyclef", "Hips Don't Lie"); m.Recording.ID != "a" {
+	if m, _ := Pick(recs, "Shakira & Wyclef", "Hips Don't Lie", 0); m.Recording.ID != "a" {
 		t.Errorf("tie on MBID: %s", m.Recording.ID)
 	}
-	if _, ok := Pick(recs, "Someone Else", "Hips Don't Lie"); ok {
+	if _, ok := Pick(recs, "Someone Else", "Hips Don't Lie", 0); ok {
 		t.Error("other artist matched")
 	}
 	undated := []Recording{{ID: "x", Title: "T", Credit: "A"}, {ID: "y", Title: "T", Credit: "A", FirstReleaseDate: "1999"}}
-	if m, _ := Pick(undated, "A", "T"); m.Recording.ID != "y" || m.Year != 1999 {
+	if m, _ := Pick(undated, "A", "T", 0); m.Recording.ID != "y" || m.Year != 1999 {
 		t.Errorf("undated first: %+v", m.Recording)
 	}
 }

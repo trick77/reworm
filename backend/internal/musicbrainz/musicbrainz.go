@@ -278,8 +278,11 @@ const maxISRCs = 10
 
 // Pick chooses the card's song among recs: titles that match, artists that match exactly (else loosely), then the
 // earliest first-release year; within it more releases, the earlier full date, the higher score, then the lower
-// MBID, so the id is stable across re-imports. ok is false when nothing matches.
-func Pick(recs []Recording, artist, title string) (m Match, ok bool) {
+// MBID, so the id is stable across re-imports. ok is false when nothing matches. Recordings on an official release
+// and first released no earlier than the year before cardYear (0: no card) are preferred when there are any: an
+// early date on a bootleg ("Let It Be" on a 1969 bootleg) or a misdated entry (a 1978 "Billie Jean") is not the
+// song the card dates.
+func Pick(recs []Recording, artist, title string, cardYear int) (m Match, ok bool) {
 	var exact, loose []Recording
 	for _, r := range recs {
 		if !SameTitle(r.Title, title) {
@@ -308,6 +311,18 @@ func Pick(recs []Recording, artist, title string) (m Match, ok bool) {
 	named := slices.DeleteFunc(slices.Clone(cands), func(r Recording) bool { return !names(r.Disambiguation+" "+r.Title, title) })
 	if len(named) > 0 {
 		cands = named
+	}
+	official := slices.DeleteFunc(slices.Clone(cands), func(r Recording) bool {
+		return !slices.ContainsFunc(r.Releases, func(rel Release) bool { return rel.Status == "Official" })
+	})
+	if len(official) > 0 {
+		cands = official
+	}
+	if cardYear > 0 {
+		dated := slices.DeleteFunc(slices.Clone(cands), func(r Recording) bool { return Year(r.FirstReleaseDate) < cardYear-1 })
+		if len(dated) > 0 {
+			cands = dated
+		}
 	}
 	slices.SortFunc(cands, func(a, b Recording) int {
 		// By year first: within one year the recording on more releases is the canonical one; a stray copy
@@ -366,7 +381,9 @@ func groups(rels []Release) (original, first Group) {
 		if firstDate == "" || compareDates(r.Date, firstDate) < 0 {
 			first, firstDate = g, r.Date
 		}
-		studioAlbum := g.PrimaryType == "Album" && len(g.SecondaryTypes) == 0 && (r.Status == "" || r.Status == "Official")
+		// A soundtrack is a studio album too (Help!, Saturday Night Fever); compilations, live and remix albums not.
+		studioAlbum := g.PrimaryType == "Album" && !slices.ContainsFunc(g.SecondaryTypes, func(t string) bool { return t != "Soundtrack" }) &&
+			(r.Status == "" || r.Status == "Official")
 		if studioAlbum && (origDate == "" || compareDates(r.Date, origDate) < 0) {
 			original, origDate = g, r.Date
 		}

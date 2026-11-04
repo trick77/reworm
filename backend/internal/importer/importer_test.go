@@ -104,7 +104,9 @@ func services(t *testing.T, mbHits *atomic.Int32) *httptest.Server {
 		var data []string
 		switch r.URL.Query().Get("filter[isrc]") {
 		case "SEAYD7601020":
-			data = append(data, appleSong("dq-comp", "Dancing Queen", "ABBA", "Party Hits", "Various Artists", "1976-01-01", "SEAYD7601020", true))
+			// An unrelated track Apple files under the same ISRC: never the song, even as the only own-album hit.
+			data = append(data, appleSong("dq-comp", "Dancing Queen", "ABBA", "Party Hits", "Various Artists", "1976-01-01", "SEAYD7601020", true),
+				appleSong("dq-alien", "What Out You", "Someone Else", "What Out You - Single", "Someone Else", "1975-01-01", "SEAYD7601020", true))
 		case "GBUM71029604":
 			if r.PathValue("sf") == "de" {
 				data = append(data,

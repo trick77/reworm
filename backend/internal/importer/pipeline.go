@@ -245,7 +245,7 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 		if err != nil {
 			return m, false, "", err
 		}
-		if m, ok := musicbrainz.Pick(recs, q.artist, q.title); ok {
+		if m, ok := musicbrainz.Pick(recs, q.artist, q.title, e.Year); ok {
 			if i == 0 {
 				return m, true, "", nil
 			}
@@ -257,7 +257,7 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 	if err != nil {
 		return m, false, "", err
 	}
-	m, ok = musicbrainz.Pick(recs, e.Artist, e.Title)
+	m, ok = musicbrainz.Pick(recs, e.Artist, e.Title, e.Year)
 	m.Exact = false
 	switch {
 	case !ok:
@@ -284,7 +284,7 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 			if err != nil {
 				return apple.Song{}, "", false, err
 			}
-			if t, ok := best(songs, m, e, nil); ok {
+			if t, ok := best(songs, m, e, func(s apple.Song) bool { return sameSong(s, e, m) }); ok {
 				if onOriginal(t, m, e.Year) {
 					return t, sf, false, nil
 				}
@@ -323,6 +323,20 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 		}
 	}
 	return apple.Song{}, "", false, nil
+}
+
+// sameSong says an Apple track found by ISRC is the card's song: its title one of the card's readings or the
+// recording's, its artist the card's or the recording's. Apple files unrelated tracks under a famous ISRC
+// (Yesterday's returned a 2023 single by another act).
+func sameSong(s apple.Song, e entry, m musicbrainz.Match) bool {
+	titles := musicbrainz.SongTitles(e.Title)
+	if m.Recording.Title != "" {
+		titles = append(titles, m.Recording.Title)
+	}
+	if !slices.ContainsFunc(titles, func(t string) bool { return musicbrainz.SameTitle(s.Name, t) }) {
+		return false
+	}
+	return musicbrainz.SameArtist(s.Artist, e.Artist) || (m.Recording.Credit != "" && musicbrainz.SameArtist(s.Artist, m.Recording.Credit))
 }
 
 // searchTitles bounds the title readings the Apple search tries.
