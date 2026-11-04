@@ -71,7 +71,7 @@ func (p *Previews) Mount(mux *http.ServeMux) {
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeFileFS(w, r, p.files, name)
+		http.ServeFileFS(w, r, p.files, name) //nolint:gosec // has: one plain file name in the directory, an fs.FS
 	})
 }
 
