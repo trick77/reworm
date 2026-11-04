@@ -446,13 +446,11 @@ describe("party: years mode", () => {
     await world.answerAs("K7Q4", luca, 2, wrong);
     expect(await s.findByText("Nobody got it")).toBeInTheDocument();
     expect(await p.findByText("Nobody got it")).toBeInTheDocument();
-    // a pause over a result without a winner keeps the result on both screens
-    await world.hostAction("K7Q4", "pause");
-    expect(await p.findByText("Paused by the host")).toBeInTheDocument();
-    expect(s.getByText("Nobody got it")).toBeInTheDocument();
-    expect(p.getByText("Nobody got it")).toBeInTheDocument();
-    await world.hostAction("K7Q4", "resume");
-    await waitFor(() => expect(world.room("K7Q4").state.phase).toBe("result"));
+    // the server pauses only a running round: a result stays a result, and the stage offers no Pause
+    await expect(world.hostAction("K7Q4", "pause")).rejects.toThrow(
+      "wrong_phase",
+    );
+    expect(s.queryByRole("button", { name: "Pause" })).toBeNull();
 
     // someone faster by a hair, as seen on the pad
     world.set("K7Q4", {
@@ -575,12 +573,7 @@ describe("party: buzzer mode", () => {
     await world.judgeAs("K7Q4", luca, 1, 0);
     expect(await p.findByText("Nobody got it")).toBeInTheDocument();
     expect(await s.findByText("No points this round")).toBeInTheDocument();
-    // paused over a round settled at 0: still the result, not the judging
-    await world.hostAction("K7Q4", "pause");
-    expect(await p.findByText("Paused by the host")).toBeInTheDocument();
-    expect(s.getByText("No points this round")).toBeInTheDocument();
     expect(s.queryByText(/Did Luca get it/)).toBeNull();
-    expect(p.getByText("Nobody got it")).toBeInTheDocument();
   });
 
   it("keeps the judging on screen through a pause, without a miss", async () => {

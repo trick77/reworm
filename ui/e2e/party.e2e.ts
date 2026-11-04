@@ -34,9 +34,9 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
 }) => {
   const { stage, code, pads } = await party(browser, PLAYERS);
   const [mia, luca, sarah] = pads;
-  await settings(stage, code, { toWin: 2 });
+  await settings(stage, code, { toWin: 3 });
   for (const p of pads)
-    await expect(p.page.getByText(/· first to 2$/)).toBeVisible();
+    await expect(p.page.getByText(/· first to 3$/)).toBeVisible();
   await shot(stage, "years-lobby");
   await shot(mia.page, "pad-lobby");
 
@@ -76,7 +76,8 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
     data: { round: 1, choice: r.right },
   });
   expect(press.ok()).toBe(true);
-  s = await waitPhase(stage, code, ["result", "over"]);
+  // first to 3: one round (at most 2 points) never ends the game, every check below runs on every run
+  s = await waitPhase(stage, code, "result");
   const res = s.round!.result!;
   const points = r.right === "exact" ? 2 : 1;
   expect(res.points).toBe(points);
@@ -86,35 +87,32 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   )!;
   const second = winner === luca ? sarah : luca;
   expect(res.photoFinish).toHaveLength(1);
-  if (s.phase === "result") {
-    await expect(stage.getByText("Round 1 goes to")).toBeVisible();
-    await expect(stage.getByText(`${winner.name} +${points}`)).toBeVisible();
-    await expect(stage.locator(".photo")).toContainText(second.name);
-    await expect(stage.getByText(r.song.title).first()).toBeVisible();
-    // standings: the winner on top with the round's points, marked
-    const top = stage.locator(".set-row").first();
-    await expect(top).toContainText(winner.name);
-    await expect(top).toContainText(`${points} ▲`);
-    await shot(stage, "years-result-photo-finish");
-    // the phones' round result; a right "spot on" (2 points) ends the game at once: the podium checks below
-    await expect(winner.page.getByText("You got it!")).toBeVisible();
-    await expect(
-      second.page.getByText(`${winner.name} was faster`),
-    ).toBeVisible();
-    await expect(
-      second.page.getByText(
-        /Photo finish! You were right behind\.|You were \d\.\d\d s behind/,
-      ),
-    ).toBeVisible();
-    await expect(mia.page.getByText(`${winner.name} was faster`)).toBeVisible();
-    await score(winner, points);
-    await shot(winner.page, "pad-won");
-    await shot(second.page, "pad-photo-finish");
-  }
+  await expect(stage.getByText("Round 1 goes to")).toBeVisible();
+  await expect(stage.getByText(`${winner.name} +${points}`)).toBeVisible();
+  await expect(stage.locator(".photo")).toContainText(second.name);
+  await expect(stage.getByText(r.song.title).first()).toBeVisible();
+  // standings: the winner on top with the round's points, marked
+  const top = stage.locator(".set-row").first();
+  await expect(top).toContainText(winner.name);
+  await expect(top).toContainText(`${points} ▲`);
+  await shot(stage, "years-result-photo-finish");
+  await expect(winner.page.getByText("You got it!")).toBeVisible();
+  await expect(
+    second.page.getByText(`${winner.name} was faster`),
+  ).toBeVisible();
+  await expect(
+    second.page.getByText(
+      /Photo finish! You were right behind\.|You were \d\.\d\d s behind/,
+    ),
+  ).toBeVisible();
+  await expect(mia.page.getByText(`${winner.name} was faster`)).toBeVisible();
+  await score(winner, points);
+  await shot(winner.page, "pad-won");
+  await shot(second.page, "pad-photo-finish");
 
-  // the round's winner plays on alone until first to 2
+  // the round's winner plays on alone until first to 3
   for (let n = 2; s.phase !== "over"; n++) {
-    expect(n).toBeLessThan(6);
+    expect(n).toBeLessThan(8);
     await stage.getByRole("button", { name: "Next round ›" }).click();
     s = await waitPhase(stage, code, "playing");
     expect(s.round!.n).toBe(n);
@@ -147,16 +145,13 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   const again = winner.page.getByRole("button", { name: LABEL[r.right] });
   await expect(again).toBeEnabled();
   await again.click();
-  // scores from 0 again: a right "spot on" is 2 points, first to 2 at once (over); earlier/later is 1 (result)
-  const exact = r.right === "exact";
-  s = await waitPhase(stage, code, exact ? "over" : "result");
+  // scores from 0 again: a right "spot on" is 2 points, earlier/later 1
+  s = await waitPhase(stage, code, "result");
   expect(s.round!.result).toMatchObject({
     winnerId: res.winnerId,
-    points: exact ? 2 : 1,
+    points: r.right === "exact" ? 2 : 1,
   });
-  await expect(
-    winner.page.getByText(exact ? "You win!" : "You got it!"),
-  ).toBeVisible();
+  await expect(winner.page.getByText("You got it!")).toBeVisible();
 });
 
 test("buzzer: buzz pauses, reveal by two, judging agrees or the room breaks the tie, nobody buzzes", async ({

@@ -79,7 +79,9 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 
 ### RoomState
 ```
-{ code, seq, now, mode, phase: "lobby"|"playing"|"buzzed"|"judging"|"result"|"paused"|"over", hostId, toWin,
+{ code, seq, now, mode, phase: "lobby"|"playing"|"buzzed"|"judging"|"result"|"paused"|"over",
+  pausedFrom?: "playing"|"buzzed"|"judging",   // only while paused: the phase the pause froze
+  hostId, toWin,
   settings: {deck, clip, difficulty},
   players: [{ id, name, avatar, score, connected, state: "thinking"|"out"|"late"|"buzzed"|"answered" }],
   round: null | {

@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useApi } from "../../api/context";
 import type {
-  Phase,
   RoomPlayer,
   RoomState,
   Round,
@@ -56,36 +55,15 @@ export const roundKey = (r: Round) => `${r.n}:${r.startedAt}`;
 export const winTime = (res: RoundResult) =>
   res.winnerMs != null ? ` in ${(res.winnerMs / 1000).toFixed(1)} s` : null;
 
-// roundView: what the round shows. Paused keeps what was on screen: the round has a result → the
-// result, unless it is a buzzer round still being judged (its result holds the song, no winner yet).
-// `before` is the phase this screen saw before the pause (usePhaseBeforePause); without it (opened while
-// paused) a buzzer round with a song but no winner counts as still being judged. A `before` of a live
-// phase while the round already holds a result is stale: the reveal and the pause arrived in one batch
-// and this screen never drew the judging, so the round's data decides.
+// roundView: what the round shows. Paused keeps drawing the phase the pause froze, which the server
+// sends as pausedFrom (a screen's own memory of it broke when the reveal and the pause arrived together).
 export type RoundView = "live" | "judging" | "result";
-export function roundView(s: RoomState, before?: Phase | null): RoundView {
+export function roundView(s: RoomState): RoundView {
   const r = s.round;
   if (!r) return "live";
-  const stale = r.result && (before === "playing" || before === "buzzed");
-  const phase = s.phase === "paused" && before && !stale ? before : s.phase;
+  const phase = s.phase === "paused" ? s.pausedFrom : s.phase;
   if (phase === "result") return "result";
-  if (phase === "judging") return r.result ? "judging" : "live";
-  if (phase !== "paused" || !r.result) return "live";
-  const open = s.mode === "buzzer" && r.buzz && r.result.winnerId == null;
-  return open ? "judging" : "result";
-}
-
-// usePhaseBeforePause remembers this round's last phase before a pause (what was on screen).
-export function usePhaseBeforePause(s: RoomState | undefined): Phase | null {
-  const key = s?.round ? roundKey(s.round) : "";
-  const [seen, setSeen] = useState<{ key: string; phase: Phase } | null>(null);
-  if (
-    s &&
-    s.phase !== "paused" &&
-    (seen?.key !== key || seen.phase !== s.phase)
-  )
-    setSeen({ key, phase: s.phase });
-  return seen?.key === key ? seen.phase : null;
+  return phase === "judging" && r.result ? "judging" : "live";
 }
 
 // photoLine: a later press in the 1 s window, "+0.18 s", or "photo finish" under 50 ms.
@@ -136,7 +114,11 @@ function StageTop({
 }) {
   const api = useApi();
   const paused = s.phase === "paused";
-  const canPause = host && s.round && s.phase !== "over";
+  // as Room.Pause: only a running round (or a paused one, to resume)
+  const canPause =
+    host &&
+    s.round &&
+    ["playing", "buzzed", "judging", "paused"].includes(s.phase);
   return (
     <div className="row between stage-top" style={{ marginTop: 4 }}>
       <div className="row">
@@ -509,7 +491,7 @@ export function Stage({
   const [sound, setSound] = useState(audioUnlocked);
   const r = s.round;
   const res = r?.result;
-  const view = roundView(s, usePhaseBeforePause(s));
+  const view = roundView(s);
   const judging = view === "judging";
   const showResult = view === "result";
   const enableSound = () => {

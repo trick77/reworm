@@ -46,15 +46,18 @@ type State struct {
 	// Seq grows by one with every change of the room: a client keeps the state with the highest.
 	Seq int64 `json:"seq"`
 	// Now is the server clock (unix ms) when the state was written: clients derive their offset for countdowns.
-	Now      int64         `json:"now"`
-	Mode     string        `json:"mode"`
-	Phase    string        `json:"phase"`
-	HostID   string        `json:"hostId"`
-	ToWin    int           `json:"toWin"`
-	Settings Settings      `json:"settings"`
-	Players  []PlayerState `json:"players"`
-	Round    *RoundState   `json:"round"`
-	NextClip *engine.Clip  `json:"nextClip"`
+	Now   int64  `json:"now"`
+	Mode  string `json:"mode"`
+	Phase string `json:"phase"`
+	// PausedFrom is the phase a pause froze (playing, buzzed or judging), set only while paused: screens keep
+	// drawing that phase. Guessing it from what a screen last drew failed when two updates arrived together.
+	PausedFrom string        `json:"pausedFrom,omitempty"`
+	HostID     string        `json:"hostId"`
+	ToWin      int           `json:"toWin"`
+	Settings   Settings      `json:"settings"`
+	Players    []PlayerState `json:"players"`
+	Round      *RoundState   `json:"round"`
+	NextClip   *engine.Clip  `json:"nextClip"`
 }
 
 // PlayerState is one player in State.
