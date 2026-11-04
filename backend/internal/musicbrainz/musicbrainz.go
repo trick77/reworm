@@ -350,6 +350,10 @@ func Pick(recs []Recording, artist, title string, cardYear int) (m Match, ok boo
 	// "single/LP/12″ version" note names the original, not a variant; a loosely credited one is still the song),
 	// then the others credited exactly to the card's artist that are no variant either, "version" and "edit"
 	// included. A tribute band's or a remix's ISRC would find their track.
+	// The original album is the earliest studio album of those recordings too: MusicBrainz files the album under a
+	// sibling of the chosen one often, which then shows only a later soundtrack ("Nights in White Satin": A Bronx
+	// Tale, 1993, while Days of Future Passed is the sibling's).
+	m.Original, m.First = groups(m.Recording.Releases)
 	seen := map[string]bool{}
 	for i, r := range cands {
 		text := r.Disambiguation + " " + r.Title
@@ -362,8 +366,10 @@ func Pick(recs []Recording, artist, title string, cardYear int) (m Match, ok boo
 				m.ISRCs = append(m.ISRCs, isrc)
 			}
 		}
+		if og, _ := groups(r.Releases); i > 0 && og.ID != "" && (m.Original.ID == "" || compareDates(og.Date, m.Original.Date) < 0) {
+			m.Original = og
+		}
 	}
-	m.Original, m.First = groups(m.Recording.Releases)
 	return m, true
 }
 
@@ -419,19 +425,31 @@ func Year(date string) int {
 	return y
 }
 
+const (
+	// featMarks are the featuring marks, shared by mainSep, joiner and guestNote ("Feather" is no "feat").
+	featMarks = `featuring\b|feat\b\.?|ft\.`
+	// xMarks join two acts as "A x B": Latin, multiplication sign, Cyrillic (MusicBrainz credits "MEDUZA х Becky Hill").
+	xMarks = `[x×х]`
+)
+
 var (
 	// trailing matches a trailing "(Remastered 2011)", "[Live]" or " - Single Version".
 	trailing = regexp.MustCompile(`\s*(\([^()]*\)|\[[^\[\]]*\]|\s-\s.*)$`)
 	// mainSep splits a credit at a featuring mark only: "A feat. B", "A ft. B", "A featuring B", "A (with B)", "A vs.
 	// B", "A x B". Never at "&", ",", "and", "+" or "/": they are inside band names (Simon & Garfunkel; Earth, Wind
-	// & Fire; Florence + the Machine; AC/DC). Several artists joined by those are told by MusicBrainz's credit
-	// (Recording.Artists), see looseArtist.
-	mainSep = regexp.MustCompile(`(?i)\s*(\(?\bfeat\.?|\(?\bft\.|\(?\bfeaturing\b|\(\s*with\b|\bvs\.?\s|\s[x×]\s)\s*`)
+	// & Fire; Florence + the Machine; AC/DC). Several artists are told by MusicBrainz's credit (Credit).
+	mainSep = regexp.MustCompile(`(?i)\s*(?:\(?\b(?:` + featMarks + `)|\(\s*with\b|\bvs\.?\s|\s` + xMarks + `\s)\s*`)
 	// joiner splits a credit at every mark that joins two names: the featuring marks and "&", ",", "+", "/", "and"
-	// (und, e, y, et). It splits band names too, so its parts count only as a set or as a lead (see Artists).
-	joiner = regexp.MustCompile(`(?i)\s*(?:[,&+/]|\(\s*(?:feat\.?|ft\.|featuring|with)\s|\s(?:feat\.?|ft\.|featuring|with|and|und|e|y|et|vs\.?|[x×х])\s)\s*`)
-	// featNote matches a title parenthetical that names a guest, not a song: "feat. X", "with X".
-	featNote = regexp.MustCompile(`(?i)^(?:feat\.?|ft\.|featuring|with)\s`)
+	// (und, e, y, et). It splits band names too: only for a card MusicBrainz does not know, or both sides alike.
+	joiner = regexp.MustCompile(`(?i)\s*(?:[,&+/]|\(\s*(?:` + featMarks + `|with\b)|\s(?:` + featMarks + `|with|and|und|e|y|et|vs\.?|` + xMarks + `)\s)\s*`)
+	// guestNote matches a title parenthetical's "feat. X" or "with X"; guests holds X of each in a title.
+	guestNote = regexp.MustCompile(`(?i)^(?:(` + featMarks + `)|with\b)\s*(.*)$`)
+	guests    = regexp.MustCompile(`(?i)\((?:` + featMarks + `|with\b)\s*([^()]+)\)`)
+	// aliasSep parts the names of one act: "Yusuf / Cat Stevens". Unspaced, a slash is in the name (AC/DC).
+	aliasSep = regexp.MustCompile(`\s+/\s+`)
+	// superscripts are digits, not separators: "Tea for the Tillerman²" is not the 1970 album.
+	superscripts = strings.NewReplacer("⁰", "0", "¹", "1", "²", "2", "³", "3", "⁴", "4", "⁵", "5", "⁶", "6", "⁷", "7",
+		"⁸", "8", "⁹", "9", "₀", "0", "₁", "1", "₂", "2", "₃", "3", "₄", "4", "₅", "5", "₆", "6", "₇", "7", "₈", "8", "₉", "9")
 )
 
 // Strip drops trailing parentheticals and " - …" suffixes from a title or album name: what versions add.
@@ -477,8 +495,10 @@ func CleanTitle(s string) string {
 // SongTitles are the readings of a card title, as written first: without its trailing parentheticals, then the
 // last parenthetical's content, or (no parenthetical at the end) what follows the last " - ". Film and TV cards
 // print "Film (Song)" or "Film - Song": "Robin Hood - König der Diebe ((Everything I Do) I Do It For You)" is the song "(Everything I Do) I Do It For You".
-// A guest note ("One Kiss (with Dua Lipa)") is no song: only the title without it is read.
-func SongTitles(title string) []string {
+// A guest note is no song: "(feat. X)" never, "(with X)" when X is one of artists (the card's, the recording's
+// credit): "Miracle (with Ellie Goulding)" is no song "with Ellie Goulding", "Wunderbare Jahre (With a Little Help
+// from My Friends)" is one.
+func SongTitles(title string, artists ...string) []string {
 	out := []string{title}
 	add := func(t string) {
 		t = strings.TrimSpace(t)
@@ -502,7 +522,7 @@ func SongTitles(title string) []string {
 				depth--
 			}
 			if depth == 0 {
-				if inner := strings.TrimSpace(t[i+1 : len(t)-1]); !featNote.MatchString(inner) {
+				if inner := strings.TrimSpace(t[i+1 : len(t)-1]); !isGuest(inner, artists) {
 					add(inner)
 				}
 				break
@@ -512,10 +532,37 @@ func SongTitles(title string) []string {
 	return out
 }
 
+// isGuest says a title parenthetical's content is a guest note: a featuring mark, or "with" and names all among
+// artists.
+func isGuest(inner string, artists []string) bool {
+	g := guestNote.FindStringSubmatch(inner)
+	switch {
+	case g == nil:
+		return false
+	case g[1] != "":
+		return true
+	}
+	known := map[string]bool{}
+	for _, a := range artists {
+		for _, k := range artistSet(a) {
+			known[k] = true
+		}
+	}
+	set := artistSet(g[2])
+	return len(set) > 0 && !slices.ContainsFunc(set, func(k string) bool { return !known[k] })
+}
+
+// TitleKey is a title normalized as written and without what versions append; SameTitle compares these.
+func TitleKey(s string) (full, stripped string) {
+	s = superscripts.Replace(s)
+	return song.Normalize(s), song.Normalize(Strip(s))
+}
+
 // SameTitle compares two titles normalized, as written or without what versions append.
 func SameTitle(a, b string) bool {
-	na, nb := song.Normalize(a), song.Normalize(b)
-	return na == nb || song.Normalize(Strip(a)) == song.Normalize(Strip(b))
+	fa, sa := TitleKey(a)
+	fb, sb := TitleKey(b)
+	return fa == fb || sa == sb
 }
 
 // MainArtist is the first artist of a credit: "Shakira feat. Wyclef Jean" → "Shakira".
@@ -541,8 +588,20 @@ func exactArtist(r Recording, artist string) bool {
 // SameArtist is the loose artist match: the names equal, or their main artists ("Shakira feat. Wyclef Jean" →
 // Shakira), or the same artists in any order and joined any way ("Queen, David Bowie" and "Queen & David Bowie";
 // "Ricchi E Poveri" and "Ricchi & Poveri"), a leading "the" aside. Never one name inside the other: "Abba Revival
-// Band" and "Beatles Tribute" are other acts, and "Simon & Garfunkel" is not Simon.
+// Band" and "Beatles Tribute" are other acts, and "Simon & Garfunkel" is not Simon. An act written with its names
+// ("Yusuf / Cat Stevens") is either of them.
 func SameArtist(a, b string) bool {
+	for _, x := range aliasSep.Split(a, -1) {
+		for _, y := range aliasSep.Split(b, -1) {
+			if sameArtist(x, y) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sameArtist(a, b string) bool {
 	na, nb := artistKey(a), artistKey(b)
 	if na == "" || nb == "" {
 		return false
@@ -551,7 +610,7 @@ func SameArtist(a, b string) bool {
 }
 
 // Artists splits a credit at every joiner: "Queen & David Bowie" → Queen, David Bowie. Band names split too
-// ("Earth, Wind & Fire" → Earth, Wind, Fire), so a part alone says nothing; see ByArtist.
+// ("Earth, Wind & Fire" → Earth, Wind, Fire), so a part alone says nothing; see Credit.
 func Artists(s string) []string {
 	var out []string
 	for _, p := range joiner.Split(s, -1) {
@@ -569,7 +628,8 @@ func Artists(s string) []string {
 	return out
 }
 
-// Lead is a credit's first artist split at every joiner: "Nino Rota & Carlo Savina" → Nino Rota.
+// Lead is a credit's first name split at every joiner: "Queen, David Bowie" → Queen, "Earth, Wind & Fire" → Earth.
+// Only a search term: what it finds must still be the whole credit's.
 func Lead(s string) string { return Artists(s)[0] }
 
 // artistSet is a credit's artists as sorted keys.
@@ -584,46 +644,203 @@ func artistSet(s string) []string {
 	return slices.Compact(out)
 }
 
-// Several says the card's song is by several artists: MusicBrainz credits more than one (rec, the matched
-// recording), or the card joins several names ("Gölä, Trauffer") and MusicBrainz credits only one of them. A card
-// MusicBrainz does not know (zero rec) is one act: its name alone cannot tell "Queen, David Bowie" from "Earth, Wind
-// & Fire".
-func Several(card string, rec Recording) bool {
-	switch {
-	case len(rec.Artists) > 1:
-		return true
-	case len(rec.Artists) == 0, SameArtist(rec.Artists[0], card):
-		return false
-	}
-	return len(artistSet(card)) > 1
+// Credit is who a card's song is by, to check another catalog's credits (Apple's) against: the artists of the
+// matched recording as MusicBrainz splits its credit, each name whole (Earth, Wind & Fire; Simon & Garfunkel); for
+// a card MusicBrainz does not know, the card's names. Build it once per song.
+type Credit struct {
+	card, credit string
+	search       string
+	// pool holds the song's artists as tokens (nameTokens), the main one first, the first n of them; known says
+	// they are MusicBrainz's. Then further names the card mentions: its own, the guests in its title.
+	pool  [][]string
+	n     int
+	main  []string
+	known bool
 }
 
-// SearchArtist is who to look the card's song up by in another catalog: the lead of a song by several artists
-// (Apple has "Under Pressure" by Queen, "feat. David Bowie" in the title), else the card's main artist.
-func SearchArtist(card string, rec Recording) string {
-	if Several(card, rec) {
-		return Lead(card)
+// NewCredit is the credit of the card's song; rec is the matched recording, zero when none.
+func NewCredit(card, title string, rec Recording) Credit {
+	c := Credit{card: card, credit: rec.Credit, search: MainArtist(card), main: nameTokens(MainArtist(card))}
+	add := func(a string) {
+		if t := nameTokens(a); len(t) > 0 && !slices.ContainsFunc(c.pool, func(p []string) bool { return slices.Equal(p, t) }) {
+			c.pool = append(c.pool, t)
+		}
 	}
-	return MainArtist(card)
+	if len(rec.Artists) > 0 {
+		c.known = true
+		for _, a := range rec.Artists {
+			add(a)
+		}
+		if len(rec.Artists) > 1 && !slices.ContainsFunc(rec.Artists, func(a string) bool { return SameArtist(a, card) }) {
+			// Apple has "Under Pressure" by Queen, "feat. David Bowie" in the title. A card naming one of the
+			// artists is searched as written: "Michael Nyman", not the orchestra MusicBrainz credits first.
+			c.search = rec.Artists[0]
+		}
+	} else {
+		for _, a := range Artists(card) {
+			add(a)
+		}
+	}
+	c.n = len(c.pool)
+	if c.known && c.n > 0 {
+		c.main = c.pool[0]
+	}
+	for _, a := range Artists(card) {
+		add(a)
+	}
+	for _, g := range guests.FindAllStringSubmatch(title, -1) {
+		for _, a := range Artists(g[1]) {
+			add(a)
+		}
+	}
+	return c
 }
 
-// ByArtist says name, another catalog's credit (Apple's), is by the card's artist; rec is the matched recording
-// (zero: none). The card's artist or rec's credit (SameArtist); a credit led by either ("Nino Rota & Carlo Savina"
-// for Nino Rota, "Bob Marley & The Wailers" for Bob Marley); or, for a song by several artists (Several), a credit
-// led by its main artist ("Queen" for "Queen, David Bowie"). A band name is never split on its own: "Earth" is not
-// Earth, Wind & Fire, "Simon" not Simon & Garfunkel.
-func ByArtist(name, card string, rec Recording) bool {
-	if SameArtist(name, card) || (rec.Credit != "" && SameArtist(name, rec.Credit)) {
+// Search is who to look the song up by: MusicBrainz's main artist of a song by several the card names none of, else
+// the card's main artist.
+func (c Credit) Search() string { return c.search }
+
+// By says name, another catalog's credit, is the song's artist: the card's or the recording's credit
+// (SameArtist); a credit made of the song's artists and names the card mentions only, with all of the song's
+// artists or led by MusicBrainz's main one ("Queen" for Queen & David Bowie, "Calvin Harris, Dua Lipa" for "One Kiss
+// (with Dua Lipa)"); or the main artist with a backing band ("Glenn Miller and His Orchestra"). Never a part of a
+// name ("Earth" is not Earth, Wind & Fire) nor a credit naming an act the song does not ("Queen + Adam Lambert" is
+// not Queen).
+func (c Credit) By(name string) bool {
+	if SameArtist(name, c.card) || (c.credit != "" && SameArtist(name, c.credit)) {
 		return true
 	}
-	lead := artistKey(Lead(name))
-	if lead == "" {
+	toks := artistTokens(name)
+	if used, ok := compose(toks, c.pool); ok && c.n > 0 {
+		all := true
+		for i := range c.n {
+			all = all && slices.Contains(used, i)
+		}
+		if all || (c.known && used[0] == 0) {
+			return true
+		}
+	}
+	return backed(toks, c.main)
+}
+
+// Led is By, or a credit led by the song's main artist with anyone ("Nino Rota & Carlo Savina" for Nino Rota): for a
+// hit an ISRC ties to the recording already, whose credit only has to rule out another act.
+func (c Credit) Led(name string) bool {
+	if c.By(name) {
+		return true
+	}
+	toks := artistTokens(name)
+	end, ok := prefix(toks, 0, c.main)
+	return ok && end+1 < len(toks) && toks[end] == joinTok
+}
+
+// joinTok stands for every word or mark that joins two names in artistTokens.
+const joinTok = "&"
+
+// joinWords are the joining words as song.Normalize spells them ("&" and "+" become "and").
+var joinWords = map[string]bool{"and": true, "with": true, "feat": true, "ft": true, "featuring": true, "vs": true,
+	"x": true, "х": true, "und": true, "e": true, "y": true, "et": true}
+
+// backingWords start a backing band's name after the main artist: "and His Orchestra", "& the Blockheads".
+var backingWords = map[string]bool{"the": true, "his": true, "her": true, "their": true, "seine": true, "seinem": true,
+	"ihr": true, "ihre": true, "ihrem": true}
+
+// joinMarks are the joining marks song.Normalize drops: made words so they still part names.
+var joinMarks = strings.NewReplacer(",", " & ", "/", " & ")
+
+// artistTokens is a credit normalized into words, every joining word or mark between two words as joinTok ("Malcolm
+// X", "E Nomine" keep theirs), a leading "the" dropped.
+func artistTokens(s string) []string {
+	toks := strings.Fields(song.Normalize(joinMarks.Replace(s)))
+	for i, t := range toks {
+		if joinWords[t] && i > 0 && i < len(toks)-1 {
+			toks[i] = joinTok
+		}
+	}
+	if len(toks) > 1 && toks[0] == "the" {
+		toks = toks[1:]
+	}
+	return toks
+}
+
+// nameTokens is one name's words without its joins: "Earth, Wind & Fire" reads as Earth Wind and Fire written any way.
+func nameTokens(s string) []string {
+	return slices.DeleteFunc(artistTokens(s), func(t string) bool { return t == joinTok })
+}
+
+// prefix says toks from i start with name (nameTokens; joins between its words skipped, a "the" before it
+// optional), and where it ends.
+func prefix(toks []string, i int, name []string) (int, bool) {
+	if len(name) == 0 {
+		return 0, false
+	}
+	if i < len(toks) && toks[i] == "the" && name[0] != "the" {
+		if end, ok := prefix(toks, i+1, name); ok {
+			return end, true
+		}
+	}
+	for k, w := range name {
+		for k > 0 && i < len(toks) && toks[i] == joinTok {
+			i++
+		}
+		if i >= len(toks) || toks[i] != w {
+			return 0, false
+		}
+		i++
+	}
+	return i, true
+}
+
+// compose reads toks (artistTokens) as names of pool (nameTokens) joined by joinTok, each name at most once; used
+// lists the names in credit order.
+func compose(toks []string, pool [][]string) (used []int, ok bool) {
+	var walk func(i int) bool
+	walk = func(i int) bool {
+		if i == len(toks) {
+			return len(used) > 0
+		}
+		if len(used) > 0 {
+			if toks[i] != joinTok {
+				return false
+			}
+			for i < len(toks) && toks[i] == joinTok {
+				i++
+			}
+		}
+		for n, name := range pool {
+			if slices.Contains(used, n) {
+				continue
+			}
+			if end, ok := prefix(toks, i, name); ok {
+				used = append(used, n)
+				if walk(end) {
+					return true
+				}
+				used = used[:len(used)-1]
+			}
+		}
 		return false
 	}
-	if lead == artistKey(card) || (rec.Credit != "" && lead == artistKey(rec.Credit)) {
-		return true
+	ok = len(toks) > 0 && walk(0)
+	return used, ok
+}
+
+// bandOf says group, one act to MusicBrainz, is the artist's band: "Steve Harley & Cockney Rebel" for Steve Harley.
+// Only "&", "and", "und": a credit joining two acts writes "+", "x", "feat." ("Queen + Adam Lambert").
+func bandOf(group, artist string) bool {
+	g, a := strings.ToLower(strings.TrimSpace(group)), strings.ToLower(strings.TrimSpace(artist))
+	for _, j := range []string{" & ", " and ", " und "} {
+		if a != "" && strings.HasPrefix(g, a+j) && len(g) > len(a+j) {
+			return true
+		}
 	}
-	return Several(card, rec) && (lead == artistKey(Lead(card)) || (len(rec.Artists) > 0 && lead == artistKey(rec.Artists[0])))
+	return false
+}
+
+// backed says toks are main with a backing band: "Glenn Miller and His Orchestra", "Ian Dury & the Blockheads".
+func backed(toks, main []string) bool {
+	end, ok := prefix(toks, 0, main)
+	return ok && end+2 < len(toks) && toks[end] == joinTok && backingWords[toks[end+1]]
 }
 
 // versionWords mark a recording or track that is not the song as released: live, remixed, a demo, … A card that
@@ -662,12 +879,13 @@ func hasWord(text string, words []string, cardTitle string) bool {
 	return false
 }
 
-// looseArtist: the credit or one of its artists is the card's artist, loosely; or the credit is led by the card's
-// artist ("Ian Dury & The Blockheads" for Ian Dury); or MusicBrainz credits several artists and the card names the
+// looseArtist: the credit or one of its artists is the card's artist, loosely; or the card's artist with a backing
+// band ("Ian Dury & the Blockheads" for Ian Dury); or MusicBrainz credits several artists and the card names the
 // first of them followed by more ("Shakira & Wyclef" for Shakira feat. Wyclef Jean). The card side is never split
-// on its own: "Simon & Garfunkel" is one act.
+// on its own: "Simon & Garfunkel" is one act, and Simon is not.
 func looseArtist(r Recording, artist string) bool {
-	if SameArtist(r.Credit, artist) || (artistKey(artist) != "" && artistKey(Lead(r.Credit)) == artistKey(artist)) {
+	if SameArtist(r.Credit, artist) || backed(artistTokens(r.Credit), nameTokens(artist)) ||
+		(len(r.Artists) == 1 && bandOf(r.Artists[0], artist)) {
 		return true
 	}
 	for _, a := range r.Artists {
