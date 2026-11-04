@@ -1,4 +1,11 @@
-import { ApiError, BACKOFF_MS, HttpApi, type EventSourceLike } from "./client";
+import {
+  ApiError,
+  backoff,
+  BACKOFF_MS,
+  HttpApi,
+  transient,
+  type EventSourceLike,
+} from "./client";
 import { secondsLeft, serverNow, syncServerClock } from "./clock";
 import type { RoomState } from "./types";
 
@@ -47,8 +54,10 @@ class FakeES implements EventSourceLike {
   }
 }
 
-const state = (phase: RoomState["phase"], n = 0): RoomState => ({
+const state = (phase: RoomState["phase"], n = 0, seq = 1): RoomState => ({
   code: "K7Q4",
+  seq,
+  now: 0,
   mode: "years",
   phase,
   hostId: "p1",
@@ -68,6 +77,7 @@ const state = (phase: RoomState["phase"], n = 0): RoomState => ({
         buzz: null,
         revealVotes: [],
         judgeVotes: {},
+        judgeEndsAt: null,
         result: null,
       }
     : null,
@@ -139,8 +149,18 @@ describe("HttpApi calls", () => {
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     expect(await api.roomMe("K7Q4")).toBe("pl1");
     expect(calls[0].url).toBe("/api/rooms/K7Q4/me");
-    reply = Response.json({ error: "not_joined" }, { status: 404 });
+    reply = Response.json({ error: "not_in_room" }, { status: 401 });
     expect(await api.roomMe("K7Q4")).toBeNull();
+    reply = Response.json({ error: "unknown_room" }, { status: 404 });
+    expect(await api.roomMe("K7Q4")).toBeNull();
+    // an empty or non-JSON success body: no player, not a crash
+    reply = new Response(null, { status: 200 });
+    expect(await api.roomMe("K7Q4")).toBeNull();
+    reply = new Response("<html>", { status: 200 });
+    expect(await api.roomMe("K7Q4")).toBeNull();
+    // kicked: the pad says why instead of offering the form as if nothing happened
+    reply = Response.json({ error: "kicked" }, { status: 403 });
+    await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ code: "kicked" });
     reply = Response.json({ error: "boom" }, { status: 500 });
     await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ status: 500 });
   });
@@ -233,6 +253,24 @@ describe("HttpApi calls", () => {
   });
 });
 
+describe("retries", () => {
+  it("backs off 1, 2, 4 … s up to 10 s, and retries only what may pass next time", () => {
+    expect([0, 1, 2, 3, 4, 9].map(backoff)).toEqual([
+      1000, 2000, 4000, 8000, 10_000, 10_000,
+    ]);
+    const e = (status: number) => new ApiError(status, "x", "x");
+    expect([0, 429, 500, 503].map((s) => transient(e(s)))).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect([400, 401, 403, 404, 409, 410].some((s) => transient(e(s)))).toBe(
+      false,
+    );
+  });
+});
+
 describe("server clock", () => {
   it("counts down by the server's time once a state carried `now`", () => {
     const local = Date.now();
@@ -240,8 +278,6 @@ describe("server clock", () => {
     syncServerClock(local + 5_000, local); // the server is 5 s ahead
     expect(secondsLeft(serverNow() + 10_000)).toBe(10);
     expect(secondsLeft(local + 10_000)).toBeLessThanOrEqual(5);
-    syncServerClock(undefined); // a state without `now` keeps the offset
-    expect(serverNow() - Date.now()).toBeGreaterThanOrEqual(4_990);
     syncServerClock(Date.now());
     expect(secondsLeft(local - 1_000)).toBe(0);
   });
@@ -249,7 +285,10 @@ describe("server clock", () => {
 
 describe("HttpApi.subscribeRoom", () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    syncServerClock(Date.now()); // the states here say now: 0
+  });
 
   it("takes the snapshot, follows state events, and reconnects with a fresh snapshot", async () => {
     let snap = state("lobby");
@@ -266,12 +305,12 @@ describe("HttpApi.subscribeRoom", () => {
     const es = FakeES.all[0];
     expect(es.url).toBe("/api/rooms/K7Q4/events");
     es.fire("open");
-    es.fire("state", state("playing", 1));
+    es.fire("state", state("playing", 1, 2));
     es.fire("state", "{garbled");
     expect(seen).toEqual(["lobby", "playing1"]);
 
     // the stream drops: closed at once, reopened after the backoff with a new snapshot
-    snap = state("result", 1);
+    snap = state("result", 1, 3);
     es.fire("error");
     expect(es.closed).toBe(true);
     expect(live).toEqual([true, false]);
@@ -292,7 +331,7 @@ describe("HttpApi.subscribeRoom", () => {
     stop();
     expect(FakeES.all[2].closed).toBe(true);
     FakeES.all[2].fire("error");
-    FakeES.all[2].fire("state", state("over"));
+    FakeES.all[2].fire("state", state("over", 1, 9));
     await vi.advanceTimersByTimeAsync(20_000);
     expect(FakeES.all).toHaveLength(3);
     expect(seen.at(-1)).toBe("result1");
@@ -302,7 +341,7 @@ describe("HttpApi.subscribeRoom", () => {
     let gone = false;
     const { fetch, calls } = fetchStub(() =>
       gone
-        ? Response.json({ error: "no_room" }, { status: 404 })
+        ? Response.json({ error: "unknown_room" }, { status: 404 })
         : Response.json(state("playing", 1)),
     );
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
@@ -326,7 +365,7 @@ describe("HttpApi.subscribeRoom", () => {
   });
 
   it("drops a state older than the last applied one", async () => {
-    // with seq: the reconnect's snapshot (seq 5) lands after the stream's seq 6 and is dropped
+    // the reconnect's snapshot (seq 5) lands after the stream's seq 6 and is dropped
     let snap: RoomState = { ...state("lobby"), seq: 1 };
     let release: () => void = () => {};
     const { fetch } = fetchStub(async () => {
@@ -337,7 +376,7 @@ describe("HttpApi.subscribeRoom", () => {
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     const seen: string[] = [];
     const stop = api.subscribeRoom("K7Q4", {
-      onState: (s) => seen.push(`${s.phase}${s.seq ?? ""}`),
+      onState: (s) => seen.push(`${s.phase}${s.seq}`),
     });
     await vi.advanceTimersByTimeAsync(0);
     FakeES.all[0].fire("state", { ...state("playing", 1), seq: 3 });
@@ -352,7 +391,25 @@ describe("HttpApi.subscribeRoom", () => {
     stop();
   });
 
-  it("without seq, applies a snapshot only if no event came in meanwhile", async () => {
+  it("takes the clock from a same-seq state without applying it again", async () => {
+    const { fetch } = fetchStub(() => Response.json(state("lobby", 0, 4)));
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    const onState = vi.fn();
+    const stop = api.subscribeRoom("K7Q4", { onState });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onState).toHaveBeenCalledTimes(1);
+    const now = Date.now();
+    FakeES.all[0].fire("state", { ...state("lobby", 0, 4), now: now + 7_000 });
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(serverNow() - Date.now()).toBeGreaterThan(6_900);
+    // an older one sets nothing at all
+    FakeES.all[0].fire("state", { ...state("lobby", 0, 3), now: now });
+    expect(serverNow() - Date.now()).toBeGreaterThan(6_900);
+    syncServerClock(Date.now());
+    stop();
+  });
+
+  it("drops the first snapshot when a newer event beat it", async () => {
     let release: () => void = () => {};
     let first = true;
     const { fetch } = fetchStub(async () => {
@@ -360,7 +417,7 @@ describe("HttpApi.subscribeRoom", () => {
         first = false;
         await new Promise<void>((r) => (release = r));
       }
-      return Response.json(state("lobby"));
+      return Response.json(state("lobby", 0, 1));
     });
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     const seen: string[] = [];
@@ -368,7 +425,7 @@ describe("HttpApi.subscribeRoom", () => {
       onState: (s) => seen.push(s.phase),
     });
     await vi.advanceTimersByTimeAsync(0);
-    FakeES.all[0].fire("state", state("playing", 1));
+    FakeES.all[0].fire("state", state("playing", 1, 2));
     release();
     await vi.advanceTimersByTimeAsync(0);
     expect(seen).toEqual(["playing"]);

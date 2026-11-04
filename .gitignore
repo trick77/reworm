@@ -12,6 +12,9 @@
 backend/internal/dataset/files/*
 !backend/internal/dataset/files/.gitkeep
 
+# End-to-end runs (npm run e2e): results, traces, screenshots
+/ui/test-results/
+
 # macOS
 .DS_Store
 

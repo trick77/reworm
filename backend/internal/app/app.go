@@ -14,6 +14,7 @@ import (
 	"github.com/trick77/ship/kit/version"
 
 	"github.com/trick77/reworm/internal/dataset"
+	"github.com/trick77/reworm/internal/dev"
 	"github.com/trick77/reworm/internal/server"
 	"github.com/trick77/reworm/internal/store"
 	"github.com/trick77/reworm/web"
@@ -50,18 +51,27 @@ func Main(ctx context.Context, args []string, lookup func(string) string) int {
 
 // Run serves until ctx ends or a shutdown signal arrives.
 func Run(ctx context.Context, cfg Config) error {
+	dbPath := filepath.Join(cfg.DataDir, "reworm.db")
+	// Dev mode's guard first, read-only: a refused data dir is left untouched.
+	if cfg.Dev {
+		if err := dev.CheckDir(ctx, dbPath); err != nil {
+			return err
+		}
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
-	db, err := store.Open(ctx, filepath.Join(cfg.DataDir, "reworm.db"))
+	db, err := store.Open(ctx, dbPath)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = db.Close() }()
-	// The embedded dataset first: anything that narrows the active songs afterwards (a dev fixture list made the
-	// only active songs) must come after this sync, which would turn the whole dataset active again.
-	if err := loadDataset(ctx, db, dataset.Songs); err != nil {
-		return err
+	// The embedded dataset, after the dev guard. Dev mode owns the songs table (fixtures only, the guard refuses
+	// any other id): no upsert there, it would bring the whole dataset in and active.
+	if !cfg.Dev {
+		if err := loadDataset(ctx, db, dataset.Songs); err != nil {
+			return err
+		}
 	}
 
 	api, err := newAPI(ctx, cfg, db)

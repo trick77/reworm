@@ -1,5 +1,5 @@
-// Small things this device remembers (localStorage): last room and training settings, the player id per
-// joined room, the room this device hosts. Storage may be blocked (private mode): then nothing sticks.
+// Small things this device remembers (localStorage): last room and training settings, the last guest
+// name and avatar, the player id per joined room, the room this device hosts. Storage may be blocked (private mode): then nothing sticks.
 import type { Deck, RoomSettings, TrainSettings } from "../api/types";
 
 const P = "reworm.";
@@ -51,4 +51,5 @@ export const defaultTraining = (deck: Deck): TrainSettings => ({
   length: 10,
 });
 
+// playerKey: this browser's player id in a room, used at once on a reload while the room confirms it
 export const playerKey = (code: string) => `player.${code}`;
