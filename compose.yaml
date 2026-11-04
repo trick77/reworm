@@ -1,3 +1,4 @@
+# Keep in step with compose.dev.yaml (user, settings, healthcheck).
 services:
   reworm:
     # A release tag (exists from the first release on); Dependabot moves it.

@@ -1,12 +1,19 @@
-# Local run of the image built from this checkout: docker compose -f compose.dev.yaml up --build
-# http://localhost:8080, no Traefik; the one-time setup link for the first device is in the log
+# Local run of the image built from this checkout, no Traefik: docker compose -f compose.dev.yaml up --build
+# Pair the first device: the log's one-time link is path-only here, open http://localhost:8080/setup/<token>
 # (docker compose -f compose.dev.yaml logs | grep setup).
+# Keep in step with compose.yaml (user, settings, healthcheck); this file differs in build, port, data dir and
+# the missing Traefik bits.
+
+# Its own project: started from a production checkout it never replaces compose.yaml's container.
+name: reworm-dev
+
 services:
   reworm:
     build:
       context: .
       dockerfile: backend/Containerfile
-    # distroless nonroot's own uid, never 1000 (the host's first user).
+    # distroless nonroot's own uid, never 1000 (the host's first user). On Linux the host dir must belong to
+    # it: mkdir -p data/compose-dev && sudo chown 65532:65532 data/compose-dev (Docker Desktop maps it).
     user: "65532:65532"
     ports:
       - "127.0.0.1:8080:8080"
@@ -16,11 +23,18 @@ services:
     environment:
       BACKEND_ADDR: ":8080"
       BACKEND_DATA_DIR: "/data"
-      BACKEND_LOG_LEVEL: "${BACKEND_LOG_LEVEL:-debug}"
+      BACKEND_LOG_LEVEL: "debug"
       # No proxy in front: the client address is the connection's.
       BACKEND_TRUSTED_PROXIES: "0"
-      # Plain http on localhost: no PUBLIC_FQDN, so cookies are not Secure-only.
+      # Plain http on localhost: no PUBLIC_FQDN (a production .env's would make cookies Secure-only).
       PUBLIC_FQDN: ""
+    healthcheck:
+      test: ["CMD", "/reworm", "healthcheck"]
+      interval: 60s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 5s
+      retries: 3
     volumes:
-      # Same host dir as `make run` (ignored by git).
-      - ./data/dev:/data
+      # Its own dir: `make run` (data/dev) is a host process with another uid on the same SQLite files.
+      - ./data/compose-dev:/data

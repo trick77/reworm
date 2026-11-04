@@ -6,6 +6,7 @@
 /bin/
 /data/cache/
 /data/dev/
+/data/compose-dev/
 *.db
 *.db-*
 # The build's copy of data/songs.jsonl (go:embed cannot reach outside backend/); .gitkeep keeps the dir.

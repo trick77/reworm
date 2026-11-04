@@ -33,7 +33,9 @@ one-time setup link from `docker compose logs`. Settings are `BACKEND_*` variabl
 `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
 
 `compose.dev.yaml` builds the image from the checkout and serves it on http://localhost:8080 without Traefik:
-`docker compose -f compose.dev.yaml up --build` (database in `data/dev`, as `make run`).
+`docker compose -f compose.dev.yaml up --build`, its own project and data dir (`data/compose-dev`; on Linux
+`sudo chown 65532:65532` it first). The setup link in its log is path-only: open
+`http://localhost:8080/setup/<token>`.
 
 ## Licence
 
