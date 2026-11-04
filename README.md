@@ -27,15 +27,17 @@ pairs its first device through the setup link from the log. Dev mode is for loca
 
 ## Run
 
-`compose.yaml` runs a released image behind Traefik: `cp .env.example .env` and set `PUBLIC_FQDN`,
-`mkdir -p data && sudo chown -R 65532:65532 data`, then `docker compose up -d`. The first device pairs with the
-one-time setup link from `docker compose logs`. Settings are `BACKEND_*` variables (`BACKEND_ADDR`,
-`BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
+`compose.yaml` runs a released image behind Traefik, from its own directory on the server holding just
+`compose.yaml` and `.env` (not a checkout: the checkout's `data/` holds the tracked dataset). There:
+`cp .env.example .env` and set `PUBLIC_FQDN`, `mkdir -p data && sudo chown -R 65532:65532 data`, then
+`docker compose up -d`. The first device pairs with the one-time setup link from `docker compose logs`. Settings
+are `BACKEND_*` variables (`BACKEND_ADDR`, `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
 
-`compose.dev.yaml` builds the image from the checkout and serves it on http://localhost:8080 without Traefik:
-`docker compose -f compose.dev.yaml up --build`, its own project and data dir (`data/compose-dev`; on Linux
-`sudo chown 65532:65532` it first). The setup link in its log is path-only: open
-`http://localhost:8080/setup/<token>`.
+`compose.dev.yaml` builds the image from the checkout and serves it on port 8081 (beside `make run` on 8080; phones
+on the LAN reach it at `http://<this machine>:8081`) without Traefik and without `.env`:
+`mkdir -p data/compose-dev` (on Linux also `sudo chown 65532:65532 data/compose-dev`), then
+`docker compose -f compose.dev.yaml up --build`. The setup link in its log is path-only: open
+`http://localhost:8081/setup/<token>`.
 
 ## Licence
 

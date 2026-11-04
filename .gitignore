@@ -7,6 +7,9 @@
 /data/cache/
 /data/dev/
 /data/compose-dev/
+# What a server run against ./data writes (the cookie-signing key must never be committed)
+/data/session.key
+/data/covers/
 *.db
 *.db-*
 # The build's copy of data/songs.jsonl (go:embed cannot reach outside backend/); .gitkeep keeps the dir.
