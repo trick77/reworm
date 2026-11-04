@@ -144,11 +144,15 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   const again = winner.page.getByRole("button", { name: LABEL[r.right] });
   await expect(again).toBeEnabled();
   await again.click();
-  // a right "spot on" scores 2: first to 2 again at once
-  s = await waitPhase(stage, code, ["result", "over"]);
-  expect(s.round!.result!.winnerId).toBe(res.winnerId);
+  // scores from 0 again: a right "spot on" is 2 points, first to 2 at once (over); earlier/later is 1 (result)
+  const exact = r.right === "exact";
+  s = await waitPhase(stage, code, exact ? "over" : "result");
+  expect(s.round!.result).toMatchObject({
+    winnerId: res.winnerId,
+    points: exact ? 2 : 1,
+  });
   await expect(
-    winner.page.getByText(s.phase === "over" ? "You win!" : "You got it!"),
+    winner.page.getByText(exact ? "You win!" : "You got it!"),
   ).toBeVisible();
 });
 

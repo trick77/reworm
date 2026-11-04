@@ -1,12 +1,14 @@
 // The harness: builds the UI and the real Go binary, writes the fixture clips, starts the server on a free port
-// with a fresh data dir and the BACKEND_DEV_* flags, and reads the one-time setup link from its log. The tests
-// find it all through E2E_* variables. Teardown stops the server and removes the dir (E2E_KEEP=1 keeps it).
+// with a fresh data dir in dev mode (BACKEND_DEV=1 + BACKEND_DEV_*), and reads the one-time setup link from its
+// log. The tests find it all through E2E_* variables. Teardown, a failed start and the runner's exit stop the
+// server; teardown and a failed start remove the dir (E2E_KEEP=1 keeps it).
 import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { SONGS } from "./songs";
 
@@ -51,6 +53,30 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export default async function globalSetup() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "reworm-e2e-"));
+  const cleanup: (() => Promise<void> | void)[] = [];
+  // everything started is undone: by teardown, by a failed start, and on any exit of the runner
+  const undo = async () => {
+    for (const f of cleanup.splice(0).reverse()) await f();
+    if (!process.env.E2E_KEEP)
+      await fs.rm(dir, { recursive: true, force: true });
+  };
+  try {
+    const s = await start(dir, cleanup);
+    process.env.E2E_BASE_URL = s.base;
+    process.env.E2E_DIR = dir;
+    process.env.E2E_SETUP_PATH = s.setup;
+    console.log(`e2e: server ${s.base}, data in ${dir}`);
+    return undo;
+  } catch (e) {
+    await undo();
+    throw e;
+  }
+}
+
+async function start(
+  dir: string,
+  cleanup: (() => Promise<void> | void)[],
+): Promise<{ base: string; setup: string }> {
   const clips = path.join(dir, "clips");
   await fs.mkdir(clips);
   await Promise.all(
@@ -79,51 +105,54 @@ export default async function globalSetup() {
     ...process.env,
     BACKEND_ADDR: `127.0.0.1:${port}`,
     BACKEND_DATA_DIR: path.join(dir, "data"),
+    BACKEND_DEV: "1",
     BACKEND_DEV_PREVIEWS: clips,
     BACKEND_DEV_SONGS: path.join(here, "fixtures/songs.jsonl"),
     BACKEND_LOG_LEVEL: "info",
   };
   delete env.PUBLIC_FQDN;
   const server = spawn(bin, [], { env, stdio: ["ignore", "pipe", "pipe"] });
-  const log = createWriteStream(path.join(dir, "server.log"));
-  const seen: { setup: string; exited: number | null } = {
+  const seen: { setup: string; exited: number | null; tail: string[] } = {
     setup: "",
     exited: null,
+    tail: [],
   };
   server.on("exit", (code) => (seen.exited = code ?? -1));
+  // the runner dying any way (an error, ^C) must not leave the server behind
+  const kill = () => {
+    if (seen.exited == null) server.kill("SIGKILL");
+  };
+  process.on("exit", kill);
+  const log = createWriteStream(path.join(dir, "server.log"));
+  cleanup.push(async () => {
+    process.off("exit", kill);
+    if (seen.exited == null) server.kill("SIGTERM");
+    for (let i = 0; i < 100 && seen.exited == null; i++) await sleep(100);
+    kill();
+    await new Promise<void>((r) => log.end(r));
+  });
   for (const out of [server.stdout, server.stderr]) {
-    out.on("data", (chunk: Buffer) => {
-      log.write(chunk);
+    // whole lines: the setup link may straddle two chunks
+    readline.createInterface({ input: out }).on("line", (line) => {
+      log.write(line + "\n");
+      seen.tail = [...seen.tail.slice(-19), line];
       // the first device's one-time link, as the log prints it: url=/setup/<token>
-      const m = /url=(\S*\/setup\/[A-Za-z0-9_-]+)/.exec(chunk.toString());
+      const m = /url=(\S*\/setup\/[A-Za-z0-9_-]+)/.exec(line);
       if (m) seen.setup = m[1];
     });
   }
 
+  const fail = (why: string) =>
+    new Error(`server ${why}; its log ends:\n${seen.tail.join("\n")}`);
   const deadline = Date.now() + 30_000;
   for (;;) {
-    if (seen.exited != null)
-      throw new Error(`server exited (${seen.exited}), see ${dir}/server.log`);
-    if (Date.now() > deadline)
-      throw new Error(`server did not come up, see ${dir}/server.log`);
+    if (seen.exited != null) throw fail(`exited (${seen.exited})`);
+    if (Date.now() > deadline) throw fail("did not come up in 30 s");
     const up = await fetch(`${base}/healthz`).then(
       (r) => r.ok,
       () => false,
     );
-    if (up && seen.setup) break;
+    if (up && seen.setup) return { base, setup: seen.setup };
     await sleep(100);
   }
-
-  process.env.E2E_BASE_URL = base;
-  process.env.E2E_DIR = dir;
-  process.env.E2E_SETUP_PATH = seen.setup;
-  console.log(`e2e: server ${base}, data in ${dir}`);
-
-  return async () => {
-    server.kill("SIGTERM");
-    for (let i = 0; i < 100 && seen.exited == null; i++) await sleep(100);
-    if (seen.exited == null) server.kill("SIGKILL");
-    log.end();
-    if (!process.env.E2E_KEEP) await fs.rm(dir, { recursive: true });
-  };
 }
