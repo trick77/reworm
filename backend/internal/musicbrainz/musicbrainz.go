@@ -7,6 +7,7 @@ package musicbrainz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/trick77/ship/kit/run"
 
+	"github.com/trick77/reworm/internal/httpcache"
 	"github.com/trick77/reworm/internal/song"
 )
 
@@ -178,6 +180,8 @@ func (c *Client) get(ctx context.Context, u string, out any) error {
 		status, body, err := c.once(ctx, u)
 		var retry error
 		switch {
+		case errors.Is(err, httpcache.ErrOffline):
+			return err
 		case err != nil && ctx.Err() == nil:
 			retry = err
 		case err != nil:
@@ -342,14 +346,14 @@ func Pick(recs []Recording, artist, title string, cardYear int) (m Match, ok boo
 		return strings.Compare(a.ID, b.ID)
 	})
 	m = Match{Recording: cands[0], Exact: isExact, Year: Year(cands[0].FirstReleaseDate)}
-	// ISRCs find the track on Apple, so only the card's own act and recording may contribute: the chosen one (its
-	// "single/LP/12″ version" note names the original, not a variant), then the others credited exactly to the card's
-	// artist that are no variant either, "version" and "edit" included. A tribute band's or a remix's ISRC would find
-	// their track.
+	// ISRCs find the track on Apple, so only the song's own recordings may contribute: always the chosen one (its
+	// "single/LP/12″ version" note names the original, not a variant; a loosely credited one is still the song),
+	// then the others credited exactly to the card's artist that are no variant either, "version" and "edit"
+	// included. A tribute band's or a remix's ISRC would find their track.
 	seen := map[string]bool{}
 	for i, r := range cands {
 		text := r.Disambiguation + " " + r.Title
-		if !exactArtist(r, artist) || (i > 0 && (Version(text, title) || variant(text, title))) {
+		if i > 0 && (!exactArtist(r, artist) || Version(text, title) || variant(text, title)) {
 			continue
 		}
 		for _, isrc := range r.ISRCs {
@@ -418,8 +422,11 @@ func Year(date string) int {
 var (
 	// trailing matches a trailing "(Remastered 2011)", "[Live]" or " - Single Version".
 	trailing = regexp.MustCompile(`\s*(\([^()]*\)|\[[^\[\]]*\]|\s-\s.*)$`)
-	// mainSep splits a credit into its artists: "A feat. B", "A & B", "A, B", "A x B", "A vs. B", "A with B".
-	mainSep = regexp.MustCompile(`(?i)\s*(\bfeat\.?|\bft\.?|\bfeaturing\b|&|,|\bx\b|\bvs\.?|\bwith\b|\band\b|\+|/)\s*`)
+	// mainSep splits a credit at a featuring mark only: "A feat. B", "A ft. B", "A featuring B", "A (with B)", "A vs.
+	// B", "A x B". Never at "&", ",", "and", "+" or "/": they are inside band names (Simon & Garfunkel; Earth, Wind
+	// & Fire; Florence + the Machine; AC/DC). Several artists joined by those are told by MusicBrainz's credit
+	// (Recording.Artists), see looseArtist.
+	mainSep = regexp.MustCompile(`(?i)\s*(\(?\bfeat\.?|\(?\bft\.|\(?\bfeaturing\b|\(\s*with\b|\bvs\.?\s|\s[x×]\s)\s*`)
 )
 
 // Strip drops trailing parentheticals and " - …" suffixes from a title or album name: what versions add.
@@ -431,6 +438,34 @@ func Strip(s string) string {
 			return s
 		}
 		s = t
+	}
+}
+
+// noteWords mark a trailing title segment as a release note, not part of the song's name.
+var noteWords = []string{"remaster", "remastered", "remasterd", "version", "edit", "mono", "stereo", "single",
+	"radio", "mix", "from", "anniversary", "deluxe", "bonus", "mixed", "extended"}
+
+var yearWord = regexp.MustCompile(`(^| )(19|20)\d\d( |$)`)
+
+// CleanTitle drops trailing release notes from a card title: "Heroes - 2017 Remaster" → "Heroes", "Surfin' U.S.A.
+// (Mono)" → "Surfin' U.S.A.", "You're The One That I Want - From Grease" → its name. A segment without such a
+// note stays: "Bodyguard (I Will Always Love You)" names the song.
+func CleanTitle(s string) string {
+	for {
+		s = strings.TrimSpace(s)
+		loc := trailing.FindStringIndex(s)
+		if loc == nil || loc[0] == 0 {
+			return s
+		}
+		seg := " " + song.Normalize(s[loc[0]:]) + " "
+		note := yearWord.MatchString(strings.TrimSpace(seg))
+		for _, w := range noteWords {
+			note = note || strings.Contains(seg, " "+w+" ")
+		}
+		if !note {
+			return s
+		}
+		s = s[:loc[0]]
 	}
 }
 
@@ -542,6 +577,9 @@ func hasWord(text string, words []string, cardTitle string) bool {
 	return false
 }
 
+// looseArtist: the credit or one of its artists is the card's artist, loosely; or MusicBrainz credits several
+// artists and the card names the first of them followed by more ("Shakira & Wyclef" for Shakira feat. Wyclef Jean).
+// The card side is never split on its own: "Simon & Garfunkel" is one act.
 func looseArtist(r Recording, artist string) bool {
 	if SameArtist(r.Credit, artist) {
 		return true
@@ -550,6 +588,10 @@ func looseArtist(r Recording, artist string) bool {
 		if SameArtist(a, artist) {
 			return true
 		}
+	}
+	if len(r.Artists) > 1 {
+		first := artistKey(r.Artists[0])
+		return first != "" && strings.HasPrefix(artistKey(artist)+" ", first+" ")
 	}
 	return false
 }

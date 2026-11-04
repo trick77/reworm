@@ -8,7 +8,6 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -20,11 +19,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sync"
-	"time"
 
 	"github.com/trick77/ship/kit/fsx"
-	"github.com/trick77/ship/kit/run"
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
 // HitHeader is set on a response served from disk.
@@ -174,54 +171,36 @@ func store(path string, req *http.Request, resp *http.Response, body []byte) err
 	return nil
 }
 
-// Throttle spaces requests to Next at least Every apart (MusicBrainz: one per second). Put it below a Transport, so
-// only cache misses wait.
-type Throttle struct {
-	Every time.Duration
-	Next  http.RoundTripper
-	// Sleep waits; tests replace it.
-	Sleep func(context.Context, time.Duration) error
-	// Now is the clock; tests replace it.
-	Now func() time.Time
-
-	mu   sync.Mutex
-	last time.Time
+// Paced lets requests to Next out one per Throttle gap (kit's ratelimit.Throttle, one key for the whole host),
+// counted from when each went out: MusicBrainz limits the request rate, and its search answers take ~1 s
+// themselves. Put it below a Transport, so only cache misses wait.
+type Paced struct {
+	Throttle *ratelimit.Throttle
+	Next     http.RoundTripper
 }
 
-// RoundTrip implements http.RoundTripper. Requests leave one at a time, Every apart, counted from when each went
-// out: MusicBrainz limits the request rate, and its search answers take ~1 s themselves; waiting for the answer
-// would halve the rate for nothing.
-func (t *Throttle) RoundTrip(req *http.Request) (*http.Response, error) {
-	t.mu.Lock()
-	now := t.now()
-	if wait := t.last.Add(t.Every).Sub(now); !t.last.IsZero() && wait > 0 {
-		if err := t.sleep(req.Context(), wait); err != nil {
-			t.mu.Unlock()
-			return nil, err
-		}
+// pacedKey is the one throttle key: a Paced stands for one host.
+const pacedKey = "host"
+
+// RoundTrip implements http.RoundTripper.
+func (p *Paced) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := p.Throttle.Wait(req.Context(), pacedKey); err != nil {
+		return nil, fmt.Errorf("httpcache: pace %s: %w", req.URL.Host, err)
 	}
-	t.last = t.now()
-	t.mu.Unlock()
-	next := t.Next
+	next := p.Next
 	if next == nil {
 		next = http.DefaultTransport
 	}
 	return next.RoundTrip(req)
 }
 
-func (t *Throttle) now() time.Time {
-	if t.Now != nil {
-		return t.Now()
-	}
-	return time.Now()
-}
+// ErrOffline is what Offline answers: the request would have gone to the network.
+var ErrOffline = errors.New("httpcache: offline, not cached")
 
-func (t *Throttle) sleep(ctx context.Context, d time.Duration) error {
-	if t.Sleep != nil {
-		return t.Sleep(ctx, d)
-	}
-	if !run.Sleep(ctx, d) {
-		return ctx.Err()
-	}
-	return nil
+// Offline is a Next that refuses every request: a Transport over it answers from the cache only.
+type Offline struct{}
+
+// RoundTrip implements http.RoundTripper.
+func (Offline) RoundTrip(req *http.Request) (*http.Response, error) {
+	return nil, fmt.Errorf("%w: %s %s", ErrOffline, req.Method, req.URL.Host)
 }

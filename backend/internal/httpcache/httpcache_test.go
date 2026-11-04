@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/trick77/ship/kit/ratelimit"
 )
 
 func get(t *testing.T, c *http.Client, method, url string) (*http.Response, string) {
@@ -185,40 +187,43 @@ func TestTransport_passesOtherMethodsAndErrors(t *testing.T) {
 	}
 }
 
-func TestThrottle_spacesRequests(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+func TestPaced_spacesRequests(t *testing.T) {
+	var at []time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { at = append(at, time.Now()) }))
 	defer srv.Close()
-	now := time.Unix(1000, 0)
-	var slept []time.Duration
-	th := &Throttle{
-		Every: time.Second,
-		Now:   func() time.Time { return now },
-		Sleep: func(_ context.Context, d time.Duration) error { slept = append(slept, d); now = now.Add(d); return nil },
+	c := &http.Client{Transport: &Paced{Throttle: ratelimit.NewThrottle(50*time.Millisecond, time.Second)}}
+	for range 3 {
+		get(t, c, http.MethodGet, srv.URL)
 	}
-	c := &http.Client{Transport: th}
-	get(t, c, http.MethodGet, srv.URL)
-	now = now.Add(300 * time.Millisecond)
-	get(t, c, http.MethodGet, srv.URL)
-	now = now.Add(2 * time.Second)
-	get(t, c, http.MethodGet, srv.URL)
-	if len(slept) != 1 || slept[0] != 700*time.Millisecond {
-		t.Errorf("slept %v, want [700ms]", slept)
+	if len(at) != 3 || at[2].Sub(at[0]) < 90*time.Millisecond {
+		t.Errorf("3 requests within %v, want >= 100ms apart in all", at[len(at)-1].Sub(at[0]))
 	}
 
-	th.Sleep = func(context.Context, time.Duration) error { return context.Canceled }
-	if _, err := c.Get(srv.URL); !errors.Is(err, context.Canceled) { //nolint:noctx // test
-		t.Errorf("err = %v, want canceled", err)
+	// A caller that gives up while waiting for its turn gets its context's error.
+	slow := &http.Client{Transport: &Paced{Throttle: ratelimit.NewThrottle(time.Hour, 2*time.Hour)}}
+	get(t, slow, http.MethodGet, srv.URL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	if _, err := slow.Do(req); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want the caller's deadline", err)
 	}
 }
 
-func TestThrottle_defaultSleepStopsOnCancel(t *testing.T) {
-	th := &Throttle{}
-	if err := th.sleep(context.Background(), time.Millisecond); err != nil {
-		t.Error(err)
+func TestOffline_answersFromTheCacheOnly(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1); _, _ = io.WriteString(w, "x") }))
+	defer srv.Close()
+	dir := t.TempDir()
+	get(t, &http.Client{Transport: &Transport{Dir: dir}}, http.MethodGet, srv.URL+"/a")
+	off := &http.Client{Transport: &Transport{Dir: dir, Next: Offline{}}}
+	if _, body := get(t, off, http.MethodGet, srv.URL+"/a"); body != "x" {
+		t.Errorf("cached body %q", body)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := th.sleep(ctx, time.Hour); !errors.Is(err, context.Canceled) {
-		t.Errorf("err = %v", err)
+	if _, err := off.Get(srv.URL + "/b"); !errors.Is(err, ErrOffline) { //nolint:noctx // test
+		t.Errorf("miss: %v, want ErrOffline", err)
+	}
+	if hits.Load() != 1 {
+		t.Errorf("hits = %d, want 1", hits.Load())
 	}
 }

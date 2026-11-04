@@ -31,7 +31,8 @@ const (
 		"1,ABBA,Dancing Queen,https://video.example/1,h1,ABBA - Dancing Queen,1976\n" +
 		"2,Joseito Fernandez,Guajira Guantanamera,https://video.example/2,h2,x,1929\n" +
 		"3,Nobody,Unknown Song,https://video.example/3,h3,x,1999\n" +
-		"4,Someone,No Year,https://video.example/4,h4,x,\n"
+		"4,Someone,No Year,https://video.example/4,h4,x,\n" +
+		"5,Lonely,Ballad - 2017 Remaster,https://video.example/7,h7,x,1999\n"
 	megaMixCSV = "Card#,Artist,Title,URL,Hashed Info,Youtube-Title,Year\n" +
 		"1,Abba,Dancing Queen!,https://video.example/5,h5,x,1977\n" +
 		"2,Queen,Bohemian Rhapsody,https://video.example/6,h6,x,1975\n"
@@ -164,7 +165,7 @@ func services(t *testing.T, mbHits *atomic.Int32) *httptest.Server {
 
 func endpoints(srv *httptest.Server) Endpoints {
 	return Endpoints{MusicBrainz: srv.URL + "/mb", AppleAPI: srv.URL + "/apple", ApplePlayer: srv.URL + "/player",
-		CoverArt: srv.URL + "/caa"}
+		CoverArt: srv.URL + "/caa", MBEvery: time.Nanosecond, AppleEvery: time.Nanosecond}
 }
 
 func run(t *testing.T, ep Endpoints, env map[string]string, args ...string) (int, string) {
@@ -193,7 +194,7 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := "artist,title,year\nABBA,Dancing Queen,1976\nJoseito Fernandez,Guajira Guantanamera,1929\n" +
-		"Nobody,Unknown Song,1999\nSomeone,No Year,\n"; string(snap) != want {
+		"Nobody,Unknown Song,1999\nSomeone,No Year,\nLonely,Ballad - 2017 Remaster,1999\n"; string(snap) != want {
 		t.Errorf("snapshot:\n%s", snap)
 	}
 	for _, f := range []string{"essentials.csv", "mega-mix.csv"} {
@@ -215,7 +216,6 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "cards", "old-set.csv"), []byte("artist,title,year\nOld,Song,1990\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ep.MBEvery = 0
 	code, out := run(t, ep, nil, "-env", envFile, "-data", data, "-workers", "2", "songs")
 	if code != 0 {
 		t.Fatalf("songs: exit %d\n%s", code, out)
@@ -235,8 +235,12 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	for _, s := range songs {
 		byID[s.ID] = s
 	}
-	if len(songs) != 3 {
+	if len(songs) != 4 {
 		t.Fatalf("songs:\n%s", b)
+	}
+	// The title as shown drops the release note; the id keeps the card's spelling.
+	if l := byID["lonely--ballad-2017-remaster"]; l.Title != "Ballad" {
+		t.Errorf("Lonely = %+v", l)
 	}
 
 	dq := byID["dq-studio"]
@@ -268,12 +272,12 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	}
 	// Every section shows the dataset as written: the excluded song is gone, the overridden tracks count as set.
 	for _, want := range []string{
-		"| cards | 6 |", "| cards without a year (dropped) | 1 |", "| songs | 3 |", "| overrides applied | 3 |",
+		"| cards | 7 |", "| cards without a year (dropped) | 1 |", "| songs | 4 |", "| overrides applied | 3 |",
 		"| cover: Apple (original album) | 2 |", "| cover: Cover Art Archive | 0 |",
-		"| essentials | 4 | 1 | 2 | 1 | 2 |", "| mega-mix | 2 | 0 | 2 | 2 | 2 |",
+		"| essentials | 5 | 1 | 3 | 1 | 2 |", "| mega-mix | 2 | 0 | 2 | 2 | 2 |",
 		"| Joseito Fernandez | Guajira Guantanamera | 1929 | – | 1958 |  |",
 		"| ABBA | Dancing Queen | 1976, 1977 |",
-		"## Low-confidence matches (0)", "## Not found on MusicBrainz (1)", "## No Apple track with a preview (0)",
+		"## Low-confidence matches (0)", "## Not found on MusicBrainz (2)", "## No Apple track with a preview (1)",
 		"- `missing-id`",
 	} {
 		if !strings.Contains(string(rep), want) {
@@ -302,6 +306,52 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		t.Errorf("apple token not kept: %v", err)
 	}
 
+	// Offline: a card whose query is not cached keeps its previous entry (its new card year included), a new card
+	// that would need the network is left out, MusicBrainz is not asked.
+	if err := os.WriteFile(filepath.Join(data, "overrides.json"), []byte(`{"songs":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := run(t, ep, nil, "-env", envFile, "-data", data, "songs"); code != 0 {
+		t.Fatalf("online rerun: exit %d\n%s", code, out)
+	}
+	online, _ := os.ReadFile(filepath.Join(data, "songs.jsonl"))
+	if err := os.WriteFile(filepath.Join(data, "cards", "essentials.csv"),
+		[]byte("artist,title,year\nABBA,Dancing Queen,1975\nFresh,Track,2001\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before = mbHits.Load()
+	code, out = run(t, ep, nil, "-env", envFile, "-data", data, "-offline", "songs")
+	if code != 0 || mbHits.Load() != before {
+		t.Fatalf("offline: exit %d, %d MusicBrainz requests\n%s", code, mbHits.Load()-before, out)
+	}
+	if !strings.Contains(out, "left out") {
+		t.Errorf("no word about the left-out card:\n%s", out)
+	}
+	off, _ := os.ReadFile(filepath.Join(data, "songs.jsonl"))
+	offSongs, _ := song.Decode(off)
+	var prevDQ, offDQ song.Song
+	onSongs, _ := song.Decode(online)
+	for _, s := range onSongs {
+		if s.ID == "dq-studio" {
+			prevDQ = s
+		}
+	}
+	for _, s := range offSongs {
+		if s.ID == "dq-studio" {
+			offDQ = s
+		}
+		if s.Artist == "Fresh" {
+			t.Errorf("offline run resolved a card it has no answers for: %+v", s)
+		}
+	}
+	if offDQ.Year != 1975 || offDQ.AppleID != prevDQ.AppleID || offDQ.CoverURL != prevDQ.CoverURL || offDQ.AppleID == "" {
+		t.Errorf("kept Dancing Queen = %+v, previous %+v", offDQ, prevDQ)
+	}
+	rep, _ = os.ReadFile(filepath.Join(data, "import-report.md"))
+	if !strings.Contains(string(rep), previousNote) {
+		t.Errorf("report does not say what was kept:\n%s", rep)
+	}
+
 	// An override naming no playable track fails the run instead of leaving the song without a clip.
 	for _, id := range []string{"gone", "no-preview"} {
 		if err := os.WriteFile(filepath.Join(data, "overrides.json"),
@@ -311,6 +361,42 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		if code, out := run(t, ep, nil, "-env", envFile, "-data", data, "songs"); code != 1 || !strings.Contains(out, "no track with a preview") {
 			t.Errorf("override %s: exit %d\n%s", id, code, out)
 		}
+	}
+}
+
+// A year that moves after the resolve (a merge of two cards, a year override) redoes the original-album flag and
+// the cover: the track was judged against the old year.
+func TestRejudge_afterMergeAndYearOverride(t *testing.T) {
+	caa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) }))
+	defer caa.Close()
+	p := &Pipeline{Covers: &CoverArt{BaseURL: caa.URL, HTTP: caa.Client()}}
+	// The group is dated by a reissue (as Waterloo's album shows 2004): only the card year places the track.
+	m := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Album", Date: "2004"}}
+	track := apple.Song{ID: "t", Name: "Song", Album: "Album", ReleaseDate: "1976-05-01", Artwork: "https://img.example/{w}x{h}.jpg", Preview: true}
+	judged := func(year int) resolved {
+		r := resolved{entry: entry{Artist: "A", Title: "Song", Year: year}, match: m,
+			Song: song.Song{ID: "rec", Artist: "A", Title: "Song", Year: year, YearSource: song.YearCard}}
+		if err := p.setTrack(context.Background(), &r, track, "ch"); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	late := judged(1990)
+	if late.AppleOriginal || late.Song.CoverSrc != "" {
+		t.Fatalf("1990: original=%v cover=%q", late.AppleOriginal, late.Song.CoverSrc)
+	}
+	out, _, err := p.merge(context.Background(), []resolved{late, judged(1976)})
+	if err != nil || len(out) != 1 || out[0].Song.Year != 1976 || !out[0].AppleOriginal || out[0].Song.CoverSrc != song.CoverApple {
+		t.Errorf("merged: %+v, %v", out, err)
+	}
+	kept, _, _, err := p.applyOverrides(context.Background(), []resolved{judged(1990)}, map[string]Override{"rec": {Year: 1976}})
+	if err != nil || !kept[0].AppleOriginal || kept[0].Song.CoverSrc != song.CoverApple || kept[0].Song.YearSource != song.YearOverride {
+		t.Errorf("year override: %+v, %v", kept, err)
+	}
+	// A song kept from the previous dataset has no track to judge: left as it was.
+	prev := resolved{Song: song.Song{ID: "p", Year: 1976, AppleID: "x", CoverSrc: song.CoverApple}, trackYear: 1990, kept: true}
+	if err := p.rejudge(context.Background(), &prev); err != nil || prev.Song.AppleID != "x" {
+		t.Errorf("kept song rejudged: %+v, %v", prev.Song, err)
 	}
 }
 

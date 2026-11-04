@@ -12,6 +12,7 @@ import (
 
 	"github.com/trick77/reworm/internal/apple"
 	"github.com/trick77/reworm/internal/cards"
+	"github.com/trick77/reworm/internal/httpcache"
 	"github.com/trick77/reworm/internal/musicbrainz"
 	"github.com/trick77/reworm/internal/song"
 )
@@ -43,6 +44,9 @@ type Pipeline struct {
 	Covers  *CoverArt
 	Workers int
 	Log     *slog.Logger
+	// Previous, set offline, is the last dataset by card key: a song whose resolve would need the network
+	// (httpcache.ErrOffline) keeps its entry from there; one not in it is left out.
+	Previous map[string]song.Song
 }
 
 // entry is one unique song of the card sets before resolving.
@@ -66,8 +70,13 @@ type resolved struct {
 	MBMatched     bool
 	// Low lists why a match is low confidence; empty when it is not.
 	Low []string
-	// match is the MusicBrainz match, kept for an override that picks another Apple track.
+	// match and track are the MusicBrainz match and the Apple track: kept to redo the cover when the year or the
+	// track changes after the resolve (a merge, an override).
 	match musicbrainz.Match
+	track apple.Song
+	// trackYear is the song's year setTrack judged the track by; kept marks a song taken from the previous dataset.
+	trackYear int
+	kept      bool
 }
 
 // collect dedupes the sets' cards by normalized artist+title, drops year-less cards and counts per set.
@@ -133,6 +142,9 @@ func (p *Pipeline) resolveAll(ctx context.Context, entries []entry) ([]resolved,
 		wg.Go(func() {
 			for i := range jobs {
 				out[i], errs[i] = p.resolve(ctx, entries[i])
+				if errors.Is(errs[i], httpcache.ErrOffline) && p.Previous != nil {
+					out[i], errs[i] = p.previous(entries[i])
+				}
 				ok[i] = errs[i] == nil
 				if errors.Is(errs[i], apple.ErrRateLimited) {
 					stop(errs[i])
@@ -168,15 +180,57 @@ func (p *Pipeline) resolveAll(ctx context.Context, entries []entry) ([]resolved,
 			missing, len(entries), cause)
 	}
 	var all []error
+	kept := out[:0]
+	left := 0
 	for i, err := range errs {
-		if err != nil {
+		switch {
+		case errors.Is(err, errLeftOut):
+			left++
+		case err != nil:
 			all = append(all, fmt.Errorf("%s – %s: %w", entries[i].Artist, entries[i].Title, err))
+		default:
+			kept = append(kept, out[i])
 		}
 	}
 	if len(all) > 0 {
 		return nil, fmt.Errorf("%d songs failed (re-run: answers so far are cached): %w", len(all), errors.Join(all[:min(len(all), 10)]...))
 	}
-	return out, nil
+	if left > 0 {
+		p.log().Warn("offline: songs that need the network and have no previous entry left out", "songs", left)
+	}
+	return kept, nil
+}
+
+// errLeftOut marks a song an offline run cannot resolve and has no previous entry for.
+var errLeftOut = errors.New("offline and not in the previous dataset")
+
+// previousNote is the low-confidence note of a song an offline run kept from the previous dataset.
+const previousNote = "kept from the previous import (offline, needs the network)"
+
+// previous is e as the previous dataset has it, its sets and year from the cards as they are now.
+func (p *Pipeline) previous(e entry) (resolved, error) {
+	s, ok := p.Previous[song.Key(e.Artist, e.Title)]
+	if !ok {
+		s, ok = p.Previous[song.Key(e.Artist, musicbrainz.CleanTitle(e.Title))]
+	}
+	if !ok {
+		return resolved{}, errLeftOut
+	}
+	s.Title, s.Sets = musicbrainz.CleanTitle(e.Title), e.Sets
+	if s.YearSource == song.YearCard {
+		s.Year = e.Year
+	}
+	return resolved{entry: e, Song: s, MBMatched: s.MBID != "", AppleOriginal: s.CoverSrc == song.CoverApple,
+		Low: []string{previousNote}, trackYear: s.Year, kept: true}, nil
+}
+
+// rejudge redoes the original-album flag and the cover after the song's year moved (a merge, a year override).
+// A song kept from the previous dataset has no track to judge: it stays as it was.
+func (p *Pipeline) rejudge(ctx context.Context, r *resolved) error {
+	if r.kept || r.Song.Year == r.trackYear {
+		return nil
+	}
+	return p.setTrack(ctx, r, r.track, r.Song.Storefront)
 }
 
 func (p *Pipeline) log() *slog.Logger {
@@ -189,7 +243,9 @@ func (p *Pipeline) log() *slog.Logger {
 // resolve finds one song: MusicBrainz recording, Apple track, cover.
 func (p *Pipeline) resolve(ctx context.Context, e entry) (resolved, error) {
 	r := resolved{entry: e}
-	s := song.Song{Artist: e.Artist, Title: e.Title, Year: e.Year, YearSource: song.YearCard, Sets: e.Sets}
+	// The title as shown: release notes the card list copied from a streaming title ("Heroes - 2017 Remaster", 137
+	// of them) dropped. The id's slug keeps the card's spelling, so it does not move.
+	s := song.Song{Artist: e.Artist, Title: musicbrainz.CleanTitle(e.Title), Year: e.Year, YearSource: song.YearCard, Sets: e.Sets}
 
 	m, ok, why, err := p.findRecording(ctx, e)
 	if err != nil {
@@ -228,6 +284,7 @@ const searchNote = "Apple track found by search"
 // else none.
 func (p *Pipeline) setTrack(ctx context.Context, r *resolved, t apple.Song, sf string) error {
 	s, m := &r.Song, r.match
+	r.track, r.trackYear = t, s.Year
 	s.AppleID, s.Storefront, s.AppleAlbum, s.ISRC = t.ID, sf, t.Album, t.ISRC
 	if s.ISRC == "" && len(m.ISRCs) > 0 {
 		s.ISRC = m.ISRCs[0]
@@ -355,14 +412,20 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 // recording's, its artist the card's or the recording's. Apple files unrelated tracks under a famous ISRC
 // (Yesterday's returned a 2023 single by another act).
 func sameSong(s apple.Song, e entry, m musicbrainz.Match) bool {
+	if !sameTitle(s, e, m) {
+		return false
+	}
+	return musicbrainz.SameArtist(s.Artist, e.Artist) || (m.Recording.Credit != "" && musicbrainz.SameArtist(s.Artist, m.Recording.Credit))
+}
+
+// sameTitle says an Apple track's name is one of the card title's readings (musicbrainz.SongTitles) or the matched
+// recording's title.
+func sameTitle(s apple.Song, e entry, m musicbrainz.Match) bool {
 	titles := musicbrainz.SongTitles(e.Title)
 	if m.Recording.Title != "" {
 		titles = append(titles, m.Recording.Title)
 	}
-	if !slices.ContainsFunc(titles, func(t string) bool { return musicbrainz.SameTitle(s.Name, t) }) {
-		return false
-	}
-	return musicbrainz.SameArtist(s.Artist, e.Artist) || (m.Recording.Credit != "" && musicbrainz.SameArtist(s.Artist, m.Recording.Credit))
+	return slices.ContainsFunc(titles, func(t string) bool { return musicbrainz.SameTitle(s.Name, t) })
 }
 
 // searchTitles bounds the title readings the Apple search tries.
@@ -404,7 +467,7 @@ func (p *Pipeline) originalAlbumTrack(ctx context.Context, sf string, e entry, m
 			for _, t := range tracks {
 				hit := slices.Contains(m.ISRCs, t.ISRC)
 				if !byISRC {
-					hit = musicbrainz.SameTitle(t.Name, e.Title)
+					hit = sameTitle(t, e, m)
 				}
 				if hit && t.Preview {
 					return t, true, nil
@@ -478,7 +541,18 @@ func originalYear(y int, g musicbrainz.Group, cardYear int) bool {
 func ownAlbum(t apple.Song) bool { return musicbrainz.SameArtist(t.AlbumArtist, t.Artist) }
 
 // merge folds resolved entries that came out as the same song id (two card spellings of one recording) into one:
-// the sets joined, the earliest card year kept.
+// the sets joined, the earliest card year kept. A song whose year moved has its track's original-album flag and
+// cover redone: both were judged against the year it had.
+func (p *Pipeline) merge(ctx context.Context, rs []resolved) (out []resolved, merged []string, err error) {
+	out, merged = merge(rs)
+	for i := range out {
+		if err := p.rejudge(ctx, &out[i]); err != nil {
+			return nil, nil, err
+		}
+	}
+	return out, merged, nil
+}
+
 func merge(rs []resolved) (out []resolved, merged []string) {
 	byID := map[string]int{}
 	for _, r := range rs {

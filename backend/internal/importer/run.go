@@ -17,6 +17,7 @@ import (
 	"github.com/trick77/ship/kit/env"
 	"github.com/trick77/ship/kit/fsx"
 	"github.com/trick77/ship/kit/logging"
+	"github.com/trick77/ship/kit/ratelimit"
 	"github.com/trick77/ship/kit/version"
 
 	"github.com/trick77/reworm/internal/apple"
@@ -26,18 +27,23 @@ import (
 	"github.com/trick77/reworm/internal/song"
 )
 
-const usage = `usage: import [-env file] [-data dir] [-workers n] cards|songs
+const usage = `usage: import [-env file] [-data dir] [-workers n] [-offline] cards|songs
 
   cards  download the card lists (BACKEND_CARDS_BASE_URL, BACKEND_CARDS_FILES) into <data>/cards/<set>.csv
   songs  resolve the snapshots of the sets BACKEND_CARDS_FILES names against MusicBrainz, Apple Music and the
-         Cover Art Archive into <data>/songs.jsonl and <data>/import-report.md; every answer is cached in <data>/cache`
+         Cover Art Archive into <data>/songs.jsonl and <data>/import-report.md; every answer is cached in <data>/cache.
+         -offline answers from the cache only: a song that would need the network keeps its previous entry`
 
 // Endpoints are the services' base URLs; tests point them at fixtures.
 type Endpoints struct {
 	MusicBrainz, AppleAPI, ApplePlayer, CoverArt string
-	// MBEvery spaces MusicBrainz requests (1 s; tests 0); AppleEvery Apple's (cache misses only, as MusicBrainz).
+	// MBEvery spaces MusicBrainz requests (1 s); AppleEvery Apple's (cache misses only, as MusicBrainz). Above 0:
+	// kit's throttle refuses a zero gap (tests take 1 ns).
 	MBEvery, AppleEvery time.Duration
 }
+
+// maxQueue is how long a request may wait for its paced turn: never refused, the workers just queue.
+const maxQueue = 24 * time.Hour
 
 // DefaultEndpoints are the real services.
 var DefaultEndpoints = Endpoints{
@@ -55,6 +61,7 @@ func Main(ctx context.Context, args []string, getenv func(string) string, stderr
 	envFile := fs.String("env", "", "dotenv file (KEY=VALUE lines); the process environment wins")
 	dataDir := fs.String("data", "data", "the repo's data directory")
 	workers := fs.Int("workers", 4, "songs resolved at once (MusicBrainz stays at 1 req/s)")
+	offline := fs.Bool("offline", false, "songs: answer from the cache only, no network")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -76,7 +83,7 @@ func Main(ctx context.Context, args []string, getenv func(string) string, stderr
 	if fs.Arg(0) == "cards" {
 		err = runCards(ctx, lookup, *dataDir, log)
 	} else {
-		err = runSongs(ctx, lookup, *dataDir, *workers, ep, log)
+		err = runSongs(ctx, lookup, *dataDir, *workers, *offline, ep, log)
 	}
 	if err != nil {
 		log.Error("import failed", logging.Err(err))
@@ -119,7 +126,8 @@ func configuredSources(lookup func(string) string) ([]cards.Source, error) {
 	return cards.ParseSources(spec)
 }
 
-func runSongs(ctx context.Context, lookup func(string) string, dataDir string, workers int, ep Endpoints, log *slog.Logger) error {
+func runSongs(ctx context.Context, lookup func(string) string, dataDir string, workers int, offline bool, ep Endpoints,
+	log *slog.Logger) error {
 	srcs, err := configuredSources(lookup)
 	if err != nil {
 		return err
@@ -137,15 +145,23 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 		return err
 	}
 	cacheDir := filepath.Join(dataDir, "cache")
-	p := newPipeline(cacheDir, workers, ep, log)
+	p := newPipeline(cacheDir, workers, offline, ep, log)
+	if offline {
+		if p.Previous, err = previousSongs(filepath.Join(dataDir, "songs.jsonl")); err != nil {
+			return err
+		}
+	}
 
 	entries, stats := collect(sets)
-	log.Info("resolving songs", "sets", len(sets), "songs", len(entries))
+	log.Info("resolving songs", "sets", len(sets), "songs", len(entries), "offline", offline)
 	rs, err := p.resolveAll(ctx, entries)
 	if err != nil {
 		return err
 	}
-	rs, merged := merge(rs)
+	rs, merged, err := p.merge(ctx, rs)
+	if err != nil {
+		return err
+	}
 	kept, applied, unknown, err := p.applyOverrides(ctx, rs, ov)
 	if err != nil {
 		return err
@@ -179,17 +195,47 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 	return nil
 }
 
-// newPipeline wires the clients: every answer through the disk cache; MusicBrainz throttled below it, so only
-// misses wait; the Apple token kept in the cache dir (its page and bundle are not cached: a cached bundle would
-// hand out an expired token forever).
-func newPipeline(cacheDir string, workers int, ep Endpoints, log *slog.Logger) *Pipeline {
+// previousSongs reads the dataset an offline run falls back to, keyed by card key (song.Key of artist and title);
+// none when there is no file yet.
+func previousSongs(path string) (map[string]song.Song, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // the repo's own dataset
+	if errors.Is(err, os.ErrNotExist) {
+		return map[string]song.Song{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	songs, err := song.Decode(b)
+	if err != nil {
+		return nil, fmt.Errorf("previous dataset: %w", err)
+	}
+	out := make(map[string]song.Song, len(songs))
+	for _, s := range songs {
+		out[song.Key(s.Artist, s.Title)] = s
+	}
+	return out, nil
+}
+
+// newPipeline wires the clients: every answer through the disk cache; MusicBrainz and Apple paced below it (kit's
+// throttle, one turn at a time for all workers), so only misses wait; the Apple token kept in the cache dir (its
+// page and bundle are not cached: a cached bundle would hand out an expired token forever). Offline, every miss is
+// httpcache.ErrOffline instead of a request.
+func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, log *slog.Logger) *Pipeline {
 	// One cache dir for all; clients evict what they cannot decode (any Transport on the dir does).
 	cache := &httpcache.Transport{Dir: filepath.Join(cacheDir, "http")}
-	cached := func(next http.RoundTripper) *http.Client {
+	var net http.RoundTripper // nil: the default transport
+	if offline {
+		net = httpcache.Offline{}
+	}
+	cached := func(gap time.Duration) *http.Client {
+		next := net
+		if gap > 0 && !offline {
+			next = &httpcache.Paced{Throttle: ratelimit.NewThrottle(gap, maxQueue)}
+		}
 		return &http.Client{Timeout: time.Minute, Transport: &httpcache.Transport{Dir: cache.Dir, Next: next}}
 	}
 	tokenPath := filepath.Join(cacheDir, "apple-token.json")
-	tokens := &apple.Source{BaseURL: ep.ApplePlayer, HTTP: &http.Client{Timeout: time.Minute},
+	tokens := &apple.Source{BaseURL: ep.ApplePlayer, HTTP: &http.Client{Timeout: time.Minute, Transport: net},
 		OnNew: func(t apple.Token) {
 			if err := apple.SaveToken(tokenPath, t); err != nil {
 				log.Warn("apple token not kept", logging.Err(err))
@@ -198,14 +244,14 @@ func newPipeline(cacheDir string, workers int, ep Endpoints, log *slog.Logger) *
 	if t, ok := apple.LoadToken(tokenPath, time.Now()); ok {
 		tokens.Seed(t)
 	}
-	caa := cached(nil)
+	caa := cached(0)
 	caa.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &Pipeline{
 		MB: &musicbrainz.Client{BaseURL: ep.MusicBrainz,
-			HTTP:      cached(&httpcache.Throttle{Every: ep.MBEvery}),
+			HTTP:      cached(ep.MBEvery),
 			UserAgent: "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )",
 			Evict:     cache.Evict},
-		Apple: &apple.Client{BaseURL: ep.AppleAPI, HTTP: cached(&httpcache.Throttle{Every: ep.AppleEvery}), Dev: tokens,
+		Apple: &apple.Client{BaseURL: ep.AppleAPI, HTTP: cached(ep.AppleEvery), Dev: tokens,
 			Evict: cache.Evict},
 		Covers:  &CoverArt{BaseURL: ep.CoverArt, HTTP: caa},
 		Workers: workers,

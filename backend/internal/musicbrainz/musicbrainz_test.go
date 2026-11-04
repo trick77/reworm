@@ -278,8 +278,12 @@ func TestSearch_evictsAnUndecodableAnswer(t *testing.T) {
 func TestPick_looseAndNone(t *testing.T) {
 	recs := []Recording{
 		{ID: "b", Title: "Hips Don't Lie", Credit: "Shakira feat. Wyclef Jean", Artists: []string{"Shakira", "Wyclef Jean"},
-			FirstReleaseDate: "2006-02-28", Score: 100, Releases: []Release{{Date: "2006", Group: Group{ID: "single", PrimaryType: "Single"}}}},
-		{ID: "a", Title: "Hips Don't Lie (Bamboo)", Credit: "Shakira", Artists: []string{"Shakira"}, FirstReleaseDate: "2006-02-28", Score: 100},
+			FirstReleaseDate: "2006-02-28", Score: 100, ISRCs: []string{"USSM10603618"},
+			Releases: []Release{{Date: "2006", Group: Group{ID: "single", PrimaryType: "Single"}}}},
+		{ID: "a", Title: "Hips Don't Lie (Bamboo)", Credit: "Shakira & Wyclef Jean", Artists: []string{"Shakira", "Wyclef Jean"},
+			FirstReleaseDate: "2006-02-28", Score: 100},
+		// One credited artist: the card's "Shakira & Wyclef" is not split on its own, so Shakira alone is no match.
+		{ID: "solo", Title: "Hips Don't Lie", Credit: "Shakira", Artists: []string{"Shakira"}, FirstReleaseDate: "2005", Score: 100},
 	}
 	m, ok := Pick(recs, "Shakira & Wyclef", "Hips Don't Lie", 0)
 	if !ok || m.Exact {
@@ -288,6 +292,10 @@ func TestPick_looseAndNone(t *testing.T) {
 	// Same date and score: more releases wins, then the lower MBID.
 	if m.Recording.ID != "b" || m.CoverGroup().ID != "single" || m.Original.ID != "" {
 		t.Errorf("picked %+v", m)
+	}
+	// The chosen recording's ISRCs always count, loosely credited or not.
+	if !slices.Equal(m.ISRCs, []string{"USSM10603618"}) {
+		t.Errorf("isrcs %v", m.ISRCs)
 	}
 	recs[0].Releases = nil
 	if m, _ := Pick(recs, "Shakira & Wyclef", "Hips Don't Lie", 0); m.Recording.ID != "a" {
@@ -316,6 +324,23 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 			t.Errorf("Strip(%q) = %q, want %q", in, got, want)
 		}
 	}
+	for in, want := range map[string]string{
+		"Heroes - 2017 Remaster":                   "Heroes",
+		"Surfin' U.S.A. (Mono)":                    "Surfin' U.S.A.",
+		"You're The One That I Want - From Grease": "You're The One That I Want",
+		"Mr. Saxobeat - Radio Edit":                "Mr. Saxobeat",
+		"Imagine - Remastered 2010":                "Imagine",
+		"Waterloo - Single Version [Mono]":         "Waterloo",
+		"Bodyguard (I Will Always Love You)":       "Bodyguard (I Will Always Love You)",
+		"Layla (Live)":                             "Layla (Live)",
+		"(Remastered)":                             "(Remastered)",
+		"Summer of '69":                            "Summer of '69",
+		"1999":                                     "1999",
+	} {
+		if got := CleanTitle(in); got != want {
+			t.Errorf("CleanTitle(%q) = %q, want %q", in, got, want)
+		}
+	}
 	for in, want := range map[string][]string{
 		"Waterloo": {"Waterloo"},
 		"Robin Hood - König der Diebe ((Everything I Do) I Do It For You)": {
@@ -339,6 +364,14 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 		want bool
 	}{
 		{"Shakira feat. Wyclef Jean", "Shakira", true},
+		{"Calvin Harris (with Ellie Goulding)", "Calvin Harris", true},
+		{"Calvin Harris x Dua Lipa", "Calvin Harris", true},
+		{"Simon & Garfunkel", "Simon", false},
+		{"Simon and Garfunkel", "Simon", false},
+		{"Earth, Wind & Fire", "Earth", false},
+		{"Florence + the Machine", "Florence", false},
+		{"AC/DC", "AC", false},
+		{"Malcolm X", "Malcolm", false},
 		{"Joseíto Fernández", "Joseito Fernandez", true},
 		{"The Beatles", "Beatles", true},
 		{"ABBA", "Queen", false},
@@ -351,7 +384,17 @@ func TestTitleAndArtistHelpers(t *testing.T) {
 			t.Errorf("SameArtist(%q, %q) = %v", tc.a, tc.b, got)
 		}
 	}
-	if MainArtist("& Friends") != "& Friends" || MainArtist("Calvin Harris x Dua Lipa") != "Calvin Harris" {
+	for in, want := range map[string]string{
+		"feat. Friends": "feat. Friends", "Calvin Harris x Dua Lipa": "Calvin Harris", "AC/DC": "AC/DC",
+		"Earth, Wind & Fire": "Earth, Wind & Fire", "Simon and Garfunkel": "Simon and Garfunkel",
+		"Florence + the Machine": "Florence + the Machine", "Malcolm X": "Malcolm X",
+		"Shakira (feat. Wyclef Jean)": "Shakira", "Eminem ft. Rihanna": "Eminem", "Tiësto vs. Diplo": "Tiësto",
+	} {
+		if got := MainArtist(in); got != want {
+			t.Errorf("MainArtist(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if MainArtist("& Friends") != "& Friends" {
 		t.Error("MainArtist")
 	}
 	if compareDates("1976", "1976-08-15") >= 0 || compareDates("", "1976") <= 0 || compareDates("1976", "") >= 0 {

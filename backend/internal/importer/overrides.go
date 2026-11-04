@@ -103,6 +103,9 @@ func (p *Pipeline) applyOverrides(ctx context.Context, rs []resolved, ov map[str
 			if err := p.setTrack(ctx, &r, t, sf); err != nil {
 				return nil, nil, nil, err
 			}
+		} else if err := p.rejudge(ctx, &r); err != nil {
+			// A year alone moves what counts as the original album: the track's flag and cover are judged anew.
+			return nil, nil, nil, err
 		}
 		kept = append(kept, r)
 	}
