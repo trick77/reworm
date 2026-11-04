@@ -58,6 +58,8 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
+	// The embedded dataset first: anything that narrows the active songs afterwards (a dev fixture list made the
+	// only active songs) must come after this sync, which would turn the whole dataset active again.
 	if err := loadDataset(ctx, db, dataset.Songs); err != nil {
 		return err
 	}

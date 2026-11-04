@@ -35,14 +35,15 @@ const usage = `usage: import [-env file] [-data dir] [-workers n] cards|songs
 // Endpoints are the services' base URLs; tests point them at fixtures.
 type Endpoints struct {
 	MusicBrainz, AppleAPI, ApplePlayer, CoverArt string
-	// MBEvery spaces MusicBrainz requests (1 s; tests 0).
-	MBEvery time.Duration
+	// MBEvery spaces MusicBrainz requests (1 s; tests 0); AppleEvery Apple's (cache misses only, as MusicBrainz).
+	MBEvery, AppleEvery time.Duration
 }
 
 // DefaultEndpoints are the real services.
 var DefaultEndpoints = Endpoints{
 	MusicBrainz: musicbrainz.BaseURL, AppleAPI: apple.APIURL, ApplePlayer: apple.PlayerURL, CoverArt: CAAURL,
-	MBEvery: time.Second,
+	// Apple refuses bursts with 429s whose window outlasts short backoffs: 5 requests a second stay clear.
+	MBEvery: time.Second, AppleEvery: 200 * time.Millisecond,
 }
 
 // Main runs the command: args without the program name, getenv the process environment. It returns the exit code.
@@ -203,7 +204,8 @@ func newPipeline(cacheDir string, workers int, ep Endpoints, log *slog.Logger) *
 			HTTP:      cached(&httpcache.Throttle{Every: ep.MBEvery}),
 			UserAgent: "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )",
 			Evict:     cache.Evict},
-		Apple:   &apple.Client{BaseURL: ep.AppleAPI, HTTP: cached(nil), Dev: tokens, Evict: cache.Evict},
+		Apple: &apple.Client{BaseURL: ep.AppleAPI, HTTP: cached(&httpcache.Throttle{Every: ep.AppleEvery}), Dev: tokens,
+			Evict: cache.Evict},
 		Covers:  &CoverArt{BaseURL: ep.CoverArt, HTTP: caa},
 		Workers: workers,
 		Log:     log,

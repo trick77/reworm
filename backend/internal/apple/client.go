@@ -31,9 +31,10 @@ const (
 	// maxPages bounds one ISRC lookup: Apple pages filter[isrc] at 25, a hit song has a few pages of compilations.
 	maxPages = 8
 	// maxRetryAfter caps how long a 429 makes a call wait before a retry.
-	maxRetryAfter = 30 * time.Second
-	// tries is how often a 429 or a cut-off body is tried before the call fails.
-	tries = 4
+	maxRetryAfter = time.Minute
+	// tries is how often a 429 or a cut-off body is tried before the call fails. Apple's 429 window outlasts a few
+	// seconds: a full import at 8 workers met 30 refusals with 12 s of backoff in all (2026-11-04).
+	tries = 6
 )
 
 var (
@@ -277,7 +278,7 @@ func (c *Client) get(ctx context.Context, path string, out any) (found bool, err
 			refetched = true
 			continue
 		case status == http.StatusTooManyRequests && attempt < tries:
-			wait = min(after*time.Duration(attempt), maxRetryAfter)
+			wait = min(max(after, 5*time.Second<<(attempt-1)), maxRetryAfter) // 5 s, 10 s, … 1 min
 		default:
 			return false, fmt.Errorf("apple music: %s returned %d: %s", redact(path), status, apiError(body))
 		}

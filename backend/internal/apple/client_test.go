@@ -174,7 +174,7 @@ func TestGet_retriesRateLimitsAndCutBodies(t *testing.T) {
 	c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		switch calls.Add(1) {
 		case 1:
-			w.Header().Set("Retry-After", "3")
+			w.Header().Set("Retry-After", "7") // longer than the 5 s first backoff: honored
 			w.WriteHeader(http.StatusTooManyRequests)
 		case 2:
 			_, _ = fmt.Fprint(w, `{"results":{"songs":{"da`)
@@ -186,7 +186,7 @@ func TestGet_retriesRateLimitsAndCutBodies(t *testing.T) {
 	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 3 || len(waits) != 2 || waits[0] != 3*time.Second || waits[1] != 2*time.Second {
+	if calls.Load() != 3 || len(waits) != 2 || waits[0] != 7*time.Second || waits[1] != 2*time.Second {
 		t.Errorf("calls %d, waits %v", calls.Load(), waits)
 	}
 
