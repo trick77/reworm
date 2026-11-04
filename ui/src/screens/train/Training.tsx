@@ -466,7 +466,7 @@ export function Training({ id }: { id: string }) {
   const [learning, setLearning] = useState(0);
   // null until the first answer here: the resumed session's own streak counts
   const [ownStreak, setStreak] = useState<number | null>(null);
-  const streak = ownStreak ?? ses.data?.stats?.streak ?? 0;
+  const streak = ownStreak ?? ses.data?.stats.streak ?? 0;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [t0] = useState(() => Date.now());
@@ -530,7 +530,7 @@ export function Training({ id }: { id: string }) {
     if (answered.res.next) {
       setCard(answered.res.next);
       setView("play");
-    } else if (answered.res.retryable) {
+    } else if (answered.res.nextError) {
       // the next clip failed on the server: the session resumes at its card once it loads
       setError(null);
       api.trainSession(id).then(
@@ -610,8 +610,8 @@ export function Training({ id }: { id: string }) {
       <Counts
         done={Math.min(count, index + 1)}
         total={count}
-        right={right + (ses.data.stats?.correct ?? 0)}
-        learning={learning + (ses.data.stats?.learning ?? 0)}
+        right={right + ses.data.stats.correct}
+        learning={learning + ses.data.stats.learning}
         streak={streak}
       />
     </>
@@ -624,7 +624,7 @@ export function Training({ id }: { id: string }) {
           <Button onClick={next}>
             {answered.res.next
               ? "Next song"
-              : answered.res.retryable
+              : answered.res.nextError
                 ? "Try again"
                 : "See results"}{" "}
             <span className="kbd">⏎</span>
@@ -633,7 +633,7 @@ export function Training({ id }: { id: string }) {
         scrollClassName="fade-in"
       >
         {head}
-        {answered.res.retryable && !answered.res.next && (
+        {answered.res.nextError && !answered.res.next && (
           <div className="err" role="alert">
             The next song didn't load.
             {error ? ` ${error.message}` : ""}

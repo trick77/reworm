@@ -9,6 +9,9 @@
 *.db
 *.db-*
 
+# End-to-end runs (npm run e2e): results, traces, screenshots
+/ui/test-results/
+
 # macOS
 .DS_Store
 

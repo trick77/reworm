@@ -1,0 +1,15 @@
+{
+  // The end-to-end specs: type-checked by npm run e2e, not by the build (tsc -b), so the gate never needs
+  // Playwright.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["."]
+}

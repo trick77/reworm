@@ -29,14 +29,23 @@ export function Who() {
   const { unpaired, reload } = useMe();
   const profiles = useAsync(unpaired ? null : "profiles", () => api.profiles());
   const [error, setError] = useState<ApiError | null>(null);
-  const pick = (id: string) =>
-    api.switchProfile(id).then(
+  // admin: the admin profile someone tried to switch into (only pairing from its device gets there)
+  const [admin, setAdmin] = useState<string | null>(null);
+  const pick = (id: string, name: string) => {
+    setError(null);
+    setAdmin(null);
+    return api.switchProfile(id).then(
       () => {
         reload();
         go("/");
       },
-      (e: unknown) => setError(toApiError(e)),
+      (e: unknown) => {
+        const err = toApiError(e);
+        if (err.code === "admin_profile") setAdmin(name);
+        else setError(err);
+      },
     );
+  };
   return (
     <Screen>
       <div
@@ -62,10 +71,26 @@ export function Who() {
           <Problem error={profiles.error} retry={profiles.reload} />
         )}
         {error && <Problem error={error} />}
+        {admin && (
+          <Card style={{ marginTop: 18 }} role="alert">
+            <div style={{ fontWeight: 700 }}>{admin} is the admin profile</div>
+            <div className="sub" style={{ fontSize: 13, margin: "4px 0 12px" }}>
+              It can't be picked here. On one of {admin}'s devices open Profile
+              &amp; devices → Add a device, then enter the code on this one.
+            </div>
+            <Button small variant="sky" icon="qr" onClick={() => go("/pair")}>
+              Pair this device
+            </Button>
+          </Card>
+        )}
         {profiles.data && (
           <div className="who-grid">
             {profiles.data.map((p) => (
-              <button key={p.id} type="button" onClick={() => void pick(p.id)}>
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => void pick(p.id, p.name)}
+              >
                 <Avatar avatar={p.avatar} size={88} alt="" />
                 <b style={{ fontSize: 15 }}>{p.name}</b>
               </button>
@@ -437,12 +462,13 @@ export function Pair({ code: given }: { code?: string }) {
   );
 }
 
-export function Setup() {
+// Setup is the server log's one-time link, /setup/<token> (?token= works too).
+export function Setup({ token: given }: { token?: string }) {
   const api = useApi();
   const [, go] = useLocation();
   const [params] = useSearchParams();
   const { reload } = useMe();
-  const token = params.get("token") ?? "";
+  const token = given ?? params.get("token") ?? "";
   const [name, setName] = useState("");
   const [avatar, setAvatar] = useState("vinyl");
   const [busy, setBusy] = useState(false);

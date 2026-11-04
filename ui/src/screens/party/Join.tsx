@@ -2,12 +2,19 @@
 // joined, the same route is the pad.
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import type { ApiError } from "../../api/client";
-import { toApiError, useApi, useAsync, useMe } from "../../api/context";
+import { backoff, transient, type ApiError } from "../../api/client";
+import { toApiError, useApi, useMe } from "../../api/context";
 import { avatarInfo } from "../../avatars";
 import { Button } from "../../components/Controls";
 import { load, playerKey, save } from "../../lib/prefs";
-import { AvatarStrip, CodeBoxes, Screen, ScreenHead } from "../common";
+import {
+  AvatarStrip,
+  CodeBoxes,
+  Loading,
+  Problem,
+  Screen,
+  ScreenHead,
+} from "../common";
 import { Pad } from "./Pad";
 
 type Guest = { name: string; avatar: string };
@@ -58,7 +65,6 @@ function JoinForm({
     api.joinRoom(code, guest).then(
       (r) => {
         save("guest", guest);
-        save(playerKey(code), r.playerId);
         onJoined(code, r.playerId);
       },
       (e: unknown) => {
@@ -131,44 +137,128 @@ function JoinForm({
   );
 }
 
+// handed: players just joined on /join, handed to the /join/CODE screen that opens next, which then needs
+// no rooms/{code}/me of its own.
+const handed = new Map<string, string>();
+
+// Asked: the room's answer. id null: no player here; refused: why not (kicked, or an error the form shows);
+// forget: the stored id is wrong (no player, kicked), drop it.
+type Asked = {
+  code: string;
+  id: string | null;
+  refused?: ApiError;
+  forget: boolean;
+};
+
+// useServerPlayer asks rooms/{code}/me for this browser's player (guest cookie or profile), the room's word
+// over any stored id. A transient failure (no answer, 5xx, 429) is asked again with the backoff; any other
+// refusal is an answer: kicked, or an error the join form shows.
+function useServerPlayer(code: string | null) {
+  const api = useApi();
+  const [asked, setAsked] = useState<Asked | null>(null);
+  const [failed, setFailed] = useState<{ code: string; e: ApiError } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!code) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    const ask = () =>
+      api.roomMe(code).then(
+        (id) => live && setAsked({ code, id, forget: id == null }),
+        (e: unknown) => {
+          if (!live) return;
+          const err = toApiError(e);
+          if (!transient(err))
+            return setAsked({
+              code,
+              id: null,
+              refused: err,
+              forget: err.code === "kicked",
+            });
+          setFailed({ code, e: err });
+          timer = setTimeout(() => void ask(), backoff(attempt++));
+        },
+      );
+    void ask();
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [api, code]);
+  const mine = asked?.code === code ? asked : null;
+  return {
+    answered: !!mine,
+    id: mine?.id ?? null,
+    refused: mine?.refused,
+    forget: !!mine?.forget,
+    error: !mine && failed?.code === code ? failed.e : undefined,
+  };
+}
+
 export function Join({ code: raw }: { code?: string }) {
   const [, go] = useLocation();
   const code = raw?.toUpperCase();
-  // the player id per room lives in storage (a reload, the QR again); bump re-reads it
-  const [, bump] = useState(0);
-  const [note, setNote] = useState<string | undefined>();
-  const api = useApi();
-  const stored = code ? load<string>(playerKey(code)) : null;
-  // nothing stored (storage cleared, another tab): the server may still know this browser's player
-  const asked = useAsync(code && !stored && !note ? `me:${code}` : null, () =>
-    api.roomMe(code!),
+  // joined: the player this page (or /join just before it) joined as: confirmed, no need to ask
+  const [joined, setJoined] = useState<string | null>(() =>
+    code ? (handed.get(code) ?? null) : null,
   );
-  const found = code && !stored && !note ? (asked.data ?? null) : null;
   useEffect(() => {
-    if (code && found) save(playerKey(code), found);
-  }, [code, found]);
-  const id = stored ?? found;
+    if (code) handed.delete(code);
+  }, [code]);
+  // note: why the form is back (the pad lost its player)
+  const [note, setNote] = useState<string | undefined>();
+  const asking = !!code && !joined && !note;
+  const server = useServerPlayer(asking ? code : null);
+  // the stored id plays at once on a reload; the server's answer confirms or corrects it
+  const stored = code ? load<string>(playerKey(code)) : null;
+  const id = joined ?? (asking ? (server.answered ? server.id : stored) : null);
+  const keep = asking && server.answered ? server.id : undefined;
+  const forget = asking && server.forget;
+  useEffect(() => {
+    if (!code) return;
+    if (keep) save(playerKey(code), keep);
+    else if (forget) save(playerKey(code), null);
+  }, [code, keep, forget]);
+
   if (code && id)
     return (
       <Pad
-        key={code}
+        key={`${code}:${id}`}
         code={code}
         playerId={id}
         onGone={() => {
           save(playerKey(code), null);
+          // a stored id the room does not know: the pad waits for the server's answer
+          if (!joined && !server.answered) return;
+          setJoined(null);
           setNote("You're not in this game any more. Join again?");
-          bump((n) => n + 1);
         }}
       />
     );
+  // nothing stored: wait for the server, through its failures, rather than offer the form
+  if (asking && !server.answered)
+    return (
+      <Screen>
+        {server.error ? <Problem error={server.error} /> : <Loading />}
+      </Screen>
+    );
+  const refused = server.refused ? joinError(server.refused, code!) : null;
   return (
     <JoinForm
       key={code ?? ""}
       code={code}
-      note={note}
-      onJoined={(c) => {
-        if (c !== code) go(`/join/${c}`, { replace: true });
-        else bump((n) => n + 1);
+      note={note ?? refused ?? undefined}
+      onJoined={(c, playerId) => {
+        save(playerKey(c), playerId);
+        if (c !== code) {
+          handed.set(c, playerId);
+          go(`/join/${c}`, { replace: true });
+        } else {
+          setNote(undefined);
+          setJoined(playerId);
+        }
       }}
     />
   );

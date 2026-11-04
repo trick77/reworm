@@ -223,11 +223,7 @@ function YearsLive({
   const api = useApi();
   const r = s.round!;
   const mine = sentIn(sent, r);
-  // late: joined mid-round. A server without "late" says "out" for it too (and sends no seq): then an
-  // out without a press here is taken as late.
-  const late =
-    me.state === "late" || (me.state === "out" && s.seq == null && !mine);
-  if (late) return <LateNotice />;
+  if (me.state === "late") return <LateNotice />;
   if (me.state === "out")
     return (
       <Center>

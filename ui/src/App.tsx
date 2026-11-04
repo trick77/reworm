@@ -47,7 +47,7 @@ function Routes({ dev }: { dev: boolean }) {
         {(p) => <Join key={p.code ?? ""} code={p.code} />}
       </Route>
       <Route path="/pair/:code?">{(p) => <Pair code={p.code} />}</Route>
-      <Route path="/setup" component={Setup} />
+      <Route path="/setup/:token?">{(p) => <Setup token={p.token} />}</Route>
       <Route path="/who" component={Who} />
       <Route path="/me" component={MePage} />
       <Route path="/train" component={TrainSetup} />
