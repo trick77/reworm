@@ -147,7 +147,7 @@ streak. Session state on the server, so a reload or a backgrounded tab resumes a
   joining needs no profile.
 - Profiles: "Who's playing?" on shared devices, profile page with avatar picker, devices, "Add a device" / "Invite
   someone". Avatars: own set of 12 comic music-object SVGs (mock), shipped as static files.
-- Covers hidden until the reveal. Brand-free everywhere (D10).
+- Covers hidden until the reveal.
 
 Verify: on a real iPhone + iPad (and a laptop as stage) through a full game with 3+ phones and a training session;
 Playwright (Chromium + WebKit; phone, iPad, multi-context party game), vitest, Go tests; `ship check`.
@@ -156,7 +156,7 @@ Playwright (Chromium + WebKit; phone, iPad, multi-context party game), vitest, G
 0. Device check of the mock (audio, silent switch, autoplay chain, layouts, cookie jar).
 1. ~~Party gameplay mocks~~ — done in the mock (stage: round live, result, game over; pad: live, locked out, won,
    someone faster).
-2. Repo bootstrap: `trick77/reworm` (public, description + topics per D1), `ship init` + conform green, AGENTS.md (incl. D10), Containerfile, compose.
+2. Repo bootstrap: `trick77/reworm` (public, description + topics per D1), `ship init` + conform green, AGENTS.md, Containerfile, compose.
 3. Import v1: card sets + MusicBrainz + Apple + covers → `songs.jsonl` + report.
 4. Import v2: charts + Last.fm filter (calibrated) + genres + v1 categories.
 5. Round engine + Apple client + pairing/profiles, tests.
@@ -169,7 +169,7 @@ Playwright (Chromium + WebKit; phone, iPad, multi-context party game), vitest, G
 All decided.
 
 - **D1** Name Reworm: game, repo `trick77/reworm`, module, image.
-  - GitHub description (set with `gh repo create`/`gh repo edit`, brand-free):
+  - GitHub description (set with `gh repo create`/`gh repo edit`):
     "Music party game: a song clip plays on the big screen, a year appears, everyone taps Earlier, Spot on or Later
     on their phone, fastest right answer wins. Solo training mode included. Self-hosted, Apple Music previews."
   - Topics: `party-game`, `music-quiz`, `apple-music`, `self-hosted`, `go`, `react`, `pwa`.
@@ -190,14 +190,15 @@ All decided.
 - **D7 Last.fm API key**: registered ("Reworm"), in `.env.local` as `BACKEND_LASTFM_API_KEY`, tested. Shared secret unused.
 - **D8 MusicBrainz contact**: `https://github.com/trick77/reworm` in the User-Agent.
 - **D9 Progress theme** (training): record awards, Bronze → Silver → Gold → Platinum → Diamond.
-- **D10** Brand-free everywhere (source URL in uncommitted local config, neutral file names, rule in AGENTS.md).
+- **D10 Card source config**: the card-list source URL and the snapshot file → set mapping live only in the
+  uncommitted local config.
 - **D11 Party rules**: first correct answer = 1 point, +1 if it's a correct "Spot on"; wrong answer = locked out for
   the round; 15 s answer window; first to 10 points wins; max **8** players; latency compensation only if testing
   shows it's needed. The stage shows who is locked out, never what they answered (that would give the direction
   away).
 - **D12 Pre-1950 songs without a card**: initial year = earliest MusicBrainz recording (Guantanamera → 1940; the
   card keeps 1929).
-- **D13 Set names** (own names, confirmed): Essentials, Mega Mix, Rock Anthems, Schlager Fest, Sunshine, Cheesy
+- **D13 Set names** (confirmed): Essentials, Mega Mix, Rock Anthems, Schlager Fest, Sunshine, Cheesy
   Classics, Party Starters, Crowd Pleasers, Screen Hits, Christmas Hits, Radio Gold. The import maps each source
   snapshot file to one of these (mapping in the uncommitted local config, D10).
 - **D14 Buzzer mode**: second party mode, picked in the lobby next to Earlier/Later. No year shown: the first buzz
