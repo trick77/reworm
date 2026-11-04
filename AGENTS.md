@@ -25,8 +25,8 @@ Party mode is the product, training a side feature on the same round engine.
   rule reads it too, one name so app and router never disagree.
 - Secrets only via env / `.env.local` (import: `LASTFM_API_KEY`), never committed.
 - Dev mode (`BACKEND_DEV=1` + `BACKEND_DEV_PREVIEWS`/`_SONGS`, e2e): clip URLs name the song and every non-fixture
-  song is deactivated, so it refuses `PUBLIC_FQDN` and a data dir with real songs; fixture ids are `fixture-*`. A
-  boot-time dataset upsert must skip in dev mode.
+  song is deactivated, so it refuses `PUBLIC_FQDN`, a non-loopback `BACKEND_ADDR` and (read-only, before any
+  write) a data dir with any id not `fixture-*`. A boot-time dataset upsert must skip in dev mode.
 - Container runs as uid/gid 65532 (distroless nonroot), never 1000: 1000 is the host's first real user.
 
 ## Song data

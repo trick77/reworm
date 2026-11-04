@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -50,14 +51,25 @@ func TestLoadConfig_badTrustedProxies(t *testing.T) {
 }
 
 func TestLoadConfig_dev(t *testing.T) {
-	cfg, err := LoadConfig(lookup(map[string]string{"BACKEND_DEV": "1", "BACKEND_DEV_PREVIEWS": "/clips",
-		"BACKEND_DEV_SONGS": "/s.jsonl"}))
+	cfg, err := LoadConfig(lookup(map[string]string{"BACKEND_DEV": "1", "BACKEND_ADDR": "127.0.0.1:9000",
+		"BACKEND_DEV_PREVIEWS": "/clips", "BACKEND_DEV_SONGS": "/s.jsonl"}))
 	if err != nil || !cfg.Dev || cfg.DevPreviews != "/clips" || cfg.DevSongs != "/s.jsonl" {
 		t.Fatalf("dev = %+v, %v", cfg, err)
 	}
+	for _, addr := range []string{"[::1]:9000", "localhost:9000", "127.0.0.2:0"} {
+		if _, err := LoadConfig(lookup(map[string]string{"BACKEND_DEV": "1", "BACKEND_ADDR": addr})); err != nil {
+			t.Errorf("loopback %s: %v", addr, err)
+		}
+	}
 	for name, vars := range map[string]map[string]string{
 		// never on a public server: a dev clip URL names the song
-		"with PUBLIC_FQDN": {"BACKEND_DEV": "1", "PUBLIC_FQDN": "reworm.example"},
+		"with PUBLIC_FQDN": {"BACKEND_DEV": "1", "BACKEND_ADDR": "127.0.0.1:9000", "PUBLIC_FQDN": "reworm.example"},
+		// only on this machine
+		"default address": {"BACKEND_DEV": "1"},
+		"every interface": {"BACKEND_DEV": "1", "BACKEND_ADDR": "0.0.0.0:9000"},
+		"a LAN address":   {"BACKEND_DEV": "1", "BACKEND_ADDR": "192.168.1.5:9000"},
+		"a name":          {"BACKEND_DEV": "1", "BACKEND_ADDR": "reworm.lan:9000"},
+		"not an address":  {"BACKEND_DEV": "1", "BACKEND_ADDR": "localhost"},
 		// the settings alone do nothing silently: dev mode is one explicit switch
 		"previews without BACKEND_DEV": {"BACKEND_DEV_PREVIEWS": "/x"},
 		"songs without BACKEND_DEV":    {"BACKEND_DEV_SONGS": "/x"},
@@ -66,6 +78,50 @@ func TestLoadConfig_dev(t *testing.T) {
 		if _, err := LoadConfig(lookup(vars)); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestRun_devRefusesARealDataDirUntouched(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "reworm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO songs (id, artist, title, year, year_source)
+VALUES ('mbid-1', 'A', 'B', 1999, 'card')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	list := func() map[string]string {
+		out := map[string]string{}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			st, err := e.Info()
+			if err != nil {
+				t.Fatal(err)
+			}
+			out[e.Name()] = st.ModTime().String() + string(b)
+		}
+		return out
+	}
+	before := list()
+	err = Run(ctx, Config{Addr: "127.0.0.1:0", DataDir: dir, Dev: true})
+	if err == nil || !strings.Contains(err.Error(), "real songs") {
+		t.Fatalf("Run = %v", err)
+	}
+	// no session key, no -wal or -shm, the database's bytes as they were
+	if after := list(); !maps.Equal(before, after) {
+		t.Errorf("the refused data dir changed: %v → %v files", len(before), len(after))
 	}
 }
 

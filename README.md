@@ -23,7 +23,7 @@ make e2e       # Playwright, chromium + webkit, against the real binary (not par
 `make e2e` starts the binary in dev mode (`BACKEND_DEV=1`) on a free port with a fresh data dir, clips generated
 into a local directory (`BACKEND_DEV_PREVIEWS`) and the fixture songs in `ui/e2e/fixtures` (`BACKEND_DEV_SONGS`), and
 pairs its first device through the setup link from the log. Dev mode is for local runs only: refused with
-`PUBLIC_FQDN` and on a data dir that holds real songs.
+`PUBLIC_FQDN`, on a `BACKEND_ADDR` other than 127.0.0.1, ::1 or localhost, and on a data dir that holds real songs.
 
 ## Run
 

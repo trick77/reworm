@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"maps"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -169,11 +170,80 @@ VALUES ('mbid-1', 'A', 'B', 1999, 'card')`); err != nil {
 	if err := CheckData(ctx, db); err == nil || !strings.Contains(err.Error(), "1 real songs") {
 		t.Errorf("a real song: %v", err)
 	}
+	// the id decides, not how the row says it was made
+	if _, err := db.ExecContext(ctx, `UPDATE songs SET year_source = 'fixture'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckData(ctx, db); err == nil {
+		t.Error("a real id marked fixture: accepted")
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := CheckData(ctx, db); err == nil {
 		t.Error("closed database: no error")
+	}
+}
+
+// snapshot is every file under dir with its bytes and modification time.
+func snapshot(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p) //nolint:gosec // the test's own temp dir
+		if err != nil {
+			return err
+		}
+		st, err := d.Info()
+		if err != nil {
+			return err
+		}
+		out[p] = st.ModTime().String() + string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestCheckDir(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "reworm.db")
+	if err := CheckDir(ctx, path); err != nil {
+		t.Errorf("no database yet: %v", err)
+	}
+	db, err := store.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO songs (id, artist, title, year, year_source)
+VALUES ('mbid-1', 'A', 'B', 1999, 'card')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshot(t, dir)
+	if err := CheckDir(ctx, path); err == nil || !strings.Contains(err.Error(), "real songs") {
+		t.Errorf("real songs: %v", err)
+	}
+	if after := snapshot(t, dir); !maps.Equal(before, after) {
+		t.Errorf("the refused dir changed: %d files before, %d after", len(before), len(after))
+	}
+	// a live write-ahead log could hold songs the immutable read misses
+	fresh := filepath.Join(t.TempDir(), "reworm.db")
+	for _, f := range []string{fresh, fresh + "-wal"} {
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := CheckDir(ctx, fresh); err == nil || !strings.Contains(err.Error(), "write-ahead log") {
+		t.Errorf("live WAL: %v", err)
 	}
 }
 

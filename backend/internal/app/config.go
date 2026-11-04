@@ -1,6 +1,8 @@
 package app
 
 import (
+	"net"
+
 	"github.com/trick77/ship/kit/env"
 )
 
@@ -19,7 +21,7 @@ type Config struct {
 	// behind Traefik, 0 (the TCP peer) when reached directly. Too high lets a caller pick its own address.
 	TrustedProxies int
 	// Dev is dev mode (BACKEND_DEV=1), local tests only: the one switch the BACKEND_DEV_* settings need. Refused
-	// with PUBLIC_FQDN, and at boot on a data dir holding real songs.
+	// with PUBLIC_FQDN, on a BACKEND_ADDR that is not loopback, and at boot on a data dir holding real songs.
 	Dev bool
 	// DevPreviews is a directory of <song id>.wav clips served instead of Apple previews (dev mode).
 	DevPreviews string
@@ -47,8 +49,20 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 	switch {
 	case cfg.Dev && cfg.PublicFQDN != "":
 		r.Fail("BACKEND_DEV is for local tests only, not with PUBLIC_FQDN")
+	case cfg.Dev && !loopback(cfg.Addr):
+		r.Fail("BACKEND_DEV is for local tests only: BACKEND_ADDR %q must be 127.0.0.1, ::1 or localhost", cfg.Addr)
 	case !cfg.Dev && (cfg.DevPreviews != "" || cfg.DevSongs != ""):
 		r.Fail("BACKEND_DEV_PREVIEWS and BACKEND_DEV_SONGS need BACKEND_DEV=1 (local tests only)")
 	}
 	return cfg, r.Err()
+}
+
+// loopback reports whether addr listens on this machine only (":8080" listens everywhere).
+func loopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return host == "localhost" || (ip != nil && ip.IsLoopback())
 }

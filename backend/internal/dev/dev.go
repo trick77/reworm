@@ -78,17 +78,38 @@ func (p *Previews) Mount(mux *http.ServeMux) {
 // FixturePrefix starts every fixture song id: it can never be a real song's (an MBID or an artist|title slug).
 const FixturePrefix = "fixture-"
 
-// CheckData refuses a database that holds real songs: dev mode deactivates every song but the fixture's, and
-// must never run on a real server's data dir.
+// CheckData refuses a database that holds real songs (any id but a fixture's): dev mode deactivates every song
+// but the fixture's, and must never run on a real server's data dir.
 func CheckData(ctx context.Context, db *sql.DB) error {
 	var n int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM songs WHERE year_source != 'fixture'`).Scan(&n); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM songs WHERE id NOT LIKE ?`, FixturePrefix+"%").
+		Scan(&n); err != nil {
 		return fmt.Errorf("dev mode: %w", err)
 	}
 	if n > 0 {
 		return fmt.Errorf("dev mode: the data dir holds %d real songs; BACKEND_DEV=1 needs a data dir of its own", n)
 	}
 	return nil
+}
+
+// CheckDir is CheckData on the database file at path before anything opens it for writing, so a refused data dir
+// is left exactly as it was. No file yet is a fresh dir, fine. The file is read as immutable (no lock, no -wal or
+// -shm written), which misses what a write-ahead log still holds: a non-empty one is refused outright (a server
+// runs on it, or one stopped without a checkpoint).
+func CheckDir(ctx context.Context, path string) error {
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if st, err := os.Stat(path + "-wal"); err == nil && st.Size() > 0 {
+		return fmt.Errorf("dev mode: %s has a write-ahead log, a server may be running on it; "+
+			"BACKEND_DEV=1 needs a data dir of its own", path)
+	}
+	db, err := sql.Open("sqlite3", "file:"+(&url.URL{Path: path}).EscapedPath()+"?mode=ro&immutable=1")
+	if err != nil {
+		return fmt.Errorf("dev mode: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+	return CheckData(ctx, db)
 }
 
 // Song is one line of a fixture file (JSON Lines).
