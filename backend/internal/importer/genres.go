@@ -88,12 +88,21 @@ func fromTags(tags []lastfm.Tag, minCount int) []string {
 	return out
 }
 
-// genres is a song's genre list: its sets' genres and those of its track's top tags, else of its artist's.
-func genres(sets []string, track, artist []lastfm.Tag) []string {
-	out := fromTags(track[:min(len(track), trackTags)], 0)
+// trackGenres are the genres a track's top tags name: its top trackTags only, unweighted.
+func trackGenres(tags []lastfm.Tag) []string { return fromTags(tags[:min(len(tags), trackTags)], 0) }
+
+// genres is a song's genre list: its sets' genres and its track's (trackGenres), else those of its artist's top tags.
+func genres(sets, track []string, artist []lastfm.Tag) []string {
+	out := track
 	if len(out) == 0 {
 		out = fromTags(artist, artistMinCount)
 	}
+	return withSetGenres(out, sets)
+}
+
+// withSetGenres is gs with the genres of the sets added, sorted.
+func withSetGenres(gs, sets []string) []string {
+	out := slices.Clone(gs)
 	for _, s := range sets {
 		if g, ok := setGenres[s]; ok && !slices.Contains(out, g) {
 			out = append(out, g)

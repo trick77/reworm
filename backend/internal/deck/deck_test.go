@@ -59,8 +59,9 @@ func TestSelect(t *testing.T) {
 		{Selector{Categories: []string{"number-ones"}}, []string{"dq"}},
 		{Selector{Genres: []string{"rock"}, From: 1990}, []string{"ww"}},
 		{Selector{Sets: []string{"nothing"}}, nil},
-		// General is every song: whatever else is picked beside it, in the year range.
-		{Selector{Sets: []string{"nothing"}, Genres: []string{"rock", General}, From: 1970}, []string{"br", "dq", "ww"}},
+		// General alone is every song in the year range; beside other ids it narrows nothing.
+		{Selector{Genres: []string{General}, From: 1970}, []string{"br", "dq", "ww"}},
+		{Selector{Sets: []string{"radio-gold"}, Genres: []string{General, "pop"}}, []string{"dq", "gu"}},
 	}
 	for _, c := range cases {
 		if err := c.sel.Normalize(2026); err != nil {

@@ -45,6 +45,9 @@ func TestClient_trackAndArtistTags(t *testing.T) {
 			default:
 				_, _ = fmt.Fprint(w, `{"track":{"name":"Song","listeners":"7","artist":{"name":"Flaky"},"toptags":""}}`)
 			}
+		case "track.getInfo|Solo|Song":
+			// A list of one is the object itself.
+			_, _ = fmt.Fprint(w, `{"track":{"name":"Song","listeners":"3","artist":{"name":"Solo"},"toptags":{"tag":{"name":"pop"}}}}`)
 		case "artist.getTopTags|Udo Lindenberg|":
 			_, _ = fmt.Fprint(w, udo)
 		default:
@@ -68,8 +71,12 @@ func TestClient_trackAndArtistTags(t *testing.T) {
 	if tr, ok, err := c.Track(ctx, "Flaky", "Song"); !ok || err != nil || tr.Listeners != 7 || len(tr.Tags) != 0 {
 		t.Errorf("flaky = %+v, %v, %v", tr, ok, err)
 	}
-	if len(evicted) != 1 || !strings.Contains(evicted[0], "Flaky") {
-		t.Errorf("evicted %v, want the rate-limited 200 only", evicted)
+	// Both failures evicted (the 503 is never cached, the eviction a no-op), the answer kept.
+	if len(evicted) != 2 || !strings.Contains(evicted[0], "Flaky") || !strings.Contains(evicted[1], "Flaky") {
+		t.Errorf("evicted %v, want the two failed Flaky answers", evicted)
+	}
+	if tr, ok, err := c.Track(ctx, "Solo", "Song"); !ok || err != nil || !slices.Equal(tr.Tags, []Tag{{Name: "pop"}}) {
+		t.Errorf("one tag = %+v, %v, %v", tr, ok, err)
 	}
 	tags, err := c.ArtistTags(ctx, "Udo Lindenberg")
 	if err != nil || !slices.Equal(tags, []Tag{{"Deutschrock", 100}, {"german", 81}}) {
@@ -80,18 +87,28 @@ func TestClient_trackAndArtistTags(t *testing.T) {
 	}
 }
 
-// A bad key fails at once, and no error names the URL: it carries the key.
+// A bad key fails at once and its answer is evicted (a 200 carries it as often: the cache must not replay it to the
+// next key), and no error names the URL: it carries the key. So does a 4xx without a Last.fm error.
 func TestClient_errorsNeverShowTheKey(t *testing.T) {
 	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
-		w.WriteHeader(http.StatusForbidden)
+		if r.URL.Query().Get("artist") == "Page" {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = fmt.Fprint(w, "<html>gone</html>")
+			return
+		}
 		_, _ = fmt.Fprint(w, `{"error":10,"message":"Invalid API key - You must be granted a valid key by last.fm"}`)
 	}))
-	c := &Client{BaseURL: srv.URL, Key: "s3cret", HTTP: srv.Client(), Sleep: noSleep}
+	evicted := 0
+	c := &Client{BaseURL: srv.URL, Key: "s3cret", HTTP: srv.Client(), Sleep: noSleep,
+		Evict: func(string, string) error { evicted++; return nil }}
 	_, _, err := c.Track(context.Background(), "A", "B")
-	if err == nil || !strings.Contains(err.Error(), "error 10") || hits.Load() != 1 || strings.Contains(err.Error(), "s3cret") {
-		t.Errorf("bad key: %v after %d requests", err, hits.Load())
+	if err == nil || !strings.Contains(err.Error(), "error 10") || hits.Load() != 1 || strings.Contains(err.Error(), "s3cret") || evicted != 1 {
+		t.Errorf("bad key: %v after %d requests, %d evicted", err, hits.Load(), evicted)
+	}
+	if _, err := c.ArtistTags(context.Background(), "Page"); err == nil || !strings.Contains(err.Error(), "status 404") || evicted != 2 {
+		t.Errorf("404 page: %v, %d evicted", err, evicted)
 	}
 	srv.Close()
 	_, _, err = c.Track(context.Background(), "A", "B")

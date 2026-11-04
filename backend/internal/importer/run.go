@@ -153,7 +153,11 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 		return err
 	}
 	cfg := env.New(lookup)
-	lastfmKey := cfg.Required("BACKEND_LASTFM_API_KEY")
+	// Offline asks no one: the key is no part of a cached answer, none is needed.
+	lastfmKey := cfg.String("BACKEND_LASTFM_API_KEY", "")
+	if !offline {
+		lastfmKey = cfg.Required("BACKEND_LASTFM_API_KEY")
+	}
 	if err := cfg.Err(); err != nil {
 		return err
 	}
@@ -176,7 +180,7 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 		return err
 	}
 	log.Info("Last.fm listeners and genres", "songs", len(rs))
-	if err := p.tagAll(ctx, rs); err != nil {
+	if err := p.tagAll(ctx, rs, func(id string) bool { return ov[id].Exclude }); err != nil {
 		return err
 	}
 	kept, applied, unknown, err := p.applyOverrides(ctx, rs, ov)

@@ -334,7 +334,7 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		"- `missing-id`",
 		"| Last.fm track found | 3 |", "| no genre | 1 |", "## Not on Last.fm (1)",
 		"| Joseito Fernandez | Guajira Guantanamera | latin |",
-		"| rock | 1 | 3000000 | 3000000 |", "| pop | 1 | 2664004 | 2664004 |",
+		"| rock | 1 | 1 | 3000000 | 3000000 |", "| pop | 1 | 1 | 2664004 | 2664004 |", "| latin | 1 | 0 | 0 | 0 |",
 	} {
 		if !strings.Contains(string(rep), want) {
 			t.Errorf("report lacks %q:\n%s", want, rep)
@@ -778,6 +778,10 @@ func TestMain_usageAndConfigErrors(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(data, "overrides.json"), []byte(`{"songs":{}}`), 0o600)
 	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "songs"); code != 1 || !strings.Contains(out, "BACKEND_LASTFM_API_KEY") {
 		t.Errorf("no Last.fm key: %d %q", code, out)
+	}
+	// Offline needs none: it asks no one.
+	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "-offline", "songs"); code != 0 {
+		t.Errorf("offline without a key: %d %q", code, out)
 	}
 }
 

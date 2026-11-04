@@ -42,7 +42,8 @@ func (r report) markdown() []byte {
 		bySet[slug] = &struct{ songs, mb, preview int }{}
 	}
 	var mb, exact, preview, apple, caa, origin, onLastFM, noGenre int
-	byGenre := map[string][]int{}
+	// Songs per genre; listeners only of those Last.fm knows (an unknown song's 0 would drag the percentiles down).
+	genreSongs, byGenre := map[string]int{}, map[string][]int{}
 	for _, x := range r.resolved {
 		s := x.Song
 		if x.LastFM {
@@ -52,7 +53,10 @@ func (r report) markdown() []byte {
 			noGenre++
 		}
 		for _, g := range s.Genres {
-			byGenre[g] = append(byGenre[g], s.Listeners)
+			genreSongs[g]++
+			if x.LastFM {
+				byGenre[g] = append(byGenre[g], s.Listeners)
+			}
 		}
 		if s.MBID != "" {
 			mb++
@@ -135,15 +139,16 @@ func (r report) markdown() []byte {
 
 	// The listener spread per genre is what the well-known filter for songs without a card is calibrated on: a
 	// candidate needs about the 10th percentile of the card songs of its genre.
-	w("\n## Genres (Last.fm listeners of the songs)\n\n| genre | songs | p10 | p50 |\n|---|---:|---:|---:|\n")
-	genreIDs := make([]string, 0, len(byGenre))
-	for g := range byGenre {
+	w("\n## Genres (Last.fm listeners of the songs Last.fm knows)\n\n| genre | songs | on Last.fm | p10 | p50 |\n" +
+		"|---|---:|---:|---:|---:|\n")
+	genreIDs := make([]string, 0, len(genreSongs))
+	for g := range genreSongs {
 		genreIDs = append(genreIDs, g)
 	}
 	slices.Sort(genreIDs)
 	for _, g := range genreIDs {
 		ls := byGenre[g]
-		w("| %s | %d | %d | %d |\n", g, len(ls), percentile(ls, 10), percentile(ls, 50))
+		w("| %s | %d | %d | %d | %d |\n", g, genreSongs[g], len(ls), percentile(ls, 10), percentile(ls, 50))
 	}
 
 	rows := slices.Clone(r.resolved)
@@ -217,7 +222,7 @@ func (r report) markdown() []byte {
 	section("No Apple track with a preview", "| artist | title |\n|---|---|", func(x resolved) (string, bool) {
 		return fmt.Sprintf("| %s | %s |", cell(x.Artist), cell(x.Title)), x.Song.AppleID == ""
 	})
-	section("Not on Last.fm", "| artist | title | genres (artist tags) |\n|---|---|---|", func(x resolved) (string, bool) {
+	section("Not on Last.fm", "| artist | title | genres (artist tags, sets, overrides) |\n|---|---|---|", func(x resolved) (string, bool) {
 		return fmt.Sprintf("| %s | %s | %s |", cell(x.Artist), cell(x.Title), strings.Join(x.Song.Genres, ", ")), !x.LastFM
 	})
 	if len(r.unknown) > 0 {

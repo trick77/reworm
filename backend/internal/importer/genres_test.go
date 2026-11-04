@@ -37,7 +37,7 @@ func TestGenres(t *testing.T) {
 		{"set genre", []string{"schlager-fest", "essentials"}, tags("pop"), nil, []string{"pop", "schlager"}},
 		{"nothing", nil, nil, nil, nil},
 	} {
-		if got := genres(tc.sets, tc.track, tc.artist); !slices.Equal(got, tc.want) {
+		if got := genres(tc.sets, trackGenres(tc.track), tc.artist); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
 	}

@@ -73,21 +73,42 @@ type errorBody struct {
 	Message string `json:"message"`
 }
 
-type tagsBody struct {
-	Tag []struct {
-		Name  string          `json:"name"`
-		Count json.RawMessage `json:"count"`
-	} `json:"tag"`
+type rawTag struct {
+	Name  string          `json:"name"`
+	Count json.RawMessage `json:"count"`
 }
 
-// UnmarshalJSON takes an empty list as Last.fm writes it at times, a string ("toptags": "").
+type tagsBody struct {
+	Tag []rawTag
+}
+
+// UnmarshalJSON takes the shapes Last.fm's XML-to-JSON writes: an empty list as a string ("toptags": ""), a list of
+// one as the object itself ("tag": {...}).
 func (b *tagsBody) UnmarshalJSON(raw []byte) error {
-	if len(raw) > 0 && raw[0] == '"' {
-		*b = tagsBody{}
+	*b = tagsBody{}
+	if len(raw) == 0 || raw[0] != '{' {
 		return nil
 	}
-	type plain tagsBody
-	return json.Unmarshal(raw, (*plain)(b))
+	var v struct {
+		Tag json.RawMessage `json:"tag"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	switch {
+	case len(v.Tag) == 0:
+		return nil
+	case v.Tag[0] == '{':
+		var one rawTag
+		if err := json.Unmarshal(v.Tag, &one); err != nil {
+			return err
+		}
+		b.Tag = []rawTag{one}
+		return nil
+	case v.Tag[0] == '[':
+		return json.Unmarshal(v.Tag, &b.Tag)
+	}
+	return nil
 }
 
 func (b tagsBody) tags() []Tag {
@@ -141,8 +162,9 @@ func (c *Client) ArtistTags(ctx context.Context, artist string) ([]Tag, error) {
 }
 
 // call runs one API method into out; found false on Last.fm's "not found". It retries what Last.fm calls transient
-// (8, 11, 16, 29), a 5xx, a 429, a network error and a body that does not decode, with a doubling backoff; such an
-// answer is evicted from the cache first, so no later run replays it.
+// (8, 11, 16, 29), a 5xx, a 429, a network error and a body that does not decode, with a doubling backoff. Every
+// answer but a decoded one and "not found" is evicted from the cache (the cache keeps 2xx, 3xx and 404 and the key is
+// no part of its key): no later run replays a failure, a new key included.
 func (c *Client) call(ctx context.Context, q url.Values, out any) (bool, error) {
 	q.Set("autocorrect", "1")
 	q.Set("format", "json")
@@ -153,6 +175,14 @@ func (c *Client) call(ctx context.Context, q url.Values, out any) (bool, error) 
 	}
 	u := base + "/2.0/?" + q.Encode()
 	method := q.Get("method")
+	evict := func(cause error) error {
+		if c.Evict != nil {
+			if err := c.Evict(http.MethodGet, u); err != nil {
+				return fmt.Errorf("lastfm: evict: %w", err)
+			}
+		}
+		return cause
+	}
 	wait := 2 * time.Second
 	for attempt := 1; ; attempt++ {
 		status, body, err := c.once(ctx, u)
@@ -173,7 +203,7 @@ func (c *Client) call(ctx context.Context, q url.Values, out any) (bool, error) 
 			case decodeErr == nil && e.Error != 0:
 				err := fmt.Errorf("lastfm: %s: error %d: %s", method, e.Error, e.Message)
 				if !transient(e.Error) {
-					return false, err
+					return false, evict(err)
 				}
 				retry = err
 			case status == http.StatusOK && decodeErr == nil:
@@ -187,12 +217,10 @@ func (c *Client) call(ctx context.Context, q url.Values, out any) (bool, error) 
 			case status == http.StatusTooManyRequests || status >= 500:
 				retry = fmt.Errorf("lastfm: %s: status %d", method, status)
 			default:
-				return false, fmt.Errorf("lastfm: %s: status %d", method, status)
+				return false, evict(fmt.Errorf("lastfm: %s: status %d", method, status))
 			}
-			if status == http.StatusOK && c.Evict != nil {
-				if err := c.Evict(http.MethodGet, u); err != nil {
-					return false, fmt.Errorf("lastfm: evict: %w", err)
-				}
+			if err := evict(nil); err != nil {
+				return false, err
 			}
 		}
 		if attempt >= tries {

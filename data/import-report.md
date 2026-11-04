@@ -51,24 +51,24 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 |---|---:|
 | gen-alpha | 337 |
 
-## Genres (Last.fm listeners of the songs)
+## Genres (Last.fm listeners of the songs Last.fm knows)
 
-| genre | songs | p10 | p50 |
-|---|---:|---:|---:|
-| chanson | 4 | 9898 | 9972 |
-| country | 51 | 831 | 185335 |
-| dance | 396 | 13675 | 320969 |
-| disco-funk | 171 | 18637 | 284259 |
-| hip-hop | 143 | 25347 | 257856 |
-| indie | 306 | 61890 | 968344 |
-| italo | 5 | 69228 | 125341 |
-| latin | 68 | 3181 | 187732 |
-| metal | 210 | 97737 | 582831 |
-| pop | 1167 | 7584 | 301097 |
-| reggae | 54 | 58338 | 241940 |
-| rnb-soul | 337 | 31330 | 341092 |
-| rock | 882 | 30441 | 566380 |
-| schlager | 409 | 84 | 3232 |
+| genre | songs | on Last.fm | p10 | p50 |
+|---|---:|---:|---:|---:|
+| chanson | 4 | 4 | 9898 | 9972 |
+| country | 51 | 50 | 831 | 185335 |
+| dance | 396 | 395 | 14092 | 325703 |
+| disco-funk | 171 | 171 | 18637 | 284259 |
+| hip-hop | 143 | 142 | 25673 | 257856 |
+| indie | 306 | 304 | 74823 | 971808 |
+| italo | 5 | 5 | 69228 | 125341 |
+| latin | 68 | 68 | 3181 | 187732 |
+| metal | 210 | 210 | 97737 | 582831 |
+| pop | 1167 | 1161 | 8575 | 301859 |
+| reggae | 54 | 54 | 58338 | 241940 |
+| rnb-soul | 337 | 336 | 32404 | 341092 |
+| rock | 882 | 880 | 30753 | 568294 |
+| schlager | 409 | 402 | 107 | 3350 |
 
 ## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (361)
 
@@ -1281,7 +1281,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 
 ## Not on Last.fm (39)
 
-| artist | title | genres (artist tags) |
+| artist | title | genres (artist tags, sets, overrides) |
 |---|---|---|
 | Andrew Lloyd Webber, Gerard Butler, Emmy Rossum | Das Phantom der Opera |  |
 | Christina Perri | The Twilight Saga: Breaking Dawn (A thousand years) | indie, pop |

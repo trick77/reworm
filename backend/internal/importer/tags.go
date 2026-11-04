@@ -19,8 +19,9 @@ type Listening interface {
 }
 
 // tagAll sets every song's Last.fm listeners and genres (tag), on Workers goroutines (Last.fm's throttle serializes
-// them). Any error fails the run; the cache makes the next one cheap.
-func (p *Pipeline) tagAll(ctx context.Context, rs []resolved) error {
+// them); a song skip names (one an override excludes) is not looked up. Any error fails the run; the cache makes
+// the next one cheap.
+func (p *Pipeline) tagAll(ctx context.Context, rs []resolved, skip func(id string) bool) error {
 	if p.LastFM == nil {
 		return nil
 	}
@@ -46,6 +47,9 @@ func (p *Pipeline) tagAll(ctx context.Context, rs []resolved) error {
 		if ctx.Err() != nil {
 			break
 		}
+		if skip != nil && skip(rs[i].Song.ID) {
+			continue
+		}
 		jobs <- i
 	}
 	close(jobs)
@@ -68,7 +72,8 @@ func (p *Pipeline) tagAll(ctx context.Context, rs []resolved) error {
 
 // tag looks the song up on Last.fm by each of its readings (readings): the most listened track counts, its
 // listeners are the song's, its top tags give the genres; no genre among them (Udo Lindenberg's tracks carry no
-// tags), the artist's top tags do. Offline, a song whose answers are not cached keeps what the previous dataset has.
+// tags), the artist's top tags do. Offline, a song whose answers are not cached keeps what the previous dataset has,
+// its sets' genres as they are now added.
 func (p *Pipeline) tag(ctx context.Context, r *resolved) error {
 	err := p.tagOnline(ctx, r)
 	if !errors.Is(err, httpcache.ErrOffline) {
@@ -80,10 +85,12 @@ func (p *Pipeline) tag(ctx context.Context, r *resolved) error {
 		pr, err := p.previous(r.entry)
 		prev, ok = pr.Song, err == nil
 	}
-	r.Song.Genres, r.Song.Listeners, r.LastFM = nil, 0, false
+	var gs []string
+	r.Song.Listeners, r.LastFM = 0, false
 	if ok {
-		r.Song.Genres, r.Song.Listeners, r.LastFM = prev.Genres, prev.Listeners, prev.Listeners > 0
+		gs, r.Song.Listeners, r.LastFM = prev.Genres, prev.Listeners, prev.Listeners > 0
 	}
+	r.Song.Genres = withSetGenres(gs, r.Song.Sets)
 	return nil
 }
 
@@ -104,14 +111,15 @@ func (p *Pipeline) tagOnline(ctx context.Context, r *resolved) error {
 		artist = best.Artist
 	}
 	var artistTags []lastfm.Tag
-	if len(fromTags(best.Tags[:min(len(best.Tags), trackTags)], 0)) == 0 {
+	fromTrack := trackGenres(best.Tags)
+	if len(fromTrack) == 0 {
 		var err error
 		if artistTags, err = p.LastFM.ArtistTags(ctx, artist); err != nil {
 			return err
 		}
 	}
 	r.LastFM, r.Song.Listeners = found, best.Listeners
-	r.Song.Genres = genres(r.Song.Sets, best.Tags, artistTags)
+	r.Song.Genres = genres(r.Song.Sets, fromTrack, artistTags)
 	return nil
 }
 

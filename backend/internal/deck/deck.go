@@ -45,11 +45,12 @@ func (s Song) Reveal() Revealed {
 	return r
 }
 
-// General is the genre of every song: no song carries it, picking it picks all (the widest span, as the picker says).
+// General is the genre of every song: no song carries it, picking it alone picks all (the widest span, as the picker
+// says); beside other ids it narrows nothing.
 const General = "general"
 
-// Selector picks a deck: songs in any of the sets, categories or genres (all songs when the three are empty or the
-// genres name General), with a year in [From, To].
+// Selector picks a deck: songs in any of the sets, categories or genres (all songs when the three are empty, General
+// aside), with a year in [From, To].
 type Selector struct {
 	Sets       []string `json:"sets"`
 	Categories []string `json:"categories"`
@@ -127,11 +128,13 @@ func (r *Repo) CoverURL(ctx context.Context, id string) (string, error) {
 func (r *Repo) Select(ctx context.Context, sel Selector) ([]Song, error) {
 	q := `SELECT ` + songColumns + ` FROM songs WHERE active = 1 AND year BETWEEN ? AND ?`
 	args := []any{sel.From, sel.To}
+	// General narrows nothing: beside other ids it drops out (General + Pop is Pop), alone it leaves all songs.
+	genres := slices.DeleteFunc(slices.Clone(sel.Genres), func(g string) bool { return g == General })
 	var conds []string
 	for _, f := range []struct {
 		col string
 		ids []string
-	}{{"sets", sel.Sets}, {"categories", sel.Categories}, {"genres", sel.Genres}} {
+	}{{"sets", sel.Sets}, {"categories", sel.Categories}, {"genres", genres}} {
 		if len(f.ids) == 0 {
 			continue
 		}
@@ -142,10 +145,8 @@ func (r *Repo) Select(ctx context.Context, sel Selector) ([]Song, error) {
 		conds = append(conds, `EXISTS (SELECT 1 FROM json_each(`+f.col+`) WHERE value IN (SELECT value FROM json_each(?)))`)
 		args = append(args, string(ids))
 	}
-	if len(conds) > 0 && !slices.Contains(sel.Genres, General) {
+	if len(conds) > 0 {
 		q += ` AND (` + strings.Join(conds, " OR ") + `)`
-	} else {
-		args = args[:2]
 	}
 	rows, err := r.db.QueryContext(ctx, q+` ORDER BY id`, args...)
 	if err != nil {
