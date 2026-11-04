@@ -107,6 +107,18 @@ func (r report) markdown() []byte {
 		w("| %s | %d | %d | %d | %d | %d |\n", slug, st.Cards, st.NoYear, n.songs, n.mb, n.preview)
 	}
 
+	// Every rule, an empty one included: a rule matching nothing (or everything) shows here.
+	w("\n## Categories\n\n| category | songs |\n|---|---:|\n")
+	for _, rule := range categoryRules {
+		n := 0
+		for _, x := range r.resolved {
+			if slices.Contains(x.Song.Categories, rule.slug) {
+				n++
+			}
+		}
+		w("| %s | %d |\n", rule.slug, n)
+	}
+
 	rows := slices.Clone(r.resolved)
 	slices.SortFunc(rows, func(a, b resolved) int {
 		return strings.Compare(song.Key(a.Artist, a.Title), song.Key(b.Artist, b.Title))

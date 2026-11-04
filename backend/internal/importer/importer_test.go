@@ -206,12 +206,14 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		}
 	}
 
-	// Overrides: one drops the unknown song, two pick other Apple tracks (album, ISRC and cover follow), one names
-	// an id the dataset lacks. A snapshot of a set no longer configured is left out, with a warning.
+	// Overrides: one drops the unknown song, two pick other Apple tracks (album, ISRC and cover follow), one moves
+	// a year (the categories follow), one names an id the dataset lacks. A snapshot of a set no longer configured is
+	// left out, with a warning.
 	if err := os.WriteFile(filepath.Join(data, "overrides.json"), []byte(`{"_doc":"x","songs":{
 		"nobody--unknown-song":{"exclude":true},
 		"joseito-fernandez--guajira-guantanamera":{"apple_id":"gg-alt"},
 		"br-studio":{"apple_id":"br-opera","storefront":"de"},
+		"lonely--ballad-2017-remaster":{"year":2019},
 		"missing-id":{"year":1990}}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +243,7 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		t.Fatalf("songs:\n%s", b)
 	}
 	// The title as shown drops the release note; the id keeps the card's spelling.
-	if l := byID["lonely--ballad-2017-remaster"]; l.Title != "Ballad" {
+	if l := byID["lonely--ballad-2017-remaster"]; l.Title != "Ballad" || strings.Join(l.Categories, ",") != "gen-alpha" {
 		t.Errorf("Lonely = %+v", l)
 	}
 
@@ -249,7 +251,7 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	if dq.Year != 1976 || dq.YearSource != "card" || dq.AppleID != "dq-arrival" || dq.Storefront != "ch" ||
 		dq.AppleAlbum != "Arrival (Bonus Track Version)" || dq.CoverSrc != "apple" ||
 		dq.CoverURL != "https://img.example/dq-arrival/{w}x{h}bb.jpg" || strings.Join(dq.Sets, ",") != "essentials,mega-mix" ||
-		dq.ISRC != "SEAYD7601020" || dq.MBID != "dq-studio" {
+		dq.ISRC != "SEAYD7601020" || dq.MBID != "dq-studio" || len(dq.Categories) != 0 {
 		t.Errorf("Dancing Queen = %+v", dq)
 	}
 	// The override's track is on the original album: its album, ISRC and the Apple cover replace the compilation's
@@ -274,9 +276,10 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	}
 	// Every section shows the dataset as written: the excluded song is gone, the overridden tracks count as set.
 	for _, want := range []string{
-		"| cards | 7 |", "| cards without a year (dropped) | 1 |", "| songs | 4 |", "| overrides applied | 3 |",
+		"| cards | 7 |", "| cards without a year (dropped) | 1 |", "| songs | 4 |", "| overrides applied | 4 |",
 		"| cover: Apple (original album) | 2 |", "| cover: Cover Art Archive | 0 |",
 		"| essentials | 5 | 1 | 3 | 1 | 2 |", "| mega-mix | 2 | 0 | 2 | 2 | 2 |",
+		"## Categories\n\n| category | songs |\n|---|---:|\n| gen-alpha | 1 |\n",
 		"| Joseito Fernandez | Guajira Guantanamera | 1929 | – | 1958 |  |",
 		"| ABBA | Dancing Queen | 1976, 1977 |",
 		"## Low-confidence matches (0)", "## Not found on MusicBrainz (2)", "## No Apple track with a preview (1)",

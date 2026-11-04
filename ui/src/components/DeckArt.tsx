@@ -92,6 +92,13 @@ const G = {
       <path d="M13 12.5h-2.5v5M5 21h11M10.5 17.5 7 21M10.5 17.5l3.5 3.5" />
     </>
   ),
+  headphones: (
+    <>
+      <path d="M4 15.5V12a8 8 0 0 1 16 0v3.5" />
+      <rect x="2.5" y="14" width="5" height="7" rx="1.5" fill="currentColor" />
+      <rect x="16.5" y="14" width="5" height="7" rx="1.5" fill="currentColor" />
+    </>
+  ),
   note: (
     <>
       <path d="M9 18V5.5L20 3.5v12" />
@@ -116,6 +123,7 @@ const A = {
   crown: { glyph: G.crown, from: "#f2c14e", to: "#b0702a" },
   gramophone: { glyph: G.gramophone, from: "#b08a5a", to: "#4a3020" },
   vinyl: { glyph: G.vinyl, from: "#e5482f", to: "#3a1410" },
+  headphones: { glyph: G.headphones, from: "#3ad6c4", to: "#4b2ad0" },
 } satisfies Record<string, Art>;
 
 // The slugs of backend/internal/deck/names.go (sets, categories); deck_test.go keeps the two in step.
@@ -131,6 +139,7 @@ const BY_ID: Record<string, Art> = {
   "screen-hits": A.clapper,
   "christmas-hits": A.tree,
   "radio-gold": A.radio,
+  "gen-alpha": A.headphones,
   "smash-hits": A.star,
   "number-ones": A.crown,
   evergreens: A.gramophone,

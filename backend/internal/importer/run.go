@@ -170,6 +170,7 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 	if err != nil {
 		return err
 	}
+	categorize(kept)
 	songs := make([]song.Song, len(kept))
 	for i, r := range kept {
 		songs[i] = r.Song
