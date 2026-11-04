@@ -20,6 +20,8 @@ import (
 
 	"github.com/trick77/ship/kit/fsx"
 	"github.com/trick77/ship/kit/run"
+
+	"github.com/trick77/reworm/internal/httpcache"
 )
 
 // APIURL is the API host the web player talks to.
@@ -30,18 +32,30 @@ const (
 	maxResponseBytes = 8 << 20
 	// maxPages bounds one ISRC lookup: Apple pages filter[isrc] at 25, a hit song has a few pages of compilations.
 	maxPages = 8
-	// tries is how often a network error, cut-off body or undecodable 200 is tried before the call fails.
-	tries = 4
+	// defaultTries is how often a network error, cut-off body or undecodable 200 is tried before the call fails,
+	// when Client.Tries is 0 (the import's policy).
+	defaultTries = 4
 )
 
 var (
 	// ErrDevTokenRefused means Apple refused the web player's developer token even freshly fetched: Apple changed
 	// something.
 	ErrDevTokenRefused = errors.New("apple music refused the web player's developer token")
-	// ErrRateLimited is a 429. Never retried: Apple's window lasted ~3.5 h (2026-11-04) and retrying into it only
-	// prolongs it; the import stops and is rerun later from its cache.
+	// ErrRateLimited is a 429 (a *RateLimitedError). Never retried: Apple's window lasted ~3.5 h (2026-11-04) and
+	// retrying into it only prolongs it; the import stops and is rerun later from its cache.
 	ErrRateLimited = errors.New("apple music: rate limited (429)")
 )
+
+// RateLimitedError is a 429; RetryAfter is Apple's Retry-After, 0 when it sent none. errors.Is ErrRateLimited.
+type RateLimitedError struct {
+	Path       string
+	RetryAfter time.Duration
+}
+
+func (e *RateLimitedError) Error() string { return ErrRateLimited.Error() + ": " + e.Path }
+
+// Is makes errors.Is(err, ErrRateLimited) true.
+func (e *RateLimitedError) Is(target error) bool { return target == ErrRateLimited }
 
 // Tokens hands out the developer token; *Source implements it.
 type Tokens interface {
@@ -58,6 +72,9 @@ type Client struct {
 	Sleep func(context.Context, time.Duration) error
 	// Evict, when set, drops a cached answer the client could not decode (httpcache.Transport.Evict).
 	Evict func(method, url string) error
+	// Tries bounds the attempts per request (network error, cut body, undecodable 200); 0 is 4, the import's. The
+	// server takes 1: a player waits on it.
+	Tries int
 }
 
 // Song is one catalog song.
@@ -247,16 +264,22 @@ func (c *Client) SearchSongs(ctx context.Context, storefront, term string, limit
 // undecodable 200 is evicted first, so the cache cannot replay it.
 func (c *Client) get(ctx context.Context, path string, out any) (found bool, err error) {
 	refetched := false
+	tries := c.Tries
+	if tries <= 0 {
+		tries = defaultTries
+	}
 	for attempt := 1; ; attempt++ {
 		wait := time.Second << (attempt - 1) // 1 s, 2 s, 4 s
 		dev, err := c.Dev.Token(ctx)
 		if err != nil {
 			return false, err
 		}
-		status, body, err := c.do(ctx, dev, path)
+		status, header, body, err := c.do(ctx, dev, path)
 		switch {
 		case err != nil && ctx.Err() != nil:
 			return false, ctx.Err()
+		case errors.Is(err, httpcache.ErrOffline):
+			return false, err
 		case err != nil:
 			if attempt >= tries {
 				return false, fmt.Errorf("%w after %d tries", err, attempt)
@@ -284,7 +307,7 @@ func (c *Client) get(ctx context.Context, path string, out any) (found bool, err
 			refetched = true
 			continue
 		case status == http.StatusTooManyRequests:
-			return false, fmt.Errorf("%w: %s", ErrRateLimited, redact(path))
+			return false, &RateLimitedError{Path: redact(path), RetryAfter: retryAfter(header.Get("Retry-After"))}
 		default:
 			return false, fmt.Errorf("apple music: %s returned %d: %s", redact(path), status, apiError(body))
 		}
@@ -301,10 +324,18 @@ func (c *Client) base() string {
 	return APIURL
 }
 
-func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, error) {
+// retryAfter reads a Retry-After of seconds; 0 when there is none.
+func retryAfter(h string) time.Duration {
+	if s, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && s > 0 {
+		return time.Duration(s) * time.Second
+	}
+	return 0
+}
+
+func (c *Client) do(ctx context.Context, dev, path string) (int, http.Header, []byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+path, nil)
 	if err != nil {
-		return 0, nil, err
+		return 0, nil, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+dev)
 	req.Header.Set("Origin", origin)
@@ -316,14 +347,14 @@ func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, error) 
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, nil, fmt.Errorf("apple music: %s: %w", redact(path), err)
+		return 0, nil, nil, fmt.Errorf("apple music: %s: %w", redact(path), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return 0, nil, fmt.Errorf("apple music: %s: read: %w", redact(path), err)
+		return 0, nil, nil, fmt.Errorf("apple music: %s: read: %w", redact(path), err)
 	}
-	return resp.StatusCode, body, nil
+	return resp.StatusCode, resp.Header, body, nil
 }
 
 func (c *Client) sleep(ctx context.Context, d time.Duration) error {

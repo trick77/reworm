@@ -35,6 +35,11 @@ func TestLoadDataset(t *testing.T) {
 	if err := loadDataset(ctx, db, missing); err != nil || count() != 1 {
 		t.Errorf("missing dataset: %v, %d active", err, count())
 	}
+	// An empty dataset is refused: the table keeps its active songs.
+	empty := func() ([]song.Song, error) { return nil, nil }
+	if err := loadDataset(ctx, db, empty); err != nil || count() != 1 {
+		t.Errorf("empty dataset: %v, %d active", err, count())
+	}
 	broken := func() ([]song.Song, error) { return nil, errors.New("bad line") }
 	if err := loadDataset(ctx, db, broken); err == nil {
 		t.Error("broken dataset: no error")

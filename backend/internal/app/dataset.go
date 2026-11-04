@@ -23,6 +23,11 @@ func loadDataset(ctx context.Context, db *sql.DB, songs func() ([]song.Song, err
 	if err != nil {
 		return fmt.Errorf("song dataset: %w", err)
 	}
+	if len(list) == 0 {
+		// An empty file is a broken build, not a dataset: syncing it would deactivate every song.
+		slog.Error("embedded song dataset holds no songs, refused; songs table left as it is")
+		return nil
+	}
 	deactivated, err := store.SyncSongs(ctx, db, list)
 	if err != nil {
 		return fmt.Errorf("song dataset: %w", err)

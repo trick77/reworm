@@ -102,6 +102,91 @@ func TestApplePreviews_errors(t *testing.T) {
 	}
 }
 
+// scripted answers each call with the next result and counts the calls.
+type scripted struct {
+	calls   atomic.Int32
+	results []error
+	block   chan struct{}
+}
+
+func (s *scripted) PreviewURL(context.Context, deck.Song) (string, error) {
+	n := int(s.calls.Add(1)) - 1
+	if s.block != nil {
+		<-s.block
+	}
+	if n < len(s.results) && s.results[n] != nil {
+		return "", s.results[n]
+	}
+	return "https://audio.example/x.m4a", nil
+}
+
+func TestGuardedPreviews_circuitOpensOnRateLimit(t *testing.T) {
+	now := time.Unix(1000, 0)
+	src := &scripted{results: []error{&apple.RateLimitedError{Path: "/v1/x", RetryAfter: time.Minute}, &apple.RateLimitedError{}}}
+	g := newGuardedPreviews(src, func() time.Time { return now })
+	ctx := context.Background()
+	if _, err := g.PreviewURL(ctx, deck.Song{ID: "a"}); !errors.Is(err, errPreviewsUnavailable) || !errors.Is(err, apple.ErrRateLimited) {
+		t.Fatalf("429: %v", err)
+	}
+	// Open for Retry-After: no call to Apple.
+	now = now.Add(59 * time.Second)
+	if _, err := g.PreviewURL(ctx, deck.Song{ID: "b"}); !errors.Is(err, errPreviewsUnavailable) || src.calls.Load() != 1 {
+		t.Fatalf("open: %v after %d calls", err, src.calls.Load())
+	}
+	// Over: the next 429 without Retry-After opens it for openFor.
+	now = now.Add(2 * time.Second)
+	_, _ = g.PreviewURL(ctx, deck.Song{ID: "b"})
+	now = now.Add(openFor - time.Second)
+	if _, err := g.PreviewURL(ctx, deck.Song{ID: "c"}); !errors.Is(err, errPreviewsUnavailable) || src.calls.Load() != 2 {
+		t.Errorf("openFor: %v after %d calls", err, src.calls.Load())
+	}
+	now = now.Add(2 * time.Second)
+	if u, err := g.PreviewURL(ctx, deck.Song{ID: "c"}); err != nil || u == "" || src.calls.Load() != 3 {
+		t.Errorf("closed again: %q, %v after %d calls", u, err, src.calls.Load())
+	}
+}
+
+func TestGuardedPreviews_remembersSongsWithoutPreview(t *testing.T) {
+	now := time.Unix(1000, 0)
+	src := &scripted{results: []error{preview.ErrNone}}
+	g := newGuardedPreviews(src, func() time.Time { return now })
+	ctx := context.Background()
+	for range 3 {
+		if _, err := g.PreviewURL(ctx, deck.Song{ID: "a"}); !errors.Is(err, preview.ErrNone) {
+			t.Fatalf("err = %v", err)
+		}
+	}
+	if src.calls.Load() != 1 {
+		t.Errorf("calls = %d, want 1 (ErrNone remembered)", src.calls.Load())
+	}
+	now = now.Add(noneTTL + time.Second)
+	if _, err := g.PreviewURL(ctx, deck.Song{ID: "a"}); err != nil || src.calls.Load() != 2 {
+		t.Errorf("after noneTTL: %v, %d calls", err, src.calls.Load())
+	}
+}
+
+func TestGuardedPreviews_queueIsBounded(t *testing.T) {
+	src := &scripted{}
+	g := newGuardedPreviews(src, nil)
+	// Far more lookups than previewMaxWait/previewGap turns: the late ones are refused, not queued for long.
+	var refused atomic.Int32
+	done := make(chan struct{})
+	for i := range 20 {
+		go func() {
+			if _, err := g.PreviewURL(context.Background(), deck.Song{ID: fmt.Sprint(i)}); errors.Is(err, errPreviewsUnavailable) {
+				refused.Add(1)
+			}
+			done <- struct{}{}
+		}()
+	}
+	for range 20 {
+		<-done
+	}
+	if refused.Load() == 0 || src.calls.Load() > 10 {
+		t.Errorf("refused %d, calls %d", refused.Load(), src.calls.Load())
+	}
+}
+
 type staticToken string
 
 func (s staticToken) Token(context.Context) (string, error) { return string(s), nil }
