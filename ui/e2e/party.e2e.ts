@@ -96,20 +96,21 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
     await expect(top).toContainText(winner.name);
     await expect(top).toContainText(`${points} ▲`);
     await shot(stage, "years-result-photo-finish");
+    // the phones' round result; a right "spot on" (2 points) ends the game at once: the podium checks below
+    await expect(winner.page.getByText("You got it!")).toBeVisible();
+    await expect(
+      second.page.getByText(`${winner.name} was faster`),
+    ).toBeVisible();
+    await expect(
+      second.page.getByText(
+        /Photo finish! You were right behind\.|You were \d\.\d\d s behind/,
+      ),
+    ).toBeVisible();
+    await expect(mia.page.getByText(`${winner.name} was faster`)).toBeVisible();
+    await score(winner, points);
+    await shot(winner.page, "pad-won");
+    await shot(second.page, "pad-photo-finish");
   }
-  await expect(winner.page.getByText("You got it!")).toBeVisible();
-  await expect(
-    second.page.getByText(`${winner.name} was faster`),
-  ).toBeVisible();
-  await expect(
-    second.page.getByText(
-      /Photo finish! You were right behind\.|You were \d\.\d\d s behind/,
-    ),
-  ).toBeVisible();
-  await expect(mia.page.getByText(`${winner.name} was faster`)).toBeVisible();
-  await score(winner, points);
-  await shot(winner.page, "pad-won");
-  await shot(second.page, "pad-photo-finish");
 
   // the round's winner plays on alone until first to 2
   for (let n = 2; s.phase !== "over"; n++) {

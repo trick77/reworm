@@ -59,12 +59,15 @@ export const winTime = (res: RoundResult) =>
 // roundView: what the round shows. Paused keeps what was on screen: the round has a result → the
 // result, unless it is a buzzer round still being judged (its result holds the song, no winner yet).
 // `before` is the phase this screen saw before the pause (usePhaseBeforePause); without it (opened while
-// paused) a buzzer round with a song but no winner counts as still being judged.
+// paused) a buzzer round with a song but no winner counts as still being judged. A `before` of a live
+// phase while the round already holds a result is stale: the reveal and the pause arrived in one batch
+// and this screen never drew the judging, so the round's data decides.
 export type RoundView = "live" | "judging" | "result";
 export function roundView(s: RoomState, before?: Phase | null): RoundView {
   const r = s.round;
   if (!r) return "live";
-  const phase = s.phase === "paused" && before ? before : s.phase;
+  const stale = r.result && (before === "playing" || before === "buzzed");
+  const phase = s.phase === "paused" && before && !stale ? before : s.phase;
   if (phase === "result") return "result";
   if (phase === "judging") return r.result ? "judging" : "live";
   if (phase !== "paused" || !r.result) return "live";
