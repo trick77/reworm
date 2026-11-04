@@ -19,8 +19,9 @@ import (
 	"github.com/trick77/ship/kit/logging"
 	"github.com/trick77/ship/kit/ratelimit"
 	"github.com/trick77/ship/kit/version"
+	"github.com/trick77/toolkit/applemusic"
 
-	"github.com/trick77/reworm/internal/apple"
+	"github.com/trick77/reworm/internal/appletoken"
 	"github.com/trick77/reworm/internal/cards"
 	"github.com/trick77/reworm/internal/httpcache"
 	"github.com/trick77/reworm/internal/musicbrainz"
@@ -45,9 +46,12 @@ type Endpoints struct {
 // maxQueue is how long a request may wait for its paced turn: never refused, the workers just queue.
 const maxQueue = 24 * time.Hour
 
+// appleTries is the import's attempts per Apple request: Apple cuts bodies off mid-transfer now and then.
+const appleTries = 4
+
 // DefaultEndpoints are the real services.
 var DefaultEndpoints = Endpoints{
-	MusicBrainz: musicbrainz.BaseURL, AppleAPI: apple.APIURL, ApplePlayer: apple.PlayerURL, CoverArt: CAAURL,
+	MusicBrainz: musicbrainz.BaseURL, AppleAPI: applemusic.DefaultBaseURL, ApplePlayer: applemusic.PlayerURL, CoverArt: CAAURL,
 	// Apple: the web player's API is unofficial with unpublished limits; 5 req/s caused a ~3.5 h block (2026-11-04),
 	// so 20 req/min, the one rate Apple publishes (its iTunes Search API).
 	MBEvery: time.Second, AppleEvery: 3 * time.Second,
@@ -235,13 +239,13 @@ func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, log *
 		return &http.Client{Timeout: time.Minute, Transport: &httpcache.Transport{Dir: cache.Dir, Next: next}}
 	}
 	tokenPath := filepath.Join(cacheDir, "apple-token.json")
-	tokens := &apple.Source{BaseURL: ep.ApplePlayer, HTTP: &http.Client{Timeout: time.Minute, Transport: net},
-		OnNew: func(t apple.Token) {
-			if err := apple.SaveToken(tokenPath, t); err != nil {
+	tokens := &applemusic.Source{BaseURL: ep.ApplePlayer, HTTP: &http.Client{Timeout: time.Minute, Transport: net},
+		OnNew: func(t applemusic.Token) {
+			if err := appletoken.Save(tokenPath, t); err != nil {
 				log.Warn("apple token not kept", logging.Err(err))
 			}
 		}}
-	if t, ok := apple.LoadToken(tokenPath, time.Now()); ok {
+	if t, ok := appletoken.Load(tokenPath, time.Now()); ok {
 		tokens.Seed(t)
 	}
 	caa := cached(0)
@@ -251,8 +255,11 @@ func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, log *
 			HTTP:      cached(ep.MBEvery),
 			UserAgent: "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )",
 			Evict:     cache.Evict},
-		Apple: &apple.Client{BaseURL: ep.AppleAPI, HTTP: cached(ep.AppleEvery), Dev: tokens,
-			Evict: cache.Evict},
+		// A batch: four tries on a cut body or a network blip, none on an offline miss (no retry fills the
+		// cache), and a 429 stops the run (applemusic.ErrRateLimited).
+		Apple: &applemusic.Client{BaseURL: ep.AppleAPI, HTTP: cached(ep.AppleEvery), Dev: tokens, Tries: appleTries,
+			Retryable: func(err error) bool { return !errors.Is(err, httpcache.ErrOffline) },
+			Evict:     cache.Evict},
 		Covers:  &CoverArt{BaseURL: ep.CoverArt, HTTP: caa},
 		Workers: workers,
 		Log:     log,

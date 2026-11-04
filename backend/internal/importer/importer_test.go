@@ -15,7 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/reworm/internal/apple"
+	"github.com/trick77/toolkit/applemusic"
+
 	"github.com/trick77/reworm/internal/musicbrainz"
 	"github.com/trick77/reworm/internal/song"
 )
@@ -373,7 +374,7 @@ func TestRejudge_afterMergeAndYearOverride(t *testing.T) {
 	p := &Pipeline{Covers: &CoverArt{BaseURL: caa.URL, HTTP: caa.Client()}}
 	// The group is dated by a reissue (as Waterloo's album shows 2004): only the card year places the track.
 	m := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Album", Date: "2004"}}
-	track := apple.Song{ID: "t", Name: "Song", Album: "Album", ReleaseDate: "1976-05-01", Artwork: "https://img.example/{w}x{h}.jpg", Preview: true}
+	track := applemusic.Song{ID: "t", Name: "Song", Album: "Album", ReleaseDate: "1976-05-01", Artwork: "https://img.example/{w}x{h}.jpg", Preview: true}
 	judged := func(year int) resolved {
 		r := resolved{entry: entry{Artist: "A", Title: "Song", Year: year}, match: m,
 			Song: song.Song{ID: "rec", Artist: "A", Title: "Song", Year: year, YearSource: song.YearCard}}
@@ -507,35 +508,35 @@ func TestFindRecording_searchesTheLeadArtistLast(t *testing.T) {
 
 // fakeCatalog answers ISRC lookups and song searches; albums are never found.
 type fakeCatalog struct {
-	byISRC   []apple.Song
-	searched map[string][]apple.Song
+	byISRC   []applemusic.Song
+	searched map[string][]applemusic.Song
 }
 
-func (f fakeCatalog) SongsByISRC(context.Context, string, []string) ([]apple.Song, error) {
+func (f fakeCatalog) SongsByISRC(context.Context, string, []string) ([]applemusic.Song, error) {
 	return f.byISRC, nil
 }
 
-func (f fakeCatalog) SearchSongs(_ context.Context, _, term string, _ int) ([]apple.Song, error) {
+func (f fakeCatalog) SearchSongs(_ context.Context, _, term string, _ int) ([]applemusic.Song, error) {
 	return f.searched[term], nil
 }
 
-func (fakeCatalog) SearchAlbums(context.Context, string, string, int) ([]apple.Album, error) {
+func (fakeCatalog) SearchAlbums(context.Context, string, string, int) ([]applemusic.Album, error) {
 	return nil, nil
 }
 
-func (fakeCatalog) AlbumTracks(context.Context, string, string) ([]apple.Song, error) {
+func (fakeCatalog) AlbumTracks(context.Context, string, string) ([]applemusic.Song, error) {
 	return nil, nil
 }
 
-func (fakeCatalog) SongByID(context.Context, string, string) (apple.Song, bool, error) {
-	return apple.Song{}, false, nil
+func (fakeCatalog) SongByID(context.Context, string, string) (applemusic.Song, bool, error) {
+	return applemusic.Song{}, false, nil
 }
 
 // Several artists and film titles: an ISRC hit or a search hit counts by every reading of the card title and by
 // the credit as a set or its main artist; another act under the ISRC does not.
 func TestFindTrack_severalArtistsAndFilmTitles(t *testing.T) {
-	tr := func(id, name, artist string) apple.Song {
-		return apple.Song{ID: id, Name: name, Artist: artist, Album: "A", Preview: true}
+	tr := func(id, name, artist string) applemusic.Song {
+		return applemusic.Song{ID: id, Name: name, Artist: artist, Album: "A", Preview: true}
 	}
 	grease := musicbrainz.Match{ISRCs: []string{"NLF057890002"}, Recording: musicbrainz.Recording{ID: "sn", Title: "Summer Nights",
 		Credit: "John Travolta, Olivia Newton‐John & Cast", Artists: []string{"John Travolta", "Olivia Newton‐John", "Cast"}}}
@@ -557,40 +558,40 @@ func TestFindTrack_severalArtistsAndFilmTitles(t *testing.T) {
 		want  string
 	}{
 		{entry{Artist: "John Travolta, Olivia Newton-John", Title: "Grease (Summer Nights)", Year: 1978}, grease,
-			fakeCatalog{byISRC: []apple.Song{tr("other", "Summer Nights", "Other Act"), tr("sn", "Summer Nights", "John Travolta & Olivia Newton-John")}}, "sn"},
+			fakeCatalog{byISRC: []applemusic.Song{tr("other", "Summer Nights", "Other Act"), tr("sn", "Summer Nights", "John Travolta & Olivia Newton-John")}}, "sn"},
 		{entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981}, queen,
-			fakeCatalog{byISRC: []apple.Song{tr("up", "Under Pressure (feat. David Bowie)", "Queen")}}, "up"},
+			fakeCatalog{byISRC: []applemusic.Song{tr("up", "Under Pressure (feat. David Bowie)", "Queen")}}, "up"},
 		{entry{Artist: "Nino Rota", Title: "Der Pate (The Godfather Waltz)", Year: 1972}, godfather,
-			fakeCatalog{byISRC: []apple.Song{tr("gw", "The Godfather Waltz", "Nino Rota & Carlo Savina")}}, "gw"},
+			fakeCatalog{byISRC: []applemusic.Song{tr("gw", "The Godfather Waltz", "Nino Rota & Carlo Savina")}}, "gw"},
 		// Another act under the ISRC is no hit.
 		{entry{Artist: "Queen, David Bowie", Title: "Under Pressure", Year: 1981}, queen,
-			fakeCatalog{byISRC: []apple.Song{tr("x", "Under Pressure", "Some Cover Band")}}, ""},
+			fakeCatalog{byISRC: []applemusic.Song{tr("x", "Under Pressure", "Some Cover Band")}}, ""},
 		// Searched as the card writes the title, found by the song inside it.
 		{entry{Artist: "Luis Bacalov, Rocky Roberts", Title: "Django Unchained (Django)", Year: 2012}, musicbrainz.Match{},
-			fakeCatalog{searched: map[string][]apple.Song{"Luis Bacalov, Rocky Roberts Django Unchained (Django)": {
+			fakeCatalog{searched: map[string][]applemusic.Song{"Luis Bacalov, Rocky Roberts Django Unchained (Django)": {
 				tr("dj", "Django", "Luis Bacalov & Rocky Roberts")}}}, "dj"},
 		{entry{Artist: "Calvin Harris", Title: "One Kiss (with Dua Lipa)", Year: 2018}, musicbrainz.Match{},
-			fakeCatalog{searched: map[string][]apple.Song{"Calvin Harris One Kiss (with Dua Lipa)": {
+			fakeCatalog{searched: map[string][]applemusic.Song{"Calvin Harris One Kiss (with Dua Lipa)": {
 				tr("ok", "One Kiss", "Calvin Harris & Dua Lipa")}}}, "ok"},
 		// The act under another of its names; its re-recording is no hit.
 		{entry{Artist: "Yusuf / Cat Stevens", Title: "Father And Son", Year: 1970}, yusuf,
-			fakeCatalog{searched: map[string][]apple.Song{"Yusuf / Cat Stevens Father and Son": {
+			fakeCatalog{searched: map[string][]applemusic.Song{"Yusuf / Cat Stevens Father and Son": {
 				tr("re", "Father and Son (Re-Recorded Version)", "Yusuf / Cat Stevens"), tr("fs", "Father and Son", "Cat Stevens")}}}, "fs"},
 		// The live take alone is no hit: no clip beats the wrong recording.
 		{entry{Artist: "Common, John Legend", Title: "Selma (Glory)", Year: 2014}, glory,
-			fakeCatalog{searched: map[string][]apple.Song{"Common Glory": {tr("live", "Glory [Live]", "Common & John Legend")}}}, ""},
+			fakeCatalog{searched: map[string][]applemusic.Song{"Common Glory": {tr("live", "Glory [Live]", "Common & John Legend")}}}, ""},
 		// A remix MusicBrainz took for the song is found first, the plain take by the card's title wins.
 		{entry{Artist: "Calvin Harris", Title: "One Kiss (with Dua Lipa)", Year: 2018}, oneKissRemix,
-			fakeCatalog{searched: map[string][]apple.Song{
+			fakeCatalog{searched: map[string][]applemusic.Song{
 				"Calvin Harris One Kiss (with Dua Lipa) - Jauz Remix": {tr("jz", "One Kiss (Jauz Remix)", "Calvin Harris & Dua Lipa")},
 				"Calvin Harris One Kiss (with Dua Lipa)":              {tr("ok", "One Kiss", "Calvin Harris & Dua Lipa")}}}, "ok"},
 		// A song MusicBrainz knows only live: its live take, nothing plain anywhere.
 		{entry{Artist: "Nirvana", Title: "Where Did You Sleep Last Night", Year: 1994}, unpluggedMatch,
-			fakeCatalog{searched: map[string][]apple.Song{"Nirvana Where Did You Sleep Last Night": {
+			fakeCatalog{searched: map[string][]applemusic.Song{"Nirvana Where Did You Sleep Last Night": {
 				tr("l", "Where Did You Sleep Last Night (Live)", "Nirvana")}}}, "l"},
 		// An act the card does not name, by search.
 		{entry{Artist: "Queen", Title: "Bohemian Rhapsody", Year: 1975}, musicbrainz.Match{},
-			fakeCatalog{searched: map[string][]apple.Song{"Queen Bohemian Rhapsody": {tr("ql", "Bohemian Rhapsody", "Queen + Adam Lambert")}}}, ""},
+			fakeCatalog{searched: map[string][]applemusic.Song{"Queen Bohemian Rhapsody": {tr("ql", "Bohemian Rhapsody", "Queen + Adam Lambert")}}}, ""},
 	} {
 		p := &Pipeline{Apple: tc.apple}
 		got, _, _, err := p.findTrack(context.Background(), tc.e, tc.m)
@@ -605,8 +606,8 @@ func TestFindTrack_severalArtistsAndFilmTitles(t *testing.T) {
 func TestBest_prefersOriginalThenPlainThenOwnAlbum(t *testing.T) {
 	m := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Help!", Date: "1965-08-06"}}
 	e := entry{Artist: "The Beatles", Title: "Help!", Year: 1965}
-	tr := func(id, name, album, albumArtist, date string) apple.Song {
-		return apple.Song{ID: id, Name: name, Artist: "The Beatles", Album: album, AlbumArtist: albumArtist, ReleaseDate: date, Preview: true}
+	tr := func(id, name, album, albumArtist, date string) applemusic.Song {
+		return applemusic.Song{ID: id, Name: name, Artist: "The Beatles", Album: album, AlbumArtist: albumArtist, ReleaseDate: date, Preview: true}
 	}
 	remix := tr("a-remix", "Help! (Remix)", "Help! - Single", "The Beatles", "2020")
 	live := tr("b-live", "Help! (Live)", "Live at the BBC", "The Beatles", "1994")
@@ -615,40 +616,40 @@ func TestBest_prefersOriginalThenPlainThenOwnAlbum(t *testing.T) {
 	orig := tr("e-orig", "Help!", "Help! (Remastered)", "The Beatles", "1965-08-06")
 	liveAlbum := tr("f-hits", "Help!", "Live Party Hits", "The Beatles", "1965")
 	for _, tc := range []struct {
-		songs []apple.Song
+		songs []applemusic.Song
 		want  string
 	}{
-		{[]apple.Song{remix, live, comp, own, orig}, "e-orig"},
-		{[]apple.Song{remix, live, comp, own}, "d-own"},
-		{[]apple.Song{remix, live, liveAlbum, comp}, "c-comp"},
-		{[]apple.Song{remix, live, liveAlbum}, "f-hits"},
-		{[]apple.Song{remix, live}, ""},
+		{[]applemusic.Song{remix, live, comp, own, orig}, "e-orig"},
+		{[]applemusic.Song{remix, live, comp, own}, "d-own"},
+		{[]applemusic.Song{remix, live, liveAlbum, comp}, "c-comp"},
+		{[]applemusic.Song{remix, live, liveAlbum}, "f-hits"},
+		{[]applemusic.Song{remix, live}, ""},
 	} {
 		if got, _ := best(tc.songs, m, e, nil); got.ID != tc.want {
 			t.Errorf("best = %q, want %q", got.ID, tc.want)
 		}
 	}
 	// Asked for by the card, the live take is the song.
-	if got, _ := best([]apple.Song{remix, live}, m, entry{Artist: "The Beatles", Title: "Help! (Live)", Year: 1994}, nil); got.ID != "b-live" {
+	if got, _ := best([]applemusic.Song{remix, live}, m, entry{Artist: "The Beatles", Title: "Help! (Live)", Year: 1994}, nil); got.ID != "b-live" {
 		t.Errorf("asked live: %q", got.ID)
 	}
 	// A song MusicBrainz knows only live: the live take is fine, a plain one still first.
 	unplugged := musicbrainz.Match{Recording: musicbrainz.Recording{Title: "Where Did You Sleep Last Night", Disambiguation: "live, MTV Unplugged"}}
 	nirvana := entry{Artist: "Nirvana", Title: "Where Did You Sleep Last Night", Year: 1994}
-	liveTake := apple.Song{ID: "l", Name: "Where Did You Sleep Last Night (Live)", Artist: "Nirvana", Album: "MTV Unplugged in New York", Preview: true}
-	studio := apple.Song{ID: "s", Name: "Where Did You Sleep Last Night", Artist: "Nirvana", Album: "Hits", Preview: true}
-	if got, _ := best([]apple.Song{liveTake}, unplugged, nirvana, nil); got.ID != "l" {
+	liveTake := applemusic.Song{ID: "l", Name: "Where Did You Sleep Last Night (Live)", Artist: "Nirvana", Album: "MTV Unplugged in New York", Preview: true}
+	studio := applemusic.Song{ID: "s", Name: "Where Did You Sleep Last Night", Artist: "Nirvana", Album: "Hits", Preview: true}
+	if got, _ := best([]applemusic.Song{liveTake}, unplugged, nirvana, nil); got.ID != "l" {
 		t.Errorf("live recording: %q", got.ID)
 	}
-	if got, _ := best([]apple.Song{liveTake, studio}, unplugged, nirvana, nil); got.ID != "s" {
+	if got, _ := best([]applemusic.Song{liveTake, studio}, unplugged, nirvana, nil); got.ID != "s" {
 		t.Errorf("plain first: %q", got.ID)
 	}
 	// A re-recording is not the 1970 song, the only candidate or not; nor is its "Tillerman²" the original album.
 	tiller := musicbrainz.Match{Original: musicbrainz.Group{ID: "rg", Title: "Tea for the Tillerman", Date: "1970-11-23"}}
 	cat := entry{Artist: "Yusuf / Cat Stevens", Title: "Father And Son", Year: 1970}
-	rerec := apple.Song{ID: "re", Name: "Father and Son (Re-Recorded Version)", Artist: "Yusuf / Cat Stevens",
+	rerec := applemusic.Song{ID: "re", Name: "Father and Son (Re-Recorded Version)", Artist: "Yusuf / Cat Stevens",
 		Album: "Tea for the Tillerman²", ReleaseDate: "2020-09-18", Preview: true}
-	if got, ok := best([]apple.Song{rerec}, tiller, cat, nil); ok {
+	if got, ok := best([]applemusic.Song{rerec}, tiller, cat, nil); ok {
 		t.Errorf("re-recording picked: %q", got.ID)
 	}
 	rerec.Name, rerec.ReleaseDate = "Father and Son", "1970-11-23" // Apple dates the album's tracks so

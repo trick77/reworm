@@ -12,16 +12,17 @@ import (
 
 	"github.com/trick77/ship/kit/logging"
 	"github.com/trick77/ship/kit/ratelimit"
+	"github.com/trick77/toolkit/applemusic"
 
-	"github.com/trick77/reworm/internal/apple"
+	"github.com/trick77/reworm/internal/appletoken"
 	"github.com/trick77/reworm/internal/deck"
 	"github.com/trick77/reworm/internal/preview"
 )
 
-// Catalog is what the preview source asks Apple; *apple.Client implements it.
+// Catalog is what the preview source asks Apple; *applemusic.Client implements it.
 type Catalog interface {
-	SongByID(ctx context.Context, storefront, id string) (apple.Song, bool, error)
-	SongsByISRC(ctx context.Context, storefront string, isrcs []string) ([]apple.Song, error)
+	SongByID(ctx context.Context, storefront, id string) (applemusic.Song, bool, error)
+	SongsByISRC(ctx context.Context, storefront string, isrcs []string) ([]applemusic.Song, error)
 }
 
 // applePreviews resolves a song's preview URL from Apple Music: the stored track (apple_id in its storefront), else
@@ -131,9 +132,9 @@ func (g *guardedPreviews) PreviewURL(ctx context.Context, s deck.Song) (string, 
 		}
 		g.none[s.ID] = g.now().Add(noneTTL)
 		g.mu.Unlock()
-	case errors.Is(err, apple.ErrRateLimited):
+	case errors.Is(err, applemusic.ErrRateLimited):
 		wait := openFor
-		var rl *apple.RateLimitedError
+		var rl *applemusic.RateLimitedError
 		if errors.As(err, &rl) && rl.RetryAfter > 0 {
 			wait = rl.RetryAfter
 		}
@@ -150,15 +151,15 @@ func (g *guardedPreviews) PreviewURL(ctx context.Context, s deck.Song) (string, 
 // each request tried once within requestTimeout, lookups guarded, every URL cached a day.
 func newApplePreviews(dataDir string) preview.Source {
 	tokenPath := filepath.Join(dataDir, "apple-token.json")
-	tokens := &apple.Source{HTTP: &http.Client{Timeout: requestTimeout},
-		OnNew: func(t apple.Token) {
-			if err := apple.SaveToken(tokenPath, t); err != nil {
+	tokens := &applemusic.Source{HTTP: &http.Client{Timeout: requestTimeout},
+		OnNew: func(t applemusic.Token) {
+			if err := appletoken.Save(tokenPath, t); err != nil {
 				slog.Warn("apple token not kept", logging.Err(err))
 			}
 		}}
-	if t, ok := apple.LoadToken(tokenPath, time.Now()); ok {
+	if t, ok := appletoken.Load(tokenPath, time.Now()); ok {
 		tokens.Seed(t)
 	}
-	client := &apple.Client{HTTP: &http.Client{Timeout: requestTimeout}, Dev: tokens, Tries: 1}
+	client := &applemusic.Client{HTTP: &http.Client{Timeout: requestTimeout}, Dev: tokens, Tries: 1}
 	return preview.NewCache(newGuardedPreviews(applePreviews{catalog: client}, nil), preview.TTL, nil)
 }
