@@ -442,7 +442,7 @@ func Strip(s string) string {
 }
 
 // noteWords mark a trailing title segment as a release note, not part of the song's name.
-var noteWords = []string{"remaster", "remastered", "remasterd", "version", "edit", "mono", "stereo", "single",
+var noteWords = []string{"remaster", "remastered", "version", "edit", "mono", "stereo", "single",
 	"radio", "mix", "from", "anniversary", "deluxe", "bonus", "mixed", "extended"}
 
 var yearWord = regexp.MustCompile(`(^| )(19|20)\d\d( |$)`)
