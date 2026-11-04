@@ -18,9 +18,12 @@ type Config struct {
 	// TrustedProxies is the number of proxies in front of the app whose X-Forwarded-For entries are believed: 1
 	// behind Traefik, 0 (the TCP peer) when reached directly. Too high lets a caller pick its own address.
 	TrustedProxies int
-	// DevPreviews is a directory of <song id>.wav clips served instead of Apple previews (local tests only).
+	// Dev is dev mode (BACKEND_DEV=1), local tests only: the one switch the BACKEND_DEV_* settings need. Refused
+	// with PUBLIC_FQDN, and at boot on a data dir holding real songs.
+	Dev bool
+	// DevPreviews is a directory of <song id>.wav clips served instead of Apple previews (dev mode).
 	DevPreviews string
-	// DevSongs is a JSON Lines fixture made the active song list at boot (local tests only).
+	// DevSongs is a JSON Lines fixture made the active song list at boot (dev mode).
 	DevSongs string
 }
 
@@ -33,6 +36,7 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 		PublicFQDN:     r.String("PUBLIC_FQDN", ""),
 		LogLevel:       r.String("BACKEND_LOG_LEVEL", ""),
 		TrustedProxies: r.Int("BACKEND_TRUSTED_PROXIES", 0),
+		Dev:            r.Bool("BACKEND_DEV", false),
 		DevPreviews:    r.String("BACKEND_DEV_PREVIEWS", ""),
 		DevSongs:       r.String("BACKEND_DEV_SONGS", ""),
 	}
@@ -40,8 +44,11 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 		r.Fail("BACKEND_TRUSTED_PROXIES: %d is negative", cfg.TrustedProxies)
 	}
 	// A dev clip URL names its song: a public server would hand every phone the answer.
-	if cfg.PublicFQDN != "" && (cfg.DevPreviews != "" || cfg.DevSongs != "") {
-		r.Fail("BACKEND_DEV_PREVIEWS and BACKEND_DEV_SONGS are for local tests only, not with PUBLIC_FQDN")
+	switch {
+	case cfg.Dev && cfg.PublicFQDN != "":
+		r.Fail("BACKEND_DEV is for local tests only, not with PUBLIC_FQDN")
+	case !cfg.Dev && (cfg.DevPreviews != "" || cfg.DevSongs != ""):
+		r.Fail("BACKEND_DEV_PREVIEWS and BACKEND_DEV_SONGS need BACKEND_DEV=1 (local tests only)")
 	}
 	return cfg, r.Err()
 }

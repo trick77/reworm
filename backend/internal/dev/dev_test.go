@@ -112,45 +112,68 @@ func TestLoadSongs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	// a song of the dataset the fixture replaces
-	if _, err := db.ExecContext(ctx, `INSERT INTO songs (id, artist, title, year, year_source, sets)
-VALUES ('old', 'A', 'B', 1999, 'card', '["essentials"]')`); err != nil {
-		t.Fatal(err)
-	}
 	file := filepath.Join(t.TempDir(), "songs.jsonl")
 	write := func(s string) {
 		if err := os.WriteFile(file, []byte(s), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write(`{"id":"dq","artist":"ABBA","title":"Dancing Queen","year":1976,"sets":["essentials"],"genres":["pop"]}
+	write(`{"id":"fixture-dq","artist":"ABBA","title":"Dancing Queen","year":1976,"sets":["essentials"],"genres":["pop"]}
 
-{"id":"br","artist":"Queen","title":"Bohemian Rhapsody","year":1975,"sets":["essentials"],"categories":["number-ones"]}
+{"id":"fixture-br","artist":"Queen","title":"Bohemian Rhapsody","year":1975,"sets":["essentials"],"categories":["number-ones"]}
 `)
 	if n, err := LoadSongs(ctx, db, file); err != nil || n != 2 {
 		t.Fatalf("LoadSongs = %d, %v", n, err)
 	}
 	songs := deck.New(db)
 	got, err := songs.Select(ctx, deck.Selector{Sets: []string{"essentials"}, From: 1900, To: 2100})
-	if err != nil || len(got) != 2 || got[0].ID != "br" || got[1].ID != "dq" || got[1].Year != 1976 {
+	if err != nil || len(got) != 2 || got[0].ID != "fixture-br" || got[1].ID != "fixture-dq" || got[1].Year != 1976 {
 		t.Fatalf("active songs = %+v, %v", got, err)
-	}
-	if s, err := songs.Get(ctx, "old"); err != nil || s.Title != "B" {
-		t.Errorf("the replaced song's row is kept: %+v, %v", s, err)
 	}
 	d, err := songs.Decks(ctx)
 	if err != nil || len(d.Sets) != 1 || d.Sets[0].Count != 2 || len(d.Categories) != 1 || len(d.Genres) != 1 {
 		t.Errorf("decks = %+v, %v", d, err)
 	}
+	if err := CheckData(ctx, db); err != nil {
+		t.Errorf("fixture songs only: %v", err)
+	}
 
-	// loading again updates in place
-	write(`{"id":"dq","artist":"ABBA","title":"Dancing Queen","year":1977,"sets":["essentials"]}`)
+	// loading another fixture updates in place and deactivates what it left out (the row stays)
+	write(`{"id":"fixture-dq","artist":"ABBA","title":"Dancing Queen","year":1977,"sets":["essentials"]}`)
 	if n, err := LoadSongs(ctx, db, file); err != nil || n != 1 {
 		t.Fatalf("reload = %d, %v", n, err)
 	}
 	got, err = songs.Select(ctx, deck.Selector{From: 1900, To: 2100})
 	if err != nil || len(got) != 1 || got[0].Year != 1977 {
 		t.Errorf("after reload = %+v, %v", got, err)
+	}
+	if s, err := songs.Get(ctx, "fixture-br"); err != nil || s.Title != "Bohemian Rhapsody" {
+		t.Errorf("the left-out song's row is kept: %+v, %v", s, err)
+	}
+}
+
+func TestCheckData_refusesRealSongs(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.Open(ctx, filepath.Join(t.TempDir(), "reworm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := CheckData(ctx, db); err != nil {
+		t.Errorf("empty data dir: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO songs (id, artist, title, year, year_source)
+VALUES ('mbid-1', 'A', 'B', 1999, 'card')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckData(ctx, db); err == nil || !strings.Contains(err.Error(), "1 real songs") {
+		t.Errorf("a real song: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckData(ctx, db); err == nil {
+		t.Error("closed database: no error")
 	}
 }
 
@@ -163,10 +186,12 @@ func TestLoadSongs_refusesABadFixture(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	dir := t.TempDir()
 	for name, body := range map[string]string{
-		"garbled": `{"id":`,
-		"no year": `{"id":"a","artist":"A","title":"T"}`,
-		"twice":   "{\"id\":\"a\",\"artist\":\"A\",\"title\":\"T\",\"year\":1990}\n{\"id\":\"a\",\"artist\":\"A\",\"title\":\"T\",\"year\":1990}",
-		"empty":   "\n\n",
+		"garbled":   `{"id":`,
+		"no year":   `{"id":"fixture-a","artist":"A","title":"T"}`,
+		"no prefix": `{"id":"a","artist":"A","title":"T","year":1990}`,
+		"twice": "{\"id\":\"fixture-a\",\"artist\":\"A\",\"title\":\"T\",\"year\":1990}\n" +
+			"{\"id\":\"fixture-a\",\"artist\":\"A\",\"title\":\"T\",\"year\":1990}",
+		"empty": "\n\n",
 	} {
 		file := filepath.Join(dir, strings.ReplaceAll(name, " ", "-"))
 		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {

@@ -18,9 +18,21 @@ import (
 	"github.com/trick77/reworm/internal/train"
 )
 
-// previewSource is where clip URLs come from: the Apple Music client (internal/apple) plugs in here, wrapped in
+// previewSource is where clip URLs come from, the one place that decides: in dev mode the clip directory, which
+// serves its files on its own route; else the Apple Music client (internal/apple) plugs in here, wrapped in
 // preview.NewCache(src, preview.TTL, nil). nil until then: every endpoint that needs a clip answers 503.
-var previewSource = func(Config) preview.Source { return nil }
+var previewSource = func(cfg Config) (preview.Source, server.Routes, error) {
+	if cfg.Dev && cfg.DevPreviews != "" {
+		p, err := dev.NewPreviews(cfg.DevPreviews)
+		if err != nil {
+			return nil, nil, err
+		}
+		slog.Warn("DEV: clips come from a local directory, not Apple Music; their URLs name the song",
+			"dir", cfg.DevPreviews, "route", dev.PreviewPath)
+		return p, p, nil
+	}
+	return nil, nil, nil
+}
 
 // apiParts is the API's route groups and the party service, whose rooms need a ticker and a shutdown hook.
 type apiParts struct {
@@ -55,15 +67,16 @@ func newAPI(ctx context.Context, cfg Config, db *sql.DB) (apiParts, error) {
 			"url", publicURL+"/setup/"+token, "token", token)
 	}
 	songs := deck.New(db)
-	previews := previewSource(cfg)
-	devPreviews, err := devRig(ctx, cfg, db)
+	if err := devSongs(ctx, cfg, db); err != nil {
+		return apiParts{}, err
+	}
+	previews, previewRoutes, err := previewSource(cfg)
 	if err != nil {
 		return apiParts{}, err
 	}
 	var routes []server.Routes
-	if devPreviews != nil {
-		previews = devPreviews
-		routes = append(routes, devPreviews)
+	if previewRoutes != nil {
+		routes = append(routes, previewRoutes)
 	}
 	if previews == nil {
 		slog.Warn("no preview source configured: party rounds and training answer 503")
@@ -79,24 +92,23 @@ func newAPI(ctx context.Context, cfg Config, db *sql.DB) (apiParts, error) {
 	return apiParts{routes: routes, party: rooms}, nil
 }
 
-// devRig applies the BACKEND_DEV_* settings: the fixture songs loaded, the clip directory as the preview source
-// (nil without BACKEND_DEV_PREVIEWS). Loud on purpose: a server running on them must not pass for a real one.
-func devRig(ctx context.Context, cfg Config, db *sql.DB) (*dev.Previews, error) {
-	if cfg.DevSongs != "" {
-		n, err := dev.LoadSongs(ctx, db, cfg.DevSongs)
-		if err != nil {
-			return nil, err
-		}
-		slog.Warn("DEV: fixture songs loaded, the dataset is inactive", "file", cfg.DevSongs, "songs", n)
+// devSongs is dev mode's guard and its song list: a data dir that holds real songs refuses to start (dev mode
+// would deactivate them), then BACKEND_DEV_SONGS is loaded. Loud on purpose: such a server must not pass for a
+// real one.
+func devSongs(ctx context.Context, cfg Config, db *sql.DB) error {
+	if !cfg.Dev {
+		return nil
 	}
-	if cfg.DevPreviews == "" {
-		return nil, nil
+	if err := dev.CheckData(ctx, db); err != nil {
+		return err
 	}
-	p, err := dev.NewPreviews(cfg.DevPreviews)
+	if cfg.DevSongs == "" {
+		return nil
+	}
+	n, err := dev.LoadSongs(ctx, db, cfg.DevSongs)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	slog.Warn("DEV: clips come from a local directory, not Apple Music; their URLs name the song",
-		"dir", cfg.DevPreviews, "route", dev.PreviewPath)
-	return p, nil
+	slog.Warn("DEV: fixture songs are the song list", "file", cfg.DevSongs, "songs", n)
+	return nil
 }

@@ -50,14 +50,21 @@ func TestLoadConfig_badTrustedProxies(t *testing.T) {
 }
 
 func TestLoadConfig_dev(t *testing.T) {
-	cfg, err := LoadConfig(lookup(map[string]string{"BACKEND_DEV_PREVIEWS": "/clips", "BACKEND_DEV_SONGS": "/s.jsonl"}))
-	if err != nil || cfg.DevPreviews != "/clips" || cfg.DevSongs != "/s.jsonl" {
+	cfg, err := LoadConfig(lookup(map[string]string{"BACKEND_DEV": "1", "BACKEND_DEV_PREVIEWS": "/clips",
+		"BACKEND_DEV_SONGS": "/s.jsonl"}))
+	if err != nil || !cfg.Dev || cfg.DevPreviews != "/clips" || cfg.DevSongs != "/s.jsonl" {
 		t.Fatalf("dev = %+v, %v", cfg, err)
 	}
-	// never on a public server: a dev clip URL names the song
-	for _, v := range []string{"BACKEND_DEV_PREVIEWS", "BACKEND_DEV_SONGS"} {
-		if _, err := LoadConfig(lookup(map[string]string{v: "/x", "PUBLIC_FQDN": "reworm.example"})); err == nil {
-			t.Errorf("%s with PUBLIC_FQDN accepted", v)
+	for name, vars := range map[string]map[string]string{
+		// never on a public server: a dev clip URL names the song
+		"with PUBLIC_FQDN": {"BACKEND_DEV": "1", "PUBLIC_FQDN": "reworm.example"},
+		// the settings alone do nothing silently: dev mode is one explicit switch
+		"previews without BACKEND_DEV": {"BACKEND_DEV_PREVIEWS": "/x"},
+		"songs without BACKEND_DEV":    {"BACKEND_DEV_SONGS": "/x"},
+		"songs with BACKEND_DEV=0":     {"BACKEND_DEV": "0", "BACKEND_DEV_SONGS": "/x"},
+	} {
+		if _, err := LoadConfig(lookup(vars)); err == nil {
+			t.Errorf("%s: accepted", name)
 		}
 	}
 }
@@ -75,19 +82,21 @@ func TestNewAPI_devRig(t *testing.T) {
 	if err := os.Mkdir(clips, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(clips, "dq.wav"), []byte("RIFF"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(clips, "fixture-dq.wav"), []byte("RIFF"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(songs, []byte(`{"id":"dq","artist":"ABBA","title":"Dancing Queen","year":1976,"sets":["essentials"]}`), 0o600); err != nil {
+	if err := os.WriteFile(songs, []byte(`{"id":"fixture-dq","artist":"ABBA","title":"Dancing Queen","year":1976,`+
+		`"sets":["essentials"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	parts, err := newAPI(ctx, Config{DataDir: dir, DevPreviews: clips, DevSongs: songs}, db)
+	dev := Config{DataDir: dir, Dev: true, DevPreviews: clips, DevSongs: songs}
+	parts, err := newAPI(ctx, dev, db)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer parts.party.Close()
 	h := server.New(server.Options{Static: http.NotFoundHandler(), API: parts.routes})
-	for path, want := range map[string]string{"/api/dev/previews/dq.wav": "RIFF", "/api/decks": `"count":1`} {
+	for path, want := range map[string]string{"/api/dev/previews/fixture-dq.wav": "RIFF", "/api/decks": `"count":1`} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
@@ -95,11 +104,36 @@ func TestNewAPI_devRig(t *testing.T) {
 		}
 	}
 
-	for _, cfg := range []Config{{DataDir: dir, DevSongs: filepath.Join(dir, "missing")},
-		{DataDir: dir, DevPreviews: filepath.Join(dir, "missing")}} {
+	for _, cfg := range []Config{{DataDir: dir, Dev: true, DevSongs: filepath.Join(dir, "missing")},
+		{DataDir: dir, Dev: true, DevPreviews: filepath.Join(dir, "missing")}} {
 		if _, err := newAPI(ctx, cfg, db); err == nil {
 			t.Errorf("%+v: no error", cfg)
 		}
+	}
+
+	// a data dir with real songs refuses dev mode before anything is deactivated
+	if _, err := db.ExecContext(ctx, `INSERT INTO songs (id, artist, title, year, year_source)
+VALUES ('mbid-1', 'A', 'B', 1999, 'card')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAPI(ctx, dev, db); err == nil || !strings.Contains(err.Error(), "real songs") {
+		t.Errorf("real songs: %v", err)
+	}
+	var active int
+	if err := db.QueryRowContext(ctx, `SELECT active FROM songs WHERE id = 'mbid-1'`).Scan(&active); err != nil || active != 1 {
+		t.Errorf("the real song was touched: active = %d, %v", active, err)
+	}
+	// without dev mode the clip route does not exist
+	plain, err := newAPI(ctx, Config{DataDir: dir}, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer plain.party.Close()
+	rec := httptest.NewRecorder()
+	server.New(server.Options{Static: http.NotFoundHandler(), API: plain.routes}).
+		ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/dev/previews/fixture-dq.wav", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("dev route without dev mode = %d", rec.Code)
 	}
 }
 
@@ -126,7 +160,9 @@ func TestNewAPI(t *testing.T) {
 	cfg := Config{DataDir: dir, PublicFQDN: "reworm.example"}
 	prev := previewSource
 	defer func() { previewSource = prev }()
-	previewSource = func(Config) preview.Source { return preview.NewCache(&preview.Fake{}, preview.TTL, nil) }
+	previewSource = func(Config) (preview.Source, server.Routes, error) {
+		return preview.NewCache(&preview.Fake{}, preview.TTL, nil), nil, nil
+	}
 	parts, err := newAPI(ctx, cfg, db)
 	if err != nil {
 		t.Fatal(err)

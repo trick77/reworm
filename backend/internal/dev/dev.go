@@ -1,7 +1,7 @@
 // Package dev is the local test rig (e2e, a laptop without Apple Music): clips from a directory of audio files
-// instead of Apple previews, and a fixture song list instead of the dataset. Off unless BACKEND_DEV_PREVIEWS or
-// BACKEND_DEV_SONGS is set, and refused together with PUBLIC_FQDN (app.LoadConfig): a dev clip URL names the song,
-// so it must never reach a real party.
+// instead of Apple previews, and a fixture song list instead of the dataset. Dev mode only (BACKEND_DEV=1 with
+// BACKEND_DEV_PREVIEWS / BACKEND_DEV_SONGS), refused with PUBLIC_FQDN (app.LoadConfig) and on a data dir holding
+// real songs (CheckData): a dev clip URL names the song, so it must never reach a real party.
 package dev
 
 import (
@@ -75,6 +75,22 @@ func (p *Previews) Mount(mux *http.ServeMux) {
 	})
 }
 
+// FixturePrefix starts every fixture song id: it can never be a real song's (an MBID or an artist|title slug).
+const FixturePrefix = "fixture-"
+
+// CheckData refuses a database that holds real songs: dev mode deactivates every song but the fixture's, and
+// must never run on a real server's data dir.
+func CheckData(ctx context.Context, db *sql.DB) error {
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM songs WHERE year_source != 'fixture'`).Scan(&n); err != nil {
+		return fmt.Errorf("dev mode: %w", err)
+	}
+	if n > 0 {
+		return fmt.Errorf("dev mode: the data dir holds %d real songs; BACKEND_DEV=1 needs a data dir of its own", n)
+	}
+	return nil
+}
+
 // Song is one line of a fixture file (JSON Lines).
 type Song struct {
 	ID         string   `json:"id"`
@@ -138,6 +154,8 @@ func readSongs(file string) ([]Song, error) {
 		switch {
 		case s.ID == "" || s.Artist == "" || s.Title == "" || s.Year <= 0:
 			return nil, fmt.Errorf("dev songs: %s:%d: id, artist, title and year are required", file, n)
+		case !strings.HasPrefix(s.ID, FixturePrefix):
+			return nil, fmt.Errorf("dev songs: %s:%d: id %s does not start with %s", file, n, s.ID, FixturePrefix)
 		case seen[s.ID]:
 			return nil, fmt.Errorf("dev songs: %s:%d: id %s twice", file, n, s.ID)
 		}
