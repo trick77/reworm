@@ -45,8 +45,12 @@ func (s Song) Reveal() Revealed {
 	return r
 }
 
-// Selector picks a deck: songs in any of the sets, categories or genres (all songs when the three are empty), with
-// a year in [From, To].
+// General is the genre of every song: no song carries it, picking it alone picks all (the widest span, as the picker
+// says); beside other ids it narrows nothing.
+const General = "general"
+
+// Selector picks a deck: songs in any of the sets, categories or genres (all songs when the three are empty, General
+// aside), with a year in [From, To].
 type Selector struct {
 	Sets       []string `json:"sets"`
 	Categories []string `json:"categories"`
@@ -124,11 +128,13 @@ func (r *Repo) CoverURL(ctx context.Context, id string) (string, error) {
 func (r *Repo) Select(ctx context.Context, sel Selector) ([]Song, error) {
 	q := `SELECT ` + songColumns + ` FROM songs WHERE active = 1 AND year BETWEEN ? AND ?`
 	args := []any{sel.From, sel.To}
+	// General narrows nothing: beside other ids it drops out (General + Pop is Pop), alone it leaves all songs.
+	genres := slices.DeleteFunc(slices.Clone(sel.Genres), func(g string) bool { return g == General })
 	var conds []string
 	for _, f := range []struct {
 		col string
 		ids []string
-	}{{"sets", sel.Sets}, {"categories", sel.Categories}, {"genres", sel.Genres}} {
+	}{{"sets", sel.Sets}, {"categories", sel.Categories}, {"genres", genres}} {
 		if len(f.ids) == 0 {
 			continue
 		}
@@ -181,10 +187,12 @@ type Decks struct {
 	Genres     []Group `json:"genres"`
 }
 
-// Decks counts the active songs per set, category and genre.
+// Decks counts the active songs per set, category and genre; General, first of the genres, counts them all.
 func (r *Repo) Decks(ctx context.Context) (Decks, error) {
 	d := Decks{Sets: []Set{}, Categories: []Group{}, Genres: []Group{}}
 	rows, err := r.db.QueryContext(ctx, `
+SELECT 'all', '`+General+`', count(*), 0, 0 FROM songs WHERE active = 1 HAVING count(*) > 0
+UNION ALL
 SELECT 'sets', j.value, count(*), min(s.year), max(s.year) FROM songs s, json_each(s.sets) j WHERE s.active = 1 GROUP BY j.value
 UNION ALL
 SELECT 'categories', j.value, count(*), 0, 0 FROM songs s, json_each(s.categories) j WHERE s.active = 1 GROUP BY j.value
@@ -205,7 +213,12 @@ SELECT 'genres', j.value, count(*), 0, 0 FROM songs s, json_each(s.genres) j WHE
 			d.Sets = append(d.Sets, Set{ID: id, Name: Name(id), Count: n, From: from, To: to})
 		case "categories":
 			d.Categories = append(d.Categories, Group{ID: id, Name: Name(id), Count: n})
+		case "all":
+			d.Genres = append(d.Genres, Group{ID: id, Name: Name(id), Count: n})
 		default:
+			if id == General {
+				continue // a song tagged so by hand: General counts every song already
+			}
 			d.Genres = append(d.Genres, Group{ID: id, Name: Name(id), Count: n})
 		}
 	}

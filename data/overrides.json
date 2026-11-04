@@ -1,4 +1,4 @@
 {
-  "_doc": "Hand fixes by song id (see data/songs.jsonl), applied after the import: \"songs\": {\"<id>\": {\"year\": 1976, \"apple_id\": \"1422648512\", \"storefront\": \"ch\", \"exclude\": true}}. year replaces the card year (year_source becomes override); apple_id (+ storefront, default ch) picks the Apple track; exclude drops the song from the dataset. Every field is optional.",
+  "_doc": "Hand fixes by song id (see data/songs.jsonl), applied after the import: \"songs\": {\"<id>\": {\"year\": 1976, \"apple_id\": \"1422648512\", \"storefront\": \"ch\", \"genres\": [\"pop\"], \"exclude\": true}}. year replaces the card year (year_source becomes override); apple_id (+ storefront, default ch) picks the Apple track, its album, ISRC and cover follow from it; genres replaces the genres from Last.fm ([] for none); exclude drops the song from the dataset. Every field is optional.",
   "songs": {}
 }

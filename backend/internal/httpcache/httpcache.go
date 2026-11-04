@@ -38,6 +38,9 @@ var kept = []string{"Content-Type", "Location"}
 type Transport struct {
 	Dir  string
 	Next http.RoundTripper
+	// Redact names query parameters that are no part of the answer (an API key): left out of the cache key and of
+	// the URL stored with the answer, so a rotated key keeps the cache and none sits on disk.
+	Redact []string
 }
 
 type meta struct {
@@ -52,8 +55,9 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if req.Method != http.MethodGet && req.Method != http.MethodHead {
 		return t.next().RoundTrip(req)
 	}
-	path := t.path(req)
-	if resp, ok := load(path, req); ok {
+	id := t.id(req.URL.String())
+	path := t.key(req.Method, id)
+	if resp, ok := load(path, req, id); ok {
 		return resp, nil
 	}
 	resp, err := t.next().RoundTrip(req)
@@ -64,12 +68,12 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	_ = resp.Body.Close()
 	if err != nil {
-		return nil, fmt.Errorf("httpcache: read %s: %w", req.URL.Redacted(), err)
+		return nil, fmt.Errorf("httpcache: read %s: %w", t.id(req.URL.Redacted()), err)
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))
 	if cacheable(resp.StatusCode) {
-		if err := store(path, req, resp, body); err != nil {
+		if err := store(path, req, id, resp, body); err != nil {
 			return nil, err
 		}
 	}
@@ -83,11 +87,36 @@ func (t *Transport) Evict(method, rawURL string) error {
 	if err != nil {
 		return err
 	}
-	err = os.Remove(t.key(method, u.String()))
+	err = os.Remove(t.key(method, t.id(u.String())))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	return err
+}
+
+// id is the URL as the cache knows it: the Redact parameters dropped. A URL with none of them stays as it is, not
+// re-encoded, so the keys of existing caches do not move.
+func (t *Transport) id(raw string) string {
+	if len(t.Redact) == 0 {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	q := u.Query()
+	found := false
+	for _, k := range t.Redact {
+		if q.Has(k) {
+			q.Del(k)
+			found = true
+		}
+	}
+	if !found {
+		return raw
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (t *Transport) next() http.RoundTripper {
@@ -101,15 +130,13 @@ func cacheable(status int) bool {
 	return (status >= 200 && status < 400) || status == http.StatusNotFound
 }
 
-func (t *Transport) path(req *http.Request) string { return t.key(req.Method, req.URL.String()) }
-
 func (t *Transport) key(method, u string) string {
 	sum := sha256.Sum256([]byte(method + " " + u))
 	key := hex.EncodeToString(sum[:])
 	return filepath.Join(t.Dir, key[:2], key+".gz")
 }
 
-func load(path string, req *http.Request) (*http.Response, bool) {
+func load(path string, req *http.Request, id string) (*http.Response, bool) {
 	f, err := os.Open(path) //nolint:gosec // our own cache dir, file name from a hash
 	if err != nil {
 		return nil, false
@@ -125,7 +152,7 @@ func load(path string, req *http.Request) (*http.Response, bool) {
 		return nil, false
 	}
 	var m meta
-	if json.Unmarshal(line, &m) != nil || m.URL != req.URL.String() || m.Method != req.Method {
+	if json.Unmarshal(line, &m) != nil || m.URL != id || m.Method != req.Method {
 		return nil, false
 	}
 	body, err := io.ReadAll(r)
@@ -144,8 +171,8 @@ func load(path string, req *http.Request) (*http.Response, bool) {
 	}, true
 }
 
-func store(path string, req *http.Request, resp *http.Response, body []byte) error {
-	m := meta{Method: req.Method, URL: req.URL.String(), Status: resp.StatusCode, Header: map[string][]string{}}
+func store(path string, req *http.Request, id string, resp *http.Response, body []byte) error {
+	m := meta{Method: req.Method, URL: id, Status: resp.StatusCode, Header: map[string][]string{}}
 	for _, k := range kept {
 		if v := resp.Header.Values(k); len(v) > 0 {
 			m.Header[k] = v

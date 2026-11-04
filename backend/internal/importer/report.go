@@ -33,15 +33,31 @@ func (r report) markdown() []byte {
 	w("after the card's, the earliest official one wins. Apple, per storefront ch → de → us: ISRC lookup (title and\n")
 	w("artist must match), in ch also the MusicBrainz original album by name; the first original-album track wins,\n")
 	w("else the first ISRC hit, else an artist + title search in ch and us. Only tracks with a preview count. Songs\n")
-	w("without one stay in the dataset (no clip until an override).\n\n")
+	w("without one stay in the dataset (no clip until an override). Last.fm, by the card's artist + title, else the\n")
+	w("main artist, else the MusicBrainz credit: the first track found gives the listeners and, by its top tags, the\n")
+	w("genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre, overrides included.\n\n")
 
 	bySet := map[string]*struct{ songs, mb, preview int }{}
 	for slug := range r.sets {
 		bySet[slug] = &struct{ songs, mb, preview int }{}
 	}
-	var mb, exact, preview, apple, caa, origin int
+	var mb, exact, preview, apple, caa, origin, onLastFM, noGenre int
+	// Songs per genre; listeners only of those Last.fm knows (an unknown song's 0 would drag the percentiles down).
+	genreSongs, byGenre := map[string]int{}, map[string][]int{}
 	for _, x := range r.resolved {
 		s := x.Song
+		if x.LastFM {
+			onLastFM++
+		}
+		if len(s.Genres) == 0 {
+			noGenre++
+		}
+		for _, g := range s.Genres {
+			genreSongs[g]++
+			if x.LastFM {
+				byGenre[g] = append(byGenre[g], s.Listeners)
+			}
+		}
 		if s.MBID != "" {
 			mb++
 		}
@@ -91,7 +107,9 @@ func (r report) markdown() []byte {
 		{"Apple track with preview", preview}, {"no Apple preview", len(r.resolved) - preview},
 		{"Apple track on the original album", origin},
 		{"cover: Apple (original album)", apple}, {"cover: Cover Art Archive", caa},
-		{"cover: none", len(r.resolved) - apple - caa}, {"overrides applied", len(r.applied)},
+		{"cover: none", len(r.resolved) - apple - caa},
+		{"Last.fm track found", onLastFM}, {"no genre", noGenre},
+		{"overrides applied", len(r.applied)},
 	} {
 		w("| %s | %d |\n", row.k, row.v)
 	}
@@ -117,6 +135,20 @@ func (r report) markdown() []byte {
 			}
 		}
 		w("| %s | %d |\n", rule.slug, n)
+	}
+
+	// The listener spread per genre is what the well-known filter for songs without a card is calibrated on: a
+	// candidate needs about the 10th percentile of the card songs of its genre.
+	w("\n## Genres (Last.fm listeners of the songs Last.fm knows)\n\n| genre | songs | on Last.fm | p10 | p50 |\n" +
+		"|---|---:|---:|---:|---:|\n")
+	genreIDs := make([]string, 0, len(genreSongs))
+	for g := range genreSongs {
+		genreIDs = append(genreIDs, g)
+	}
+	slices.Sort(genreIDs)
+	for _, g := range genreIDs {
+		ls := byGenre[g]
+		w("| %s | %d | %d | %d | %d |\n", g, genreSongs[g], len(ls), percentile(ls, 10), percentile(ls, 50))
 	}
 
 	rows := slices.Clone(r.resolved)
@@ -190,6 +222,9 @@ func (r report) markdown() []byte {
 	section("No Apple track with a preview", "| artist | title |\n|---|---|", func(x resolved) (string, bool) {
 		return fmt.Sprintf("| %s | %s |", cell(x.Artist), cell(x.Title)), x.Song.AppleID == ""
 	})
+	section("Not on Last.fm", "| artist | title | genres (artist tags, sets, overrides) |\n|---|---|---|", func(x resolved) (string, bool) {
+		return fmt.Sprintf("| %s | %s | %s |", cell(x.Artist), cell(x.Title), strings.Join(x.Song.Genres, ", ")), !x.LastFM
+	})
 	if len(r.unknown) > 0 {
 		w("\n## Overrides for unknown song ids (%d)\n\n", len(r.unknown))
 		for _, id := range r.unknown {
@@ -197,6 +232,16 @@ func (r report) markdown() []byte {
 		}
 	}
 	return []byte(b.String())
+}
+
+// percentile is the p-th percentile of vs by nearest rank, 0 for none.
+func percentile(vs []int, p int) int {
+	if len(vs) == 0 {
+		return 0
+	}
+	s := slices.Sorted(slices.Values(vs))
+	i := (p*len(s)+99)/100 - 1
+	return s[max(i, 0)]
 }
 
 // cell keeps a value inside its table cell.

@@ -2,9 +2,11 @@ package importer
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -63,11 +65,36 @@ func appleSong(id, name, artist, album, albumArtist, date, isrc string, preview 
 }
 
 // services is one fixture server for every source: cards, MusicBrainz, the Apple web player and API, the Cover
-// Art Archive.
-func services(t *testing.T, mbHits *atomic.Int32) *httptest.Server {
+// Art Archive, Last.fm (its hits counted in lfHits when set).
+func services(t *testing.T, mbHits, lfHits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	tok := webToken()
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /lastfm/2.0/", func(w http.ResponseWriter, r *http.Request) {
+		if lfHits != nil {
+			lfHits.Add(1)
+		}
+		q := r.URL.Query()
+		if q.Get("api_key") != "unused" || !strings.HasPrefix(r.Header.Get("User-Agent"), "Reworm/") {
+			t.Errorf("Last.fm request %v, user agent %q", q, r.Header.Get("User-Agent"))
+		}
+		switch q.Get("method") + "|" + q.Get("artist") + "|" + q.Get("track") {
+		case "track.getInfo|ABBA|Dancing Queen":
+			_, _ = fmt.Fprint(w, `{"track":{"name":"Dancing Queen","listeners":"2664004","artist":{"name":"ABBA"},
+"toptags":{"tag":[{"name":"Disco"},{"name":"pop"},{"name":"70s"}]}}}`)
+		case "track.getInfo|Queen|Bohemian Rhapsody":
+			_, _ = fmt.Fprint(w, `{"track":{"name":"Bohemian Rhapsody","listeners":"3000000","artist":{"name":"Queen"},
+"toptags":{"tag":[{"name":"classic rock"}]}}}`)
+		case "track.getInfo|Lonely|Ballad":
+			_, _ = fmt.Fprint(w, `{"track":{"name":"Ballad","listeners":"12","artist":{"name":"Lonely"},"toptags":{"tag":[]}}}`)
+		case "artist.getTopTags|Joseito Fernandez|":
+			_, _ = fmt.Fprint(w, `{"toptags":{"tag":[{"count":100,"name":"latin"},{"count":10,"name":"pop"}]}}`)
+		case "artist.getTopTags|Lonely|":
+			_, _ = fmt.Fprint(w, `{"toptags":{"tag":[]}}`)
+		default:
+			_, _ = fmt.Fprint(w, `{"error":6,"message":"Track not found","links":[]}`)
+		}
+	})
 	mux.HandleFunc("GET /cards/{file}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.PathValue("file") {
 		case "first list.csv":
@@ -167,7 +194,8 @@ func services(t *testing.T, mbHits *atomic.Int32) *httptest.Server {
 
 func endpoints(srv *httptest.Server) Endpoints {
 	return Endpoints{MusicBrainz: srv.URL + "/mb", AppleAPI: srv.URL + "/apple", ApplePlayer: srv.URL + "/player",
-		CoverArt: srv.URL + "/caa", MBEvery: time.Nanosecond, AppleEvery: time.Nanosecond}
+		CoverArt: srv.URL + "/caa", LastFM: srv.URL + "/lastfm",
+		MBEvery: time.Nanosecond, AppleEvery: time.Nanosecond, LastFMEvery: time.Nanosecond}
 }
 
 func run(t *testing.T, ep Endpoints, env map[string]string, args ...string) (int, string) {
@@ -178,8 +206,8 @@ func run(t *testing.T, ep Endpoints, env map[string]string, args ...string) (int
 }
 
 func TestImport_cardsThenSongs(t *testing.T) {
-	var mbHits atomic.Int32
-	srv := services(t, &mbHits)
+	var mbHits, lfHits atomic.Int32
+	srv := services(t, &mbHits, &lfHits)
 	ep := endpoints(srv)
 	data := t.TempDir()
 	envFile := filepath.Join(t.TempDir(), ".env.local")
@@ -212,7 +240,7 @@ func TestImport_cardsThenSongs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "overrides.json"), []byte(`{"_doc":"x","songs":{
 		"nobody--unknown-song":{"exclude":true},
 		"joseito-fernandez--guajira-guantanamera":{"apple_id":"gg-alt"},
-		"br-studio":{"apple_id":"br-opera","storefront":"de"},
+		"br-studio":{"apple_id":"br-opera","storefront":"de","genres":["rock","metal"]},
 		"lonely--ballad-2017-remaster":{"year":2019},
 		"missing-id":{"year":1990}}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -254,6 +282,26 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		dq.ISRC != "SEAYD7601020" || dq.MBID != "dq-studio" || len(dq.Categories) != 0 {
 		t.Errorf("Dancing Queen = %+v", dq)
 	}
+	// Last.fm: the track's tags give the genres; none there, the artist's (Guantanamera, unknown as a track); an
+	// override replaces them (Bohemian Rhapsody).
+	for id, want := range map[string]struct {
+		genres    string
+		listeners int
+	}{
+		"dq-studio": {"disco-funk,pop", 2664004}, "br-studio": {"metal,rock", 3000000},
+		"joseito-fernandez--guajira-guantanamera": {"latin", 0}, "lonely--ballad-2017-remaster": {"", 12},
+	} {
+		if s := byID[id]; strings.Join(s.Genres, ",") != want.genres || s.Listeners != want.listeners {
+			t.Errorf("%s: genres %v, listeners %d; want %s, %d", id, s.Genres, s.Listeners, want.genres, want.listeners)
+		}
+	}
+	// The key is no part of the cache: not on disk, not in the dataset.
+	if leaks := filesContaining(t, filepath.Join(data, "cache"), "unused"); len(leaks) > 0 {
+		t.Errorf("Last.fm key cached in %v", leaks)
+	}
+	if bytes.Contains(b, []byte("unused")) {
+		t.Error("songs.jsonl holds the Last.fm key")
+	}
 	// The override's track is on the original album: its album, ISRC and the Apple cover replace the compilation's
 	// and the archive's.
 	br := byID["br-studio"]
@@ -284,6 +332,9 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		"| ABBA | Dancing Queen | 1976, 1977 |",
 		"## Low-confidence matches (0)", "## Not found on MusicBrainz (2)", "## No Apple track with a preview (1)",
 		"- `missing-id`",
+		"| Last.fm track found | 3 |", "| no genre | 1 |", "## Not on Last.fm (1)",
+		"| Joseito Fernandez | Guajira Guantanamera | latin |",
+		"| rock | 1 | 1 | 3000000 | 3000000 |", "| pop | 1 | 1 | 2664004 | 2664004 |", "| latin | 1 | 0 | 0 | 0 |",
 	} {
 		if !strings.Contains(string(rep), want) {
 			t.Errorf("report lacks %q:\n%s", want, rep)
@@ -298,14 +349,15 @@ func TestImport_cardsThenSongs(t *testing.T) {
 		t.Error("report leaks a source URL")
 	}
 
-	// A re-run answers from the cache: MusicBrainz is not asked again, the output is the same.
-	before := mbHits.Load()
+	// A re-run answers from the cache: MusicBrainz and Last.fm are not asked again, the output is the same.
+	before, lfBefore := mbHits.Load(), lfHits.Load()
 	if code, out := run(t, ep, nil, "-env", envFile, "-data", data, "songs"); code != 0 {
 		t.Fatalf("rerun: exit %d\n%s", code, out)
 	}
 	again, _ := os.ReadFile(filepath.Join(data, "songs.jsonl"))
-	if mbHits.Load() != before || !bytes.Equal(again, b) {
-		t.Errorf("rerun: %d new MusicBrainz requests, output changed: %v", mbHits.Load()-before, !bytes.Equal(again, b))
+	if mbHits.Load() != before || lfHits.Load() != lfBefore || !bytes.Equal(again, b) {
+		t.Errorf("rerun: %d new MusicBrainz, %d new Last.fm requests, output changed: %v", mbHits.Load()-before,
+			lfHits.Load()-lfBefore, !bytes.Equal(again, b))
 	}
 	if _, err := os.Stat(filepath.Join(data, "cache", "apple-token.json")); err != nil {
 		t.Errorf("apple token not kept: %v", err)
@@ -349,7 +401,8 @@ func TestImport_cardsThenSongs(t *testing.T) {
 			t.Errorf("offline run resolved a card it has no answers for: %+v", s)
 		}
 	}
-	if offDQ.Year != 1975 || offDQ.AppleID != prevDQ.AppleID || offDQ.CoverURL != prevDQ.CoverURL || offDQ.AppleID == "" {
+	if offDQ.Year != 1975 || offDQ.AppleID != prevDQ.AppleID || offDQ.CoverURL != prevDQ.CoverURL || offDQ.AppleID == "" ||
+		!slices.Equal(offDQ.Genres, prevDQ.Genres) || offDQ.Listeners != prevDQ.Listeners || len(offDQ.Genres) == 0 {
 		t.Errorf("kept Dancing Queen = %+v, previous %+v", offDQ, prevDQ)
 	}
 	rep, _ = os.ReadFile(filepath.Join(data, "import-report.md"))
@@ -663,7 +716,7 @@ func TestBest_prefersOriginalThenPlainThenOwnAlbum(t *testing.T) {
 
 func TestImport_writesTheOverridesTemplate(t *testing.T) {
 	var mbHits atomic.Int32
-	ep := endpoints(services(t, &mbHits))
+	ep := endpoints(services(t, &mbHits, nil))
 	data := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(data, "cards"), 0o750); err != nil {
 		t.Fatal(err)
@@ -671,7 +724,8 @@ func TestImport_writesTheOverridesTemplate(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "cards", "rock.csv"), []byte("artist,title,year\nQueen,Bohemian Rhapsody,1975\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "src.csv=Rock"}, "-data", data, "songs"); code != 0 {
+	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "src.csv=Rock", "BACKEND_LASTFM_API_KEY": "unused"},
+		"-data", data, "songs"); code != 0 {
 		t.Fatalf("exit %d\n%s", code, out)
 	}
 	ov, err := loadOverrides(filepath.Join(data, "overrides.json"))
@@ -716,11 +770,52 @@ func TestMain_usageAndConfigErrors(t *testing.T) {
 	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "songs"); code != 1 || !strings.Contains(out, "overrides") {
 		t.Errorf("bad overrides: %d %q", code, out)
 	}
+	_ = os.WriteFile(filepath.Join(data, "overrides.json"), []byte(`{"songs":{"a--t":{"genres":["polka"]}}}`), 0o600)
+	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "songs"); code != 1 || !strings.Contains(out, `genre \"polka\"`) {
+		t.Errorf("unknown genre override: %d %q", code, out)
+	}
+	// No Last.fm key: the run stops before any request.
+	_ = os.WriteFile(filepath.Join(data, "overrides.json"), []byte(`{"songs":{}}`), 0o600)
+	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "songs"); code != 1 || !strings.Contains(out, "BACKEND_LASTFM_API_KEY") {
+		t.Errorf("no Last.fm key: %d %q", code, out)
+	}
+	// Offline needs none: it asks no one.
+	if code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "-offline", "songs"); code != 0 {
+		t.Errorf("offline without a key: %d %q", code, out)
+	}
+}
+
+// filesContaining are the files under dir whose gunzipped (cache) or plain content holds s.
+func filesContaining(t *testing.T, dir, s string) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p) //nolint:gosec // test dir
+		if err != nil {
+			return err
+		}
+		if zr, err := gzip.NewReader(bytes.NewReader(b)); err == nil {
+			if plain, err := io.ReadAll(zr); err == nil {
+				b = plain
+			}
+		}
+		if bytes.Contains(b, []byte(s)) {
+			out = append(out, p)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func TestImport_cardDownloadFails(t *testing.T) {
 	var mbHits atomic.Int32
-	srv := services(t, &mbHits)
+	srv := services(t, &mbHits, nil)
 	env := map[string]string{"BACKEND_CARDS_BASE_URL": srv.URL + "/cards", "BACKEND_CARDS_FILES": "gone.csv=Rock"}
 	if code, out := run(t, endpoints(srv), env, "-data", t.TempDir(), "cards"); code != 1 || !strings.Contains(out, "cards Rock: status 404") {
 		t.Errorf("exit %d, %q", code, out)
@@ -750,7 +845,8 @@ func TestImport_stopsAtTheFirstAppleRateLimit(t *testing.T) {
 	data := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(data, "cards"), 0o750)
 	_ = os.WriteFile(filepath.Join(data, "cards", "x.csv"), []byte("artist,title,year\nA,T,1990\nB,U,1991\nC,V,1992\n"), 0o600)
-	code, out := run(t, endpoints(srv), map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "-workers", "1", "songs")
+	code, out := run(t, endpoints(srv), map[string]string{"BACKEND_CARDS_FILES": "x.csv=X", "BACKEND_LASTFM_API_KEY": "k"},
+		"-data", data, "-workers", "1", "songs")
 	if code != 1 || !strings.Contains(out, "stopped at the first Apple 429, 3 of 3 songs still missing") || appleCalls.Load() != 1 {
 		t.Errorf("exit %d after %d Apple calls:\n%s", code, appleCalls.Load(), out)
 	}
@@ -765,7 +861,7 @@ func TestImport_sourceErrorsFailTheRun(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(data, "cards"), 0o750)
 	_ = os.WriteFile(filepath.Join(data, "cards", "x.csv"), []byte("artist,title,year\nA,T,1990\nB,U,1991\n"), 0o600)
 	ep := Endpoints{MusicBrainz: srv.URL, AppleAPI: srv.URL, ApplePlayer: srv.URL, CoverArt: srv.URL}
-	code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X"}, "-data", data, "songs")
+	code, out := run(t, ep, map[string]string{"BACKEND_CARDS_FILES": "x.csv=X", "BACKEND_LASTFM_API_KEY": "k"}, "-data", data, "songs")
 	if code != 1 || !strings.Contains(out, "2 songs failed") {
 		t.Errorf("exit %d, %q", code, out)
 	}
