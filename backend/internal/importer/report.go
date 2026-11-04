@@ -30,9 +30,10 @@ func (r report) markdown() []byte {
 	w("# Import report\n\n")
 	w("Written by `cmd/import` from `data/cards/*.csv`; rerun to refresh. The card year is the song's year (card sets\n")
 	w("always win); MusicBrainz and Apple years are only compared. MusicBrainz: recordings first released by the year\n")
-	w("after the card's, the earliest wins. Apple, per storefront ch → de → us: ISRC lookup, then the MusicBrainz\n")
-	w("original album by name; the first original-album track wins, else the first ISRC hit, else an artist + title\n")
-	w("search. Only tracks with a preview count. Songs without one stay in the dataset (no clip until an override).\n\n")
+	w("after the card's, the earliest official one wins. Apple, per storefront ch → de → us: ISRC lookup (title and\n")
+	w("artist must match), in ch also the MusicBrainz original album by name; the first original-album track wins,\n")
+	w("else the first ISRC hit, else an artist + title search in ch and us. Only tracks with a preview count. Songs\n")
+	w("without one stay in the dataset (no clip until an override).\n\n")
 
 	bySet := map[string]*struct{ songs, mb, preview int }{}
 	for slug := range r.sets {

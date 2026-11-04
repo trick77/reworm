@@ -273,12 +273,14 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 }
 
 // findTrack looks the song up on Apple, only tracks with a preview counting. Per storefront (ch → de → us): the
-// ISRC lookup, then the original album found by name. The first original-album track wins; else the first
-// storefront's best ISRC hit; else an artist+title search (viaSearch: low confidence).
+// ISRC lookup, then (ch only) the original album found by name. The first original-album track wins; else the
+// first storefront's best ISRC hit; else an artist+title search in ch and us (viaSearch: low confidence). Apple's
+// search endpoint has a quota of its own: a full import that searched every storefront hit 429s that lasted
+// ~3.5 h (2026-11-04), while the ISRC lookups kept answering.
 func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) (t apple.Song, sf string, viaSearch bool, err error) {
 	var fallback apple.Song
 	var fallbackSF string
-	for _, sf := range storefronts {
+	for i, sf := range storefronts {
 		if len(m.ISRCs) > 0 {
 			songs, err := p.Apple.SongsByISRC(ctx, sf, m.ISRCs)
 			if err != nil {
@@ -292,6 +294,9 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 					fallback, fallbackSF = t, sf
 				}
 			}
+		}
+		if i > 0 {
+			continue
 		}
 		t, ok, err := p.originalAlbumTrack(ctx, sf, e, m)
 		if err != nil {
@@ -309,7 +314,7 @@ func (p *Pipeline) findTrack(ctx context.Context, e entry, m musicbrainz.Match) 
 		titles = append([]string{m.Recording.Title}, titles...)
 	}
 	for _, title := range titles[:min(len(titles), searchTitles)] {
-		for _, sf := range storefronts {
+		for _, sf := range searchStorefronts {
 			songs, err := p.Apple.SearchSongs(ctx, sf, musicbrainz.MainArtist(e.Artist)+" "+title, searchLimit)
 			if err != nil {
 				return apple.Song{}, "", false, err
@@ -340,7 +345,10 @@ func sameSong(s apple.Song, e entry, m musicbrainz.Match) bool {
 }
 
 // searchTitles bounds the title readings the Apple search tries.
-const searchTitles = 3
+const searchTitles = 2
+
+// searchStorefronts are where the Apple search runs: de's catalog is ch's in all but a few licences.
+var searchStorefronts = []string{"ch", "us"}
 
 // albumsTried bounds the albums of one name whose tracks are read (Apple lists remasters and deluxe editions too).
 const albumsTried = 2
