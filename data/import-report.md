@@ -41,6 +41,12 @@ without one stay in the dataset (no clip until an override).
 | screen-hits | 154 | 0 | 154 | 113 | 106 |
 | sunshine | 308 | 0 | 308 | 302 | 306 |
 
+## Categories
+
+| category | songs |
+|---|---:|
+| gen-alpha | 337 |
+
 ## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (361)
 
 | artist | title | year | MusicBrainz | Apple | Apple on original album |

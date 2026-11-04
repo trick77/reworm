@@ -14,7 +14,7 @@ var categoryRules = []struct {
 
 // categories are the slugs of the rules s passes.
 func categories(s song.Song) []string {
-	out := []string{}
+	var out []string
 	for _, r := range categoryRules {
 		if r.in(s) {
 			out = append(out, r.slug)
@@ -24,8 +24,8 @@ func categories(s song.Song) []string {
 }
 
 // categorize sets every song's categories from the rules, replacing what a previous dataset had.
-func categorize(ss []song.Song) {
-	for i := range ss {
-		ss[i].Categories = categories(ss[i])
+func categorize(rs []resolved) {
+	for i := range rs {
+		rs[i].Song.Categories = categories(rs[i].Song)
 	}
 }

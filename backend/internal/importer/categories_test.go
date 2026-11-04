@@ -26,9 +26,9 @@ func TestCategories_genAlphaFrom2016WithoutUpperBound(t *testing.T) {
 
 // The rules own the field: a stale category from a previous dataset (offline run) goes.
 func TestCategorize_replacesWhatTheSongHad(t *testing.T) {
-	ss := []song.Song{{Year: 1999, Categories: []string{"gen-alpha"}}, {Year: 2019}}
-	categorize(ss)
-	if len(ss[0].Categories) != 0 || !slices.Equal(ss[1].Categories, []string{"gen-alpha"}) {
-		t.Errorf("categorize = %+v", ss)
+	rs := []resolved{{Song: song.Song{Year: 1999, Categories: []string{"gen-alpha"}}}, {Song: song.Song{Year: 2019}}}
+	categorize(rs)
+	if len(rs[0].Song.Categories) != 0 || !slices.Equal(rs[1].Song.Categories, []string{"gen-alpha"}) {
+		t.Errorf("categorize = %+v", rs)
 	}
 }
