@@ -99,7 +99,28 @@ async function start(
     stdio: "inherit",
   });
 
-  const port = await freePort();
+  // kit's Serve binds BACKEND_ADDR itself and logs no bound port, so a :0 can't be read back: a free port is
+  // picked here, and a start that lost it to someone else meanwhile is tried again on another one.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await launch(dir, bin, clips, await freePort(), cleanup);
+    } catch (e) {
+      if (!(e instanceof PortTaken) || attempt === 5) throw e;
+      await cleanup.pop()?.();
+    }
+  }
+}
+
+// PortTaken: the port was bound by someone else between freePort and the server's own bind.
+class PortTaken extends Error {}
+
+async function launch(
+  dir: string,
+  bin: string,
+  clips: string,
+  port: number,
+  cleanup: (() => Promise<void> | void)[],
+): Promise<{ base: string; setup: string }> {
   const base = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -123,7 +144,7 @@ async function start(
     if (seen.exited == null) server.kill("SIGKILL");
   };
   process.on("exit", kill);
-  const log = createWriteStream(path.join(dir, "server.log"));
+  const log = createWriteStream(path.join(dir, "server.log"), { flags: "a" });
   cleanup.push(async () => {
     process.off("exit", kill);
     if (seen.exited == null) server.kill("SIGTERM");
@@ -142,8 +163,12 @@ async function start(
     });
   }
 
-  const fail = (why: string) =>
-    new Error(`server ${why}; its log ends:\n${seen.tail.join("\n")}`);
+  const fail = (why: string) => {
+    const msg = `server ${why}; its log ends:\n${seen.tail.join("\n")}`;
+    return seen.tail.some((l) => /address already in use/i.test(l))
+      ? new PortTaken(msg)
+      : new Error(msg);
+  };
   const deadline = Date.now() + 30_000;
   for (;;) {
     if (seen.exited != null) throw fail(`exited (${seen.exited})`);
@@ -152,7 +177,12 @@ async function start(
       (r) => r.ok,
       () => false,
     );
-    if (up && seen.setup) return { base, setup: seen.setup };
+    if (up && seen.setup) {
+      // a failed bind ends the binary at once: still running a moment later, the answer was its own
+      await sleep(300);
+      if (seen.exited != null) throw fail(`exited (${seen.exited})`);
+      return { base, setup: seen.setup };
+    }
     await sleep(100);
   }
 }

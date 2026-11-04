@@ -65,15 +65,17 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   await shot(stage, "years-locked-out");
   await shot(mia.page, "pad-locked-out");
 
-  // two right answers at once: the first takes the round, the other is in the photo finish. Taps, not
-  // clicks: a click waits for a still button, and the first answer's result may replace it meanwhile.
-  await Promise.all(
-    [luca, sarah].map((p) =>
-      p.page
-        .getByRole("button", { name: LABEL[r.right] })
-        .dispatchEvent("click", undefined, { timeout: 5_000 }),
-    ),
-  );
+  // two right answers at once: the first takes the round, the other is in the photo finish (the server's 1 s
+  // window). Luca taps (his request is on its way once the tap is dispatched); Sarah's phone sends the same
+  // press straight from its session right after, since Luca's result may replace her buttons before a second
+  // tap lands. Either may arrive first.
+  const button = luca.page.getByRole("button", { name: LABEL[r.right] });
+  await expect(button).toBeEnabled();
+  await button.dispatchEvent("click");
+  const press = await sarah.page.request.post(`/api/rooms/${code}/answer`, {
+    data: { round: 1, choice: r.right },
+  });
+  expect(press.ok()).toBe(true);
   s = await waitPhase(stage, code, ["result", "over"]);
   const res = s.round!.result!;
   const points = r.right === "exact" ? 2 : 1;
