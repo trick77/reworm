@@ -13,12 +13,6 @@ Party mode is the product, training a side feature on the same round engine.
   auth, ratelimit, secret, sse, fsx, version. Never hand-roll what kit or ship provide; a gap → raise it for kit, no
   local copy. Lint config is ship's.
 
-## Brand-free (hard rule)
-- The commercial card game this is inspired by is never named anywhere: code, data, comments, docs, file names,
-  commits, PRs. Own set names only (plan D13).
-- The card-list source URL and the snapshot → set mapping live only in the uncommitted `.env.local`.
-- Before every commit: case-insensitive grep of the tree and the commit message for the name.
-
 ## Config and secrets
 - Env prefix is `BACKEND_`, never `REWORM_` (as loom): `BACKEND_ADDR` (`:8080`), `BACKEND_DATA_DIR`
   (`/data`), `BACKEND_LOG_LEVEL`, via kit/env (empty = unset). The host is plain `PUBLIC_FQDN` only: the Traefik
