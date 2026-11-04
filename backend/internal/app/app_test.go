@@ -3,10 +3,16 @@ package app
 import (
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/trick77/reworm/internal/preview"
+	"github.com/trick77/reworm/internal/server"
+	"github.com/trick77/reworm/internal/store"
 )
 
 func lookup(vars map[string]string) func(string) string {
@@ -51,6 +57,45 @@ func TestMain_badLogLevelFailsBoot(t *testing.T) {
 func TestMain_badConfigFailsBoot(t *testing.T) {
 	if code := Main(context.Background(), nil, lookup(map[string]string{"BACKEND_TRUSTED_PROXIES": "one"})); code != 1 {
 		t.Errorf("exit = %d, want 1", code)
+	}
+}
+
+func TestNewAPI(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "reworm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	cfg := Config{DataDir: dir, PublicFQDN: "reworm.example"}
+	prev := previewSource
+	defer func() { previewSource = prev }()
+	previewSource = func(Config) preview.Source { return preview.NewCache(&preview.Fake{}, preview.TTL, nil) }
+	parts, err := newAPI(ctx, cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := server.New(server.Options{Static: http.NotFoundHandler(), API: parts.routes})
+	for path, want := range map[string]int{"/api/decks": http.StatusOK, "/api/me": http.StatusUnauthorized,
+		"/api/train/stats": http.StatusUnauthorized, "/api/rooms/ZZZZ": http.StatusNotFound, "/api/covers/x": http.StatusNotFound} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != want {
+			t.Errorf("%s = %d, want %d", path, rec.Code, want)
+		}
+	}
+	parts.party.Close()
+	if _, err := os.Stat(filepath.Join(dir, "session.key")); err != nil {
+		t.Errorf("session key not kept: %v", err)
+	}
+
+	// A broken key file fails the boot rather than unpair every device silently.
+	if err := os.WriteFile(filepath.Join(dir, "session.key"), []byte("short"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newAPI(ctx, cfg, db); err == nil {
+		t.Error("short session key accepted")
 	}
 }
 

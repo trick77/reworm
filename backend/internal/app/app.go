@@ -62,12 +62,20 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 
+	api, err := newAPI(ctx, cfg, db)
+	if err != nil {
+		return err
+	}
 	handler := server.New(server.Options{
 		Static:         web.SPAHandler(),
 		TrustedProxies: cfg.TrustedProxies,
 		Checks:         []httpx.Check{{Name: "database", Run: db.PingContext}},
+		API:            api.routes,
 	})
 	srv := httpx.NewServer(cfg.Addr, handler)
+	// Open room streams never go idle: shutdown ends them instead of waiting out its timeout.
+	srv.RegisterOnShutdown(api.party.Close)
+	go api.party.Run(ctx)
 	slog.Info("listening", "addr", cfg.Addr, "public_fqdn", cfg.PublicFQDN)
 	return httpx.Serve(ctx, srv, shutdownTimeout)
 }

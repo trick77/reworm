@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import { serverNow } from "../api/clock";
 import { cx } from "../lib/cx";
 
 const TICK_MS = 250;
@@ -84,6 +85,105 @@ export function CountdownRing({
       <div className="sec num" style={{ fontSize: size * 0.32 }}>
         {left}
       </div>
+    </div>
+  );
+}
+
+// useClock is the server time, ticking every 250 ms; it stands still while paused.
+function useClock(paused?: boolean): number {
+  const [now, setNow] = useState(serverNow);
+  useEffect(() => {
+    if (paused) return;
+    const id = setInterval(() => setNow(serverNow()), TICK_MS);
+    return () => clearInterval(id);
+  }, [paused]);
+  return now;
+}
+
+// remaining: ms left to `endsAt` at `now`, and the share of `total` seconds it is (1 → 0).
+function remaining(endsAt: number, total: number, now: number) {
+  const ms = Math.max(0, endsAt - now);
+  return { ms, share: total > 0 ? Math.min(1, ms / (total * 1000)) : 0 };
+}
+
+// DeadlineRing counts down to a server deadline (endsAt, server ms) out of `total` seconds. Each tick
+// reads the server clock, so a new state (re-render) never restarts or speeds it up, and a phone that
+// joins late shows the time actually left. A pause holds it; a resume's later endsAt carries on.
+export function DeadlineRing({
+  endsAt,
+  total,
+  size = 120,
+  paused,
+}: {
+  endsAt: number;
+  total: number;
+  size?: number;
+  paused?: boolean;
+}) {
+  const now = useClock(paused);
+  const { ms, share } = remaining(endsAt, total, now);
+  const left = Math.ceil(ms / 1000);
+  const r = (size - 12) / 2;
+  const c = 2 * Math.PI * r;
+  return (
+    <div
+      className={cx("countdown", paused && "paused")}
+      style={{ width: size, height: size }}
+      role="timer"
+      aria-label={`${left} seconds left`}
+    >
+      <svg width={size} height={size} aria-hidden="true">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke="var(--panel2)"
+          strokeWidth={10}
+          fill="none"
+        />
+        <circle
+          className="bar-live"
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke="var(--gold)"
+          strokeWidth={10}
+          fill="none"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - share)}
+        />
+      </svg>
+      <div className="sec num" style={{ fontSize: size * 0.32 }}>
+        {left}
+      </div>
+    </div>
+  );
+}
+
+// DeadlineBar is the pad's bar for a server deadline, read from the server clock each tick (as
+// DeadlineRing).
+export function DeadlineBar({
+  endsAt,
+  total,
+  paused,
+}: {
+  endsAt: number;
+  total: number;
+  paused?: boolean;
+}) {
+  const now = useClock(paused);
+  const { share } = remaining(endsAt, total, now);
+  return (
+    <div
+      className="tbar live"
+      role="progressbar"
+      aria-label="Time left"
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(share * 100)}
+    >
+      <i style={{ width: `${share * 100}%` }} />
     </div>
   );
 }

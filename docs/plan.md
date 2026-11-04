@@ -196,4 +196,11 @@ All decided.
 - **D13 Set names** (own names, confirmed): Essentials, Mega Mix, Rock Anthems, Schlager Fest, Sunshine, Cheesy
   Classics, Party Starters, Crowd Pleasers, Screen Hits, Christmas Hits, Radio Gold. The import maps each source
   snapshot file to one of these (mapping in the uncommitted local config, D10).
+- **D14 Buzzer mode**: second party mode, picked in the lobby next to Earlier/Later. No year shown: the first buzz
+  pauses clip and timer, the buzzer has 10 s to say artist and title out loud. Buzzer + one other press Reveal; buzzer
+  + one other judge 2 (both) / 1 (one) / 0, disagreement → the rest of the room breaks the tie (lower median of all
+  votes). With 2 players "one other" is the opponent. One buzz per round; nobody in 15 s → reveal, 0 points.
+- **D15 Photo finish**: after the decisive press (first correct answer, the buzz) the server keeps a 1 s window and
+  records later presses with their delta (years: other correct answers only; buzzer: every buzz). Order = server
+  arrival time; < 50 ms is shown as "photo finish". Latency compensation only if testing shows it's needed.
 - Also: initial year only · original covers only.

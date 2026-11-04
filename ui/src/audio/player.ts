@@ -101,7 +101,7 @@ const GESTURES = ["pointerdown", "keydown", "touchend"] as const;
 export class PreviewPlayer {
   private env: AudioEnv;
   private _engine: Engine;
-  private readonly buffers: number;
+  private buffers: number;
   private ctx: AudioContext | null = null;
   private gain: GainNode | null = null;
   // A/B: els[active] plays, the other preloads; srcs[i] is the clip URL element i holds (null: none/silence)
@@ -143,13 +143,31 @@ export class PreviewPlayer {
   // over with fresh elements; call unlock() from the same tap.
   setEngine(e: Engine) {
     if (e === this._engine) return;
+    this.dispose();
+    this._engine = e;
+    this.emit();
+  }
+
+  get prefetching(): boolean {
+    return this.buffers > 1;
+  }
+
+  // setPrefetch switches between A/B elements and the single one, in place: like setEngine it starts
+  // over with fresh elements (the AudioContext stays); call unlock() from the same tap.
+  setPrefetch(on: boolean) {
+    if (on === this.buffers > 1) return;
+    this.dispose();
+    this.buffers = on ? 2 : 1;
+    this.emit();
+  }
+
+  // dispose stops the clip and lets go of the elements (their downloads too).
+  dispose() {
     this.stopNow();
     this.els.forEach(release);
     this.els = [];
     this.srcs = [];
     this.active = 0;
-    this._engine = e;
-    this.emit();
   }
 
   // unlock runs inside a user gesture: audio session, the AudioContext, and one muted play of every element,
@@ -300,6 +318,12 @@ export class PreviewPlayer {
       return;
     }
     this.start(el, !takeBack);
+  }
+
+  // replay starts the current clip again from its start.
+  replay() {
+    const url = this.srcs[this.active];
+    if (url) this.play(url, { from: this.from, length: this.length });
   }
 
   // level is the current fade, 0–1.
@@ -563,9 +587,27 @@ export function saveEngine(e: Engine) {
   }
 }
 
-// defaultPrefetch: on, unless ?prefetch=off (the single-element fallback, should iOS refuse a second element).
+const PREFETCH_KEY = "reworm.prefetch";
+
+// defaultPrefetch: ?prefetch=off|on, else the saved choice (Settings), else on. Off is the single-element
+// fallback, should iOS refuse a second element.
 export function defaultPrefetch(): boolean {
-  return query("prefetch") !== "off";
+  const q = query("prefetch");
+  if (q === "off" || q === "on") return q === "on";
+  try {
+    return window.localStorage.getItem(PREFETCH_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+// savePrefetch keeps the choice for the next start (setPrefetch switches the running player).
+export function savePrefetch(on: boolean) {
+  try {
+    window.localStorage.setItem(PREFETCH_KEY, on ? "on" : "off");
+  } catch {
+    // not saved; the default applies next time
+  }
 }
 
 let shared: PreviewPlayer | null = null;

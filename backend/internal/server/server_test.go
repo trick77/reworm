@@ -1,14 +1,17 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/trick77/ship/kit/httpx"
+	"github.com/trick77/ship/kit/sse"
 	"github.com/trick77/ship/kit/version"
 )
 
@@ -64,6 +67,51 @@ func TestWrongMethodIs405(t *testing.T) {
 	newHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/version", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("POST /api/version = %d, want 405", rec.Code)
+	}
+}
+
+type pingRoutes struct{}
+
+func (pingRoutes) Mount(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/ping", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("pong")) })
+}
+
+func TestAPIRoutesMounted(t *testing.T) {
+	h := New(Options{Static: static, API: []Routes{pingRoutes{}}})
+	if rec := get(h, "/api/ping"); rec.Code != http.StatusOK || rec.Body.String() != "pong" {
+		t.Errorf("/api/ping = %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+type streamRoutes struct{}
+
+func (streamRoutes) Mount(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/stream", func(w http.ResponseWriter, r *http.Request) {
+		sw, err := sse.Open(w)
+		if err != nil {
+			return
+		}
+		defer sw.Close()
+		_ = sw.Send("state", "{}")
+		<-r.Context().Done()
+	})
+}
+
+// The room streams pass the whole middleware chain: every layer must flush through.
+func TestStreamsFlushThroughTheChain(t *testing.T) {
+	srv := httptest.NewServer(New(Options{Static: static, API: []Routes{streamRoutes{}}}))
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	line, err := bufio.NewReader(resp.Body).ReadString('\n')
+	if err != nil || line != "event: state\n" {
+		t.Errorf("first line = %q, %v", line, err)
 	}
 }
 
