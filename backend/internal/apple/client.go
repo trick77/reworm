@@ -73,8 +73,10 @@ type Song struct {
 	ISRC        string
 	// Artwork is Apple's image template with its {w}x{h} placeholders, https only.
 	Artwork string
-	// Preview says Apple ships a preview clip; its URL is fetched at play time, never stored.
-	Preview bool
+	// Preview says Apple ships a preview clip. PreviewURL is it, for the server at play time; the import never
+	// stores it (it changes).
+	Preview    bool
+	PreviewURL string
 }
 
 // Year is the release year, 0 when Apple sent none.
@@ -110,8 +112,12 @@ func (r songResource) song() Song {
 	if !strings.HasPrefix(art, "https://") {
 		art = ""
 	}
-	return Song{ID: r.ID, Name: a.Name, Artist: a.ArtistName, Album: a.AlbumName, AlbumArtist: a.AlbumArtistName,
-		ReleaseDate: a.ReleaseDate, ISRC: a.ISRC, Artwork: art, Preview: len(a.Previews) > 0 && a.Previews[0].URL != ""}
+	s := Song{ID: r.ID, Name: a.Name, Artist: a.ArtistName, Album: a.AlbumName, AlbumArtist: a.AlbumArtistName,
+		ReleaseDate: a.ReleaseDate, ISRC: a.ISRC, Artwork: art}
+	if len(a.Previews) > 0 && strings.HasPrefix(a.Previews[0].URL, "https://") {
+		s.Preview, s.PreviewURL = true, a.Previews[0].URL
+	}
+	return s
 }
 
 // SongsByISRC lists a storefront's songs with any of the ISRCs. Apple answers at most 25 per ISRC, without a next

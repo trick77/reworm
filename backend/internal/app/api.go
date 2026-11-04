@@ -19,8 +19,7 @@ import (
 )
 
 // previewSource is where clip URLs come from, the one place that decides: in dev mode the clip directory, which
-// serves its files on its own route; else the Apple Music client (internal/apple) plugs in here, wrapped in
-// preview.NewCache(src, preview.TTL, nil). nil until then: every endpoint that needs a clip answers 503.
+// serves its files on its own route; else Apple Music (applePreviews, cached a day).
 var previewSource = func(cfg Config) (preview.Source, server.Routes, error) {
 	if cfg.Dev && cfg.DevPreviews != "" {
 		p, err := dev.NewPreviews(cfg.DevPreviews)
@@ -31,7 +30,10 @@ var previewSource = func(cfg Config) (preview.Source, server.Routes, error) {
 			"dir", cfg.DevPreviews, "route", dev.PreviewPath)
 		return p, p, nil
 	}
-	return nil, nil, nil
+	if cfg.Dev {
+		return nil, nil, nil // dev mode never asks Apple: its fixture songs are not in the catalog
+	}
+	return newApplePreviews(cfg.DataDir), nil, nil
 }
 
 // apiParts is the API's route groups and the party service, whose rooms need a ticker and a shutdown hook.
