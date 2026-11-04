@@ -14,7 +14,11 @@ import { useRoom } from "../../api/useRoom";
 import { AnswerPad } from "../../components/AnswerPad";
 import { Avatar } from "../../components/Avatar";
 import { Button, Card, Pill } from "../../components/Controls";
-import { DeadlineBar, DeadlineRing } from "../../components/Countdown";
+import {
+  DeadlineBar,
+  DeadlineRing,
+  StartCountdown,
+} from "../../components/Countdown";
 import { Cover } from "../../components/Cover";
 import { Loading, Problem, Screen } from "../common";
 import {
@@ -27,6 +31,7 @@ import {
   winTime,
   type RoundView,
 } from "./Stage";
+import { useStartedRoom } from "./started";
 
 const ord = (n: number) =>
   n +
@@ -412,7 +417,8 @@ export function Pad({
   playerId: string;
   onGone: () => void;
 }) {
-  const { state: s, error, live } = useRoom(code);
+  const { state: raw, error, live } = useRoom(code);
+  const { s, left } = useStartedRoom(raw);
   const [sent, setSent] = useState<Sent>(null);
   const me = s?.players.find((p) => p.id === playerId);
   const gone = (!!s && !me) || error?.status === 404;
@@ -440,8 +446,10 @@ export function Pad({
     setSent(press);
     f().catch((e: unknown) => {
       // a deliberate refusal (409: too late, out, late) stands, the room state says what happened;
-      // a failed request (network, 5xx) frees the button to try again
-      if (e instanceof ApiError && e.status === 409) return;
+      // a failed request (network, 5xx) frees the button to try again, as does "not now" (wrong_phase): a
+      // press a few ms before the countdown's end by the server's clock, which the next one makes
+      if (e instanceof ApiError && e.status === 409 && e.code !== "wrong_phase")
+        return;
       setSent((cur) => (cur === press ? null : cur));
     });
   };
@@ -484,6 +492,8 @@ export function Pad({
         <div className="sub">Waiting for the next round…</div>
       </Center>
     );
+  else if (s.phase === "countdown")
+    body = <StartCountdown left={left} round={r.n} />;
   else if (view === "result") body = <Result s={s} me={me} />;
   else if (s.mode === "years")
     body = <YearsLive s={s} me={me} sent={sent} send={send} />;

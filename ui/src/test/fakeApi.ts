@@ -177,6 +177,7 @@ export const FAKE_DECKS: Decks = {
 };
 
 const ROUND_MS = 15_000;
+const COUNTDOWN_MS = 3_000;
 const ANSWER_MS = 10_000;
 // proposed-year offsets the fake cycles through: a mix of the four tiers (exact, tight, clear, easy)
 const OFFSETS = [6, -2, 0, 14, -5, 3, -11, 1, 0, -8];
@@ -185,7 +186,8 @@ const fail = (status: number, code: string, message = code) =>
   Promise.reject(new ApiError(status, code, message));
 const clone = <T>(v: T): T => structuredClone(v);
 
-// refusal is the server's answer to a press it refuses (docs/api.md), null when the press may go on.
+// refusal is the server's answer to a press it refuses (docs/api.md), null when the press may go on. Checked in
+// Room.press's order; a countdown whose start passed counts as playing, as Room.touch starts it.
 function refusal(
   st: RoomState,
   playerId: string,
@@ -196,9 +198,12 @@ function refusal(
   if (!st.players.some((p) => p.id === playerId))
     return fail(401, "not_in_room", "not in this room");
   if (st.mode !== mode) return fail(409, "wrong_mode");
-  if (st.phase === "paused") return fail(409, "wrong_phase");
-  if (st.round?.n !== round || st.phase !== phase)
-    return fail(409, "wrong_round");
+  if (st.round?.n !== round) return fail(409, "wrong_round");
+  if (st.phase === "countdown" && Date.now() >= st.round.startedAt)
+    st.phase = "playing";
+  if (st.phase === "paused" || st.phase === "countdown")
+    return fail(409, "wrong_phase");
+  if (st.phase !== phase) return fail(409, "wrong_round");
   return null;
 }
 const ok = <T>(v: T): Promise<T> => Promise.resolve(clone(v));
@@ -279,13 +284,21 @@ export class FakeWorld {
   timers: boolean;
   // latency: ms every call takes (the dev server's feel); 0 in tests
   latency: number;
+  // countdown: ms of 3, 2, 1 before each round (as Room.play); with timers only, else rounds start at once
+  countdown: number;
   codes: string[] = [];
 
   constructor(
-    opts: { timers?: boolean; latency?: number; seed?: boolean } = {},
+    opts: {
+      timers?: boolean;
+      latency?: number;
+      seed?: boolean;
+      countdown?: number;
+    } = {},
   ) {
     this.timers = opts.timers ?? false;
     this.latency = opts.latency ?? 0;
+    this.countdown = this.timers ? (opts.countdown ?? COUNTDOWN_MS) : 0;
     if (opts.seed !== false) {
       for (const [id, name, avatar, admin] of [
         ["p-jan", "Jan", "vinyl", true],
@@ -343,7 +356,10 @@ export class FakeWorld {
       score: 0,
       connected: true,
       // joining mid-round sits that round out
-      state: r.state.round && !r.state.round.result ? "late" : "thinking",
+      state:
+        r.state.round && !r.state.round.result && r.state.phase !== "countdown"
+          ? "late"
+          : "thinking",
     });
     this.emit(code);
     return id;
@@ -476,13 +492,13 @@ export class FakeWorld {
     const song = r.songs[(n - 1) % r.songs.length];
     const next = r.songs[n % r.songs.length];
     r.song = song;
-    const now = Date.now();
+    const start = Date.now() + this.countdown; // the clip's start, after the countdown
     const len = st.settings.clip.length;
     st.players.forEach((p) => (p.state = "thinking"));
     st.round = {
       n,
-      startedAt: now,
-      endsAt: now + ROUND_MS,
+      startedAt: start,
+      endsAt: start + ROUND_MS,
       proposedYear:
         st.mode === "years"
           ? song.year + OFFSETS[(n - 1) % OFFSETS.length]
@@ -495,8 +511,24 @@ export class FakeWorld {
       result: null,
     };
     st.nextClip = clipOf(next, len);
-    st.phase = "playing";
-    this.schedule(code, st.round.endsAt, () => this.endRound(code, null, 0));
+    const timeUp = () => this.endRound(code, null, 0);
+    if (!this.countdown) {
+      st.phase = "playing";
+      this.schedule(code, st.round.endsAt, timeUp);
+      return;
+    }
+    st.phase = "countdown";
+    this.schedule(code, start, () => {
+      // a press may have started it already (refusal); the round still needs its timer
+      if (
+        st.round?.n !== n ||
+        (st.phase !== "countdown" && st.phase !== "playing")
+      )
+        return;
+      st.phase = "playing";
+      this.schedule(code, st.round!.endsAt, timeUp);
+      this.emit(code);
+    });
   }
 
   endRound(code: string, winnerId: string | null, points: number) {

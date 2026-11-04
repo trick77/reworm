@@ -70,6 +70,9 @@ type Service struct {
 	// misses meters unknown room codes per client: guessing codes costs, playing does not.
 	misses *ratelimit.Limiter
 
+	// countdown is each new room's lead-in before a round (Countdown; tests set 0).
+	countdown time.Duration
+
 	mu    sync.Mutex
 	rooms map[string]*Room
 }
@@ -100,7 +103,7 @@ func New(o Options) (*Service, error) {
 	readLim := ratelimit.New(ratelimit.Options{Rate: 5, Burst: 60, Now: o.Now})
 	missLim := ratelimit.New(ratelimit.Options{Rate: 10.0 / 60, Burst: 20, Now: o.Now})
 	return &Service{o: o, guests: g, join: joinLim.Middleware(o.ClientKey), actions: actLim.Middleware(o.ClientKey),
-		reads: readLim.Middleware(o.ClientKey), misses: missLim, rooms: map[string]*Room{}}, nil
+		reads: readLim.Middleware(o.ClientKey), misses: missLim, rooms: map[string]*Room{}, countdown: Countdown}, nil
 }
 
 // Run fires the rooms' deadlines and drops idle rooms until ctx ends.
@@ -168,7 +171,7 @@ func (s *Service) create(hostProfile string, c Config) (*Room, error) {
 	for s.rooms[code] != nil {
 		code = api.Code(4)
 	}
-	r := newRoom(code, hostProfile, c, s.o.Now, s.o.Rand(), s.resolver())
+	r := newRoom(code, hostProfile, c, s.countdown, s.o.Now, s.o.Rand(), s.resolver())
 	s.rooms[code] = r
 	return r, nil
 }

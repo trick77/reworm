@@ -57,6 +57,10 @@ func newEnv(t *testing.T, previews preview.Source) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if e.svc.countdown != Countdown {
+		t.Fatalf("service countdown = %v, want %v", e.svc.countdown, Countdown)
+	}
+	e.svc.countdown = 0 // the HTTP tests answer at once; TestCountdown covers it
 	e.mux = http.NewServeMux()
 	e.acc.Mount(e.mux)
 	e.svc.Mount(e.mux)
@@ -226,6 +230,38 @@ func TestHTTP_yearsGame(t *testing.T) {
 	played, err := e.repo.Played(context.Background(), s.HostID, t0.Add(-time.Hour))
 	if err != nil || len(played) != 2 {
 		t.Errorf("played history = %v, %v; want the two rounds", played, err)
+	}
+}
+
+func TestHTTP_countdown(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	e.svc.countdown = Countdown
+	h := e.pairedHost()
+	code := e.createRoom(h, Config{Mode: ModeYears, Deck: deck.Selector{Sets: []string{"essentials"}}})
+	base := "/api/rooms/" + strings.ToLower(code)
+	guest := e.browser()
+	if rec := guest.do(http.MethodPost, base+"/join", joinRequest{Name: "Mia", Avatar: "mic"}); rec.Code != http.StatusOK {
+		t.Fatalf("join = %d %s", rec.Code, rec.Body)
+	}
+	rec := h.do(http.MethodPost, base+"/start", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start = %d %s", rec.Code, rec.Body)
+	}
+	s := decodeBody[State](t, rec)
+	if s.Phase != PhaseCountdown || s.Round.StartedAt != s.Now+Countdown.Milliseconds() {
+		t.Fatalf("started = %s, startedAt %d, now %d", s.Phase, s.Round.StartedAt, s.Now)
+	}
+	room, _ := e.svc.room(code)
+	room.bg.Wait()
+	choice := right(room)
+	if rec := guest.do(http.MethodPost, base+"/answer", pressRequest{Round: 1, Choice: choice}); rec.Code != http.StatusConflict ||
+		!strings.Contains(rec.Body.String(), "wrong_phase") {
+		t.Errorf("answer in the countdown = %d %s, want 409 wrong_phase", rec.Code, rec.Body)
+	}
+	// At startedAt the press itself starts the round (no tick needed) and counts.
+	e.advance(Countdown)
+	if rec := guest.do(http.MethodPost, base+"/answer", pressRequest{Round: 1, Choice: choice}); rec.Code != http.StatusOK {
+		t.Errorf("answer at the start = %d %s", rec.Code, rec.Body)
 	}
 }
 

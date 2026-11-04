@@ -5,7 +5,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { serverNow } from "../api/clock";
+import { secondsLeft, serverNow } from "../api/clock";
 import { cx } from "../lib/cx";
 
 const TICK_MS = 250;
@@ -157,6 +157,42 @@ export function DeadlineRing({
       <div className="sec num" style={{ fontSize: size * 0.32 }}>
         {left}
       </div>
+    </div>
+  );
+}
+
+// useSecondsTo is the whole seconds left to `at` (server ms), 0 once it passed or for null. It re-renders exactly
+// on each server-clock second, not on a poll: every screen changes digit, and starts the round, at the same moment.
+export function useSecondsTo(at: number | null): number {
+  const [tick, setTick] = useState(0);
+  const left = at == null ? 0 : secondsLeft(at);
+  useEffect(() => {
+    if (at == null || left === 0) return;
+    const ms = at - serverNow() - (left - 1) * 1000;
+    const id = setTimeout(() => setTick((t) => t + 1), Math.max(0, ms));
+    return () => clearTimeout(id);
+  }, [at, left, tick]);
+  return left;
+}
+
+// StartCountdown is the 3, 2, 1 before a round: `left` seconds to the clip's start (useSecondsTo).
+export function StartCountdown({
+  left,
+  round,
+}: {
+  left: number;
+  round: number;
+}) {
+  return (
+    <div
+      className="go center"
+      role="timer"
+      aria-label={`Round ${round} starts in ${left}`}
+    >
+      <div key={left} className="go-num num pop">
+        {left}
+      </div>
+      <div className="sub">Round {round} · get ready</div>
     </div>
   );
 }

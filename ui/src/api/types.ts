@@ -58,8 +58,16 @@ export type RoomSettings = {
   clip: ClipSettings;
   difficulty: Difficulty;
 };
+// countdown: the 3, 2, 1 before a round; its clip and answer window start at round.startedAt
 export type Phase =
-  "lobby" | "playing" | "buzzed" | "judging" | "result" | "paused" | "over";
+  | "lobby"
+  | "countdown"
+  | "playing"
+  | "buzzed"
+  | "judging"
+  | "result"
+  | "paused"
+  | "over";
 // out: answered wrong this round (years); late: joined mid-round, plays from the next one
 export type PlayerState = "thinking" | "out" | "late" | "buzzed" | "answered";
 export type RoomPlayer = {
@@ -81,7 +89,7 @@ export type RoundResult = {
 };
 export type Round = {
   n: number;
-  startedAt: number;
+  startedAt: number; // the clip's start: still ahead during the countdown
   endsAt: number;
   judgeEndsAt: number | null; // buzzer: the judging window's end, null before the reveal
   proposedYear?: number;

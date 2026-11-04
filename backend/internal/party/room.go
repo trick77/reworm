@@ -26,6 +26,8 @@ import (
 
 // Rule constants (D11, D14, D15).
 const (
+	// Countdown is the 3, 2, 1 every screen shows before a round's clip starts.
+	Countdown = 3 * time.Second
 	// RoundTime is the answer window of a round.
 	RoundTime = 15 * time.Second
 	// AnswerTime is how long a buzzer has to say artist and title.
@@ -142,8 +144,13 @@ type Room struct {
 	streams map[string]int
 	// bg tracks background prefetches (tests wait on it).
 	bg sync.WaitGroup
+	// unsent: a deadline fired in touch and nothing published it yet (Tick does).
+	unsent bool
 	// idle mirrors lastActive (unix ms) for the reaper, which must not wait for a busy room.
 	idle atomic.Int64
+
+	// countdown is the lead-in before each round (Countdown; 0 in tests that answer at once).
+	countdown time.Duration
 
 	clock   func() time.Time
 	rng     *rand.Rand
@@ -190,9 +197,11 @@ func (c *Config) Normalize(thisYear int) error {
 	return nil
 }
 
-func newRoom(code, hostProfile string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
+func newRoom(code, hostProfile string, c Config, countdown time.Duration, clock func() time.Time, rng *rand.Rand,
+	resolve Resolver) *Room {
 	r := &Room{code: code, hostProfile: hostProfile, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{}, clock: clock,
-		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey})}
+		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey}),
+		countdown: countdown}
 	r.lastActive = clock()
 	r.idle.Store(r.lastActive.UnixMilli())
 	r.configure(c)
@@ -291,7 +300,7 @@ func (r *Room) state() State {
 func (r *Room) State(now time.Time) State {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.advance(now) {
+	if r.advance(now) || r.unsent {
 		r.publish()
 	}
 	return r.state()
@@ -301,6 +310,7 @@ func (r *Room) State(now time.Time) State {
 // order; seq lets a client drop a snapshot older than an event it already has.
 func (r *Room) publish() {
 	r.seq++
+	r.unsent = false
 	b, err := json.Marshal(r.state())
 	if err != nil {
 		slog.Error("room state", logging.Err(err)) // plain structs; a programmer error
@@ -410,7 +420,8 @@ type Joiner struct {
 
 // Join adds a player, or returns the one rejoining: a guest by its session, a paired profile by its profile. A new
 // guest plays under its session id, so a stream it opened before joining counts for it at once. A player who joins
-// mid-round is "late" and plays from the next round. The kicked stay out.
+// mid-round is "late" and plays from the next round; one who joins during the countdown plays this one. The kicked
+// stay out.
 func (r *Room) Join(now time.Time, j Joiner) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -436,7 +447,7 @@ func (r *Room) Join(now time.Time, j Joiner) (string, error) {
 		id = api.ID()
 	}
 	p := &player{id: id, profileID: j.ProfileID, device: j.DeviceID, name: j.Name, avatar: j.Avatar, state: StateThinking}
-	if r.phase != PhaseLobby {
+	if r.phase != PhaseLobby && r.phase != PhaseCountdown {
 		p.state = StateLate
 	}
 	r.players = append(r.players, p)
@@ -453,7 +464,9 @@ func (r *Room) touch(now time.Time) time.Time {
 	}
 	r.lastActive = now
 	r.idle.Store(now.UnixMilli())
-	r.advance(now)
+	if r.advance(now) {
+		r.unsent = true // a request that then fails publishes nothing: the next tick sends it
+	}
 	return now
 }
 
@@ -519,7 +532,7 @@ func (r *Room) Kick(now time.Time, profileID, playerID string) error {
 func (r *Room) settle(now time.Time) {
 	rd := r.round
 	switch r.phase {
-	case PhasePlaying:
+	case PhasePlaying, PhaseCountdown:
 		if r.mode == ModeYears && !r.anyThinking() {
 			r.finish(now, nil, 0)
 		}
@@ -692,14 +705,18 @@ func (r *Room) prefetch(ctx context.Context) error {
 	}
 }
 
-// play starts round n+1 with p.
+// play starts round n+1 with p: the countdown first, then clip and answer window from startedAt.
 func (r *Room) play(now time.Time, p pick, n int) {
-	rd := &round{n: n + 1, pick: p, startedAt: now, endsAt: now.Add(RoundTime), judge: map[string]int{}}
+	start := now.Add(r.countdown)
+	rd := &round{n: n + 1, pick: p, startedAt: start, endsAt: start.Add(RoundTime), judge: map[string]int{}}
 	if r.mode == ModeYears {
 		rd.proposed, _ = engine.Propose(r.rng, p.song.Year, r.settings.Difficulty, 0, now.Year())
 	}
 	r.round = rd
 	r.phase = PhasePlaying
+	if r.countdown > 0 {
+		r.phase = PhaseCountdown
+	}
 	for _, pl := range r.players {
 		pl.state = StateThinking
 	}
@@ -784,6 +801,8 @@ func (r *Room) advance(now time.Time) bool {
 		switch {
 		case rd == nil:
 			return changed
+		case r.phase == PhaseCountdown && !now.Before(rd.startedAt):
+			r.phase = PhasePlaying
 		case r.phase == PhasePlaying && !now.Before(rd.endsAt):
 			// Nobody got it (years) or nobody buzzed (buzzer): reveal, no points.
 			r.finish(rd.endsAt, nil, 0)
@@ -805,7 +824,7 @@ func (r *Room) Tick(now time.Time) {
 		return
 	}
 	defer r.mu.Unlock()
-	if r.advance(now) {
+	if r.advance(now) || r.unsent {
 		r.publish()
 	}
 }
@@ -878,7 +897,7 @@ func (r *Room) press(now time.Time, playerID string, n int, mode string) (*playe
 		return nil, now, errMode
 	case r.round == nil || r.round.n != n:
 		return nil, now, errRound
-	case r.phase == PhasePaused:
+	case r.phase == PhasePaused, r.phase == PhaseCountdown:
 		return nil, now, errPhase
 	}
 	return p, now, nil

@@ -736,6 +736,17 @@
   letter-spacing: -0.5px;
   line-height: 1.1;
 }
+/* the 3, 2, 1 before a round, stage and pad alike */
+.go {
+  margin: auto;
+  padding: 24px 0;
+}
+.go-num {
+  font-size: clamp(120px, 34vmin, 260px);
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold);
+}
 .photo {
   margin-top: 10px;
   font-size: 13.5px;

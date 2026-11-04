@@ -15,7 +15,7 @@ import { usePlayer } from "../../audio/usePlayer";
 import { AppShell } from "../../components/AppShell";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton, Pill } from "../../components/Controls";
-import { DeadlineRing } from "../../components/Countdown";
+import { DeadlineRing, StartCountdown } from "../../components/Countdown";
 import { Cover, SongHead } from "../../components/Cover";
 import {
   Confetti,
@@ -29,6 +29,7 @@ import { Vinyl } from "../../components/Vinyl";
 import { Waveform } from "../../components/Waveform";
 import { YearCard } from "../../components/YearCard";
 import { save } from "../../lib/prefs";
+import { useStartedRoom } from "./started";
 import { Brand } from "../common";
 
 // The windows (D11, buzzer rules): 15 s to answer, 10 s to say it after a buzz, 20 s to judge. The
@@ -75,7 +76,8 @@ export function direction(shown: number, year: number) {
 }
 
 // useStageAudio plays each new round's clip (fade in), pauses with the room, fades out on a buzz and on
-// the result, and keeps the next round's clip preloaded.
+// the result, and keeps the next round's clip preloaded, the countdown's own too. It gets the room as drawn
+// (started): the clip starts on the countdown's last second by the server clock, not when "playing" arrives.
 function useStageAudio(s: RoomState) {
   const played = useRef<string | null>(null);
   const prev = useRef<string | null>(null);
@@ -85,10 +87,13 @@ function useStageAudio(s: RoomState) {
   const length = s.round?.clip.length;
   const next = s.nextClip?.previewUrl;
   useEffect(() => {
+    if (s.phase === "countdown" && url) player().prefetch(url);
+  }, [s.phase, url]);
+  useEffect(() => {
     const p = player();
     const was = prev.current;
     prev.current = s.phase;
-    if (n == null || !url) return;
+    if (n == null || !url || s.phase === "countdown") return;
     if (s.phase === "playing") {
       if (played.current !== n) {
         played.current = n;
@@ -478,7 +483,7 @@ function Over({ s, host }: { s: RoomState; host: boolean }) {
 }
 
 export function Stage({
-  state: s,
+  state: raw,
   host,
   live,
 }: {
@@ -487,6 +492,7 @@ export function Stage({
   live: boolean;
 }) {
   const api = useApi();
+  const { s, left } = useStartedRoom(raw);
   useStageAudio(s);
   const [sound, setSound] = useState(audioUnlocked);
   const r = s.round;
@@ -508,6 +514,8 @@ export function Stage({
   if (s.phase === "over") body = <Over s={s} host={host} />;
   else if (!r)
     body = <div className="over center sub">Waiting for the next round…</div>;
+  else if (s.phase === "countdown")
+    body = <StartCountdown left={left} round={r.n} />;
   else if (showResult || judging)
     body = (
       <div className="cols mid">
