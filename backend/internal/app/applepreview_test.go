@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trick77/reworm/internal/apple"
 	"github.com/trick77/reworm/internal/deck"
 	"github.com/trick77/reworm/internal/preview"
+	"github.com/trick77/toolkit/applemusic"
 )
 
 // appleServer is the web player (its token) and the catalog: song 1 in ch has a preview, song 2 lost its, ISRC
@@ -62,7 +62,7 @@ func appleServer(t *testing.T, calls *atomic.Int32) *httptest.Server {
 func TestApplePreviews(t *testing.T) {
 	var calls atomic.Int32
 	srv := appleServer(t, &calls)
-	client := &apple.Client{BaseURL: srv.URL, HTTP: srv.Client(), Dev: &apple.Source{BaseURL: srv.URL, HTTP: srv.Client()}}
+	client := &applemusic.Client{BaseURL: srv.URL, HTTP: srv.Client(), Dev: &applemusic.Source{BaseURL: srv.URL, HTTP: srv.Client()}}
 	src := preview.NewCache(applePreviews{catalog: client}, preview.TTL, nil)
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -93,11 +93,11 @@ func TestApplePreviews_errors(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTooManyRequests) }))
 	defer srv.Close()
 	tok := staticToken("t")
-	a := applePreviews{catalog: &apple.Client{BaseURL: srv.URL, HTTP: srv.Client(), Dev: tok}}
-	if _, err := a.PreviewURL(context.Background(), deck.Song{ID: "x", AppleID: "1"}); !errors.Is(err, apple.ErrRateLimited) {
+	a := applePreviews{catalog: &applemusic.Client{BaseURL: srv.URL, HTTP: srv.Client(), Dev: tok}}
+	if _, err := a.PreviewURL(context.Background(), deck.Song{ID: "x", AppleID: "1"}); !errors.Is(err, applemusic.ErrRateLimited) {
 		t.Errorf("by id: %v", err)
 	}
-	if _, err := a.PreviewURL(context.Background(), deck.Song{ID: "x", ISRC: "GB1"}); !errors.Is(err, apple.ErrRateLimited) {
+	if _, err := a.PreviewURL(context.Background(), deck.Song{ID: "x", ISRC: "GB1"}); !errors.Is(err, applemusic.ErrRateLimited) {
 		t.Errorf("by isrc: %v", err)
 	}
 }
@@ -122,10 +122,10 @@ func (s *scripted) PreviewURL(context.Context, deck.Song) (string, error) {
 
 func TestGuardedPreviews_circuitOpensOnRateLimit(t *testing.T) {
 	now := time.Unix(1000, 0)
-	src := &scripted{results: []error{&apple.RateLimitedError{Path: "/v1/x", RetryAfter: time.Minute}, &apple.RateLimitedError{}}}
+	src := &scripted{results: []error{&applemusic.RateLimitedError{Path: "/v1/x", RetryAfter: time.Minute}, &applemusic.RateLimitedError{}}}
 	g := newGuardedPreviews(src, func() time.Time { return now })
 	ctx := context.Background()
-	if _, err := g.PreviewURL(ctx, deck.Song{ID: "a"}); !errors.Is(err, errPreviewsUnavailable) || !errors.Is(err, apple.ErrRateLimited) {
+	if _, err := g.PreviewURL(ctx, deck.Song{ID: "a"}); !errors.Is(err, errPreviewsUnavailable) || !errors.Is(err, applemusic.ErrRateLimited) {
 		t.Fatalf("429: %v", err)
 	}
 	// Open for Retry-After: no call to Apple.

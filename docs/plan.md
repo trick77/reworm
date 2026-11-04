@@ -181,7 +181,8 @@ All decided.
   - Party guests: room-scoped guest sessions, no profile needed.
 - **D4 Covers**: all cached on our server (fetched by the import or on first use, ~25 KB × ~10k ≈ 250 MB on the data
   volume, not in the repo). No outside image host during a game.
-- **D5 Apple client**: copy tunewire's token + client code into reworm; extract a shared module only if they drift.
+- **D5 Apple client**: copied from tunewire first; both copies drifted within days, so it is github.com/trick77/toolkit's
+  applemusic now (2026-11-04), shared with loom.
 - **D6** Library decks later.
 - **D7 Last.fm API key**: registered ("Reworm"), in `.env.local` as `BACKEND_LASTFM_API_KEY`, tested. Shared secret unused.
 - **D8 MusicBrainz contact**: `https://github.com/trick77/reworm` in the User-Agent.

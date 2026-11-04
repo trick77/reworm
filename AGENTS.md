@@ -48,5 +48,6 @@ Party mode is the product, training a side feature on the same round engine.
 - Runtime talks to Apple Music only (previews, covers); Last.fm, MusicBrainz, chart sites are import-only.
 
 ## Apple Music
-- Access is unofficial: the web player's bearer token scraped from its JS bundle (loom's tunewire approach),
-  renewed before expiry. Can break any time; previews are 90 s AAC starting near the chorus.
+- Access is unofficial: the web player's bearer token scraped from its JS bundle, renewed before expiry. Can break
+  any time; previews are 90 s AAC starting near the chorus. Client and token source are github.com/trick77/toolkit's
+  applemusic, shared with loom's tunewire: a change there goes to toolkit, not a copy here.
