@@ -2,7 +2,7 @@
 // joined, the same route is the pad.
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { BACKOFF_MAX_MS, BACKOFF_MS, type ApiError } from "../../api/client";
+import { backoff, transient, type ApiError } from "../../api/client";
 import { toApiError, useApi, useMe } from "../../api/context";
 import { avatarInfo } from "../../avatars";
 import { Button } from "../../components/Controls";
@@ -141,10 +141,18 @@ function JoinForm({
 // no rooms/{code}/me of its own.
 const handed = new Map<string, string>();
 
-type Asked = { code: string; id: string | null; refused?: ApiError };
+// Asked: the room's answer. id null: no player here; refused: why not (kicked, or an error the form shows);
+// forget: the stored id is wrong (no player, kicked), drop it.
+type Asked = {
+  code: string;
+  id: string | null;
+  refused?: ApiError;
+  forget: boolean;
+};
 
 // useServerPlayer asks rooms/{code}/me for this browser's player (guest cookie or profile), the room's word
-// over any stored id. A failed ask (network, 5xx) is tried again with a backoff; a kicked player is refused.
+// over any stored id. A transient failure (no answer, 5xx, 429) is asked again with the backoff; any other
+// refusal is an answer: kicked, or an error the join form shows.
 function useServerPlayer(code: string | null) {
   const api = useApi();
   const [asked, setAsked] = useState<Asked | null>(null);
@@ -158,17 +166,19 @@ function useServerPlayer(code: string | null) {
     let attempt = 0;
     const ask = () =>
       api.roomMe(code).then(
-        (id) => live && setAsked({ code, id }),
+        (id) => live && setAsked({ code, id, forget: id == null }),
         (e: unknown) => {
           if (!live) return;
           const err = toApiError(e);
-          if (err.status === 403)
-            return setAsked({ code, id: null, refused: err });
+          if (!transient(err))
+            return setAsked({
+              code,
+              id: null,
+              refused: err,
+              forget: err.code === "kicked",
+            });
           setFailed({ code, e: err });
-          timer = setTimeout(
-            () => void ask(),
-            Math.min(BACKOFF_MAX_MS, BACKOFF_MS * 2 ** attempt++),
-          );
+          timer = setTimeout(() => void ask(), backoff(attempt++));
         },
       );
     void ask();
@@ -182,6 +192,7 @@ function useServerPlayer(code: string | null) {
     answered: !!mine,
     id: mine?.id ?? null,
     refused: mine?.refused,
+    forget: !!mine?.forget,
     error: !mine && failed?.code === code ? failed.e : undefined,
   };
 }
@@ -198,16 +209,18 @@ export function Join({ code: raw }: { code?: string }) {
   }, [code]);
   // note: why the form is back (the pad lost its player)
   const [note, setNote] = useState<string | undefined>();
-  // guessed: the stored id led nowhere; wait for the server's answer instead
-  const [guessed, setGuessed] = useState(false);
   const asking = !!code && !joined && !note;
   const server = useServerPlayer(asking ? code : null);
   // the stored id plays at once on a reload; the server's answer confirms or corrects it
-  const stored = code && !guessed ? load<string>(playerKey(code)) : null;
+  const stored = code ? load<string>(playerKey(code)) : null;
   const id = joined ?? (asking ? (server.answered ? server.id : stored) : null);
+  const keep = asking && server.answered ? server.id : undefined;
+  const forget = asking && server.forget;
   useEffect(() => {
-    if (code && asking && server.answered) save(playerKey(code), server.id);
-  }, [code, asking, server.answered, server.id]);
+    if (!code) return;
+    if (keep) save(playerKey(code), keep);
+    else if (forget) save(playerKey(code), null);
+  }, [code, keep, forget]);
 
   if (code && id)
     return (
@@ -217,10 +230,10 @@ export function Join({ code: raw }: { code?: string }) {
         playerId={id}
         onGone={() => {
           save(playerKey(code), null);
-          if (joined || server.answered) {
-            setJoined(null);
-            setNote("You're not in this game any more. Join again?");
-          } else setGuessed(true);
+          // a stored id the room does not know: the pad waits for the server's answer
+          if (!joined && !server.answered) return;
+          setJoined(null);
+          setNote("You're not in this game any more. Join again?");
         }}
       />
     );

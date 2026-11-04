@@ -277,6 +277,39 @@ describe("party: lobby and join", () => {
     }
   });
 
+  it("falls back to the form on a refusal that is no hiccup, keeping the stored player", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    const { pad, padApi, id } = await joinPad(world, "Mia");
+    pad.unmount();
+    let asks = 0;
+    padApi.roomMe = () => {
+      asks++;
+      return Promise.reject(new ApiError(409, "odd", "Something odd"));
+    };
+    const again = within(renderApp("/join/K7Q4", padApi).container);
+    expect(await again.findByRole("alert")).toHaveTextContent("Something odd");
+    expect(
+      again.getByRole("button", { name: "Join game" }),
+    ).toBeInTheDocument();
+    expect(asks).toBe(1);
+    expect(localStorage.getItem("reworm.player.K7Q4")).toBe(JSON.stringify(id));
+  });
+
+  it("forgets a stored player the room has no player for", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    localStorage.setItem("reworm.player.K7Q4", JSON.stringify("pl-gone"));
+    const fresh = world.device();
+    const p = within(renderApp("/join/K7Q4", fresh).container);
+    expect(
+      await p.findByRole("button", { name: "Join game" }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(localStorage.getItem("reworm.player.K7Q4")).toBeNull(),
+    );
+  });
+
   it("shows a room that is gone even after it was showing", async () => {
     const world = new FakeWorld();
     const { s } = await hostRoom(world);

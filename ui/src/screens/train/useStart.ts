@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import type { ApiError } from "../../api/client";
-import { syncServerClock } from "../../api/clock";
 import { toApiError, useApi } from "../../api/context";
 import type { TrainSettings } from "../../api/types";
 import { unlockAudio } from "../../audio/unlock";
@@ -20,10 +19,7 @@ export function useStartTraining() {
     setBusy(true);
     setError(null);
     api.startTraining(s).then(
-      (r) => {
-        syncServerClock(r.now);
-        go(`/train/${encodeURIComponent(r.id)}`);
-      },
+      (r) => go(`/train/${encodeURIComponent(r.id)}`),
       (e: unknown) => {
         setError(toApiError(e));
         setBusy(false);

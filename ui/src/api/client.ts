@@ -1,5 +1,6 @@
 // The API client: every endpoint of the contract behind one interface, so screens and tests can swap the
 // network for a fake. HttpApi is the real one: fetch for the calls, EventSource for the live room state.
+import { syncServerClock } from "./clock";
 import type {
   Choice,
   Decks,
@@ -99,9 +100,17 @@ export type HttpEnv = {
   eventSource: (url: string) => EventSourceLike;
 };
 
-// Reconnect backoff after a dropped event stream: 1 s, 2 s, 4 s … up to 10 s.
+// Retry backoff (a dropped event stream, a failed ask): 1 s, 2 s, 4 s … up to 10 s.
 export const BACKOFF_MS = 1000;
 export const BACKOFF_MAX_MS = 10_000;
+
+// backoff is the wait before retry number `attempt` (0, 1, 2 …).
+export const backoff = (attempt: number) =>
+  Math.min(BACKOFF_MAX_MS, BACKOFF_MS * 2 ** attempt);
+
+// transient: a failure worth retrying as it is (no answer, the server's own trouble, a rate limit).
+export const transient = (e: ApiError) =>
+  e.status === 0 || e.status === 429 || e.status >= 500;
 
 // timeZone: the IANA zone of this device ("Europe/Zurich"), UTC when the browser can't tell.
 export function timeZone(): string {
@@ -207,8 +216,10 @@ export class HttpApi implements Api {
     this.post<{ playerId: string }>(`${room(code)}/join`, b);
   roomMe = async (code: string) => {
     try {
-      const r = await this.get<{ playerId: string }>(`${room(code)}/me`);
-      return r.playerId;
+      const r = await this.get<{ playerId?: string } | undefined>(
+        `${room(code)}/me`,
+      );
+      return r?.playerId ?? null;
     } catch (e) {
       if (e instanceof ApiError && (e.status === 401 || e.status === 404))
         return null;
@@ -264,10 +275,13 @@ export class HttpApi implements Api {
     let es: EventSourceLike | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
-    // order: a state older than the last applied one (by seq) is dropped, snapshot or event
+    // order: a state older than the last applied one (by seq) is dropped, snapshot or event. One of the same
+    // seq changes nothing but still sets the server clock (`now`).
     let lastSeq = -Infinity;
     const apply = (s: RoomState) => {
-      if (s.seq <= lastSeq) return;
+      if (s.seq < lastSeq) return;
+      syncServerClock(s.now);
+      if (s.seq === lastSeq) return;
       lastSeq = s.seq;
       h.onState(s);
     };
@@ -311,8 +325,7 @@ export class HttpApi implements Api {
         if (es !== src || closed) return;
         es = null;
         h.onLive?.(false);
-        const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_MS * 2 ** attempt);
-        attempt++;
+        const delay = backoff(attempt++);
         timer = setTimeout(() => {
           if (closed) return;
           void snapshot();

@@ -3,7 +3,6 @@
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import type { ApiError } from "../../api/client";
-import { syncServerClock } from "../../api/clock";
 import { toApiError, useApi, useAsync } from "../../api/context";
 import type {
   Award,
@@ -457,13 +456,7 @@ type View = "play" | "reveal" | "summary";
 
 export function Training({ id }: { id: string }) {
   const api = useApi();
-  // every training answer carries the server's clock (`now`): the shared offset follows it
-  const session = () =>
-    api.trainSession(id).then((s) => {
-      syncServerClock(s.now);
-      return s;
-    });
-  const ses = useAsync(`ses:${id}`, session);
+  const ses = useAsync(`ses:${id}`, () => api.trainSession(id));
   const [card, setCard] = useState<TCard | null>(null);
   const [view, setView] = useState<View>("play");
   const [answered, setAnswered] = useState<Answered | null>(null);
@@ -512,7 +505,6 @@ export function Training({ id }: { id: string }) {
       )
       .then(
         (res) => {
-          syncServerClock(res.now);
           setBusy(false);
           setAnswered({ card: cur, pick, res });
           setMarks((m) => [...m, res.correct ? "ok" : "bad"]);
@@ -541,7 +533,7 @@ export function Training({ id }: { id: string }) {
     } else if (answered.res.nextError) {
       // the next clip failed on the server: the session resumes at its card once it loads
       setError(null);
-      session().then(
+      api.trainSession(id).then(
         (s) => {
           if (s.card) {
             setCard(s.card);

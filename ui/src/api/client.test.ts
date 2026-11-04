@@ -1,4 +1,11 @@
-import { ApiError, BACKOFF_MS, HttpApi, type EventSourceLike } from "./client";
+import {
+  ApiError,
+  backoff,
+  BACKOFF_MS,
+  HttpApi,
+  transient,
+  type EventSourceLike,
+} from "./client";
 import { secondsLeft, serverNow, syncServerClock } from "./clock";
 import type { RoomState } from "./types";
 
@@ -146,6 +153,11 @@ describe("HttpApi calls", () => {
     expect(await api.roomMe("K7Q4")).toBeNull();
     reply = Response.json({ error: "unknown_room" }, { status: 404 });
     expect(await api.roomMe("K7Q4")).toBeNull();
+    // an empty or non-JSON success body: no player, not a crash
+    reply = new Response(null, { status: 200 });
+    expect(await api.roomMe("K7Q4")).toBeNull();
+    reply = new Response("<html>", { status: 200 });
+    expect(await api.roomMe("K7Q4")).toBeNull();
     // kicked: the pad says why instead of offering the form as if nothing happened
     reply = Response.json({ error: "kicked" }, { status: 403 });
     await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ code: "kicked" });
@@ -241,6 +253,24 @@ describe("HttpApi calls", () => {
   });
 });
 
+describe("retries", () => {
+  it("backs off 1, 2, 4 … s up to 10 s, and retries only what may pass next time", () => {
+    expect([0, 1, 2, 3, 4, 9].map(backoff)).toEqual([
+      1000, 2000, 4000, 8000, 10_000, 10_000,
+    ]);
+    const e = (status: number) => new ApiError(status, "x", "x");
+    expect([0, 429, 500, 503].map((s) => transient(e(s)))).toEqual([
+      true,
+      true,
+      true,
+      true,
+    ]);
+    expect([400, 401, 403, 404, 409, 410].some((s) => transient(e(s)))).toBe(
+      false,
+    );
+  });
+});
+
 describe("server clock", () => {
   it("counts down by the server's time once a state carried `now`", () => {
     const local = Date.now();
@@ -255,7 +285,10 @@ describe("server clock", () => {
 
 describe("HttpApi.subscribeRoom", () => {
   beforeEach(() => vi.useFakeTimers());
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    syncServerClock(Date.now()); // the states here say now: 0
+  });
 
   it("takes the snapshot, follows state events, and reconnects with a fresh snapshot", async () => {
     let snap = state("lobby");
@@ -355,6 +388,24 @@ describe("HttpApi.subscribeRoom", () => {
     release();
     await vi.advanceTimersByTimeAsync(0);
     expect(seen).toEqual(["lobby1", "playing3", "result6"]);
+    stop();
+  });
+
+  it("takes the clock from a same-seq state without applying it again", async () => {
+    const { fetch } = fetchStub(() => Response.json(state("lobby", 0, 4)));
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    const onState = vi.fn();
+    const stop = api.subscribeRoom("K7Q4", { onState });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onState).toHaveBeenCalledTimes(1);
+    const now = Date.now();
+    FakeES.all[0].fire("state", { ...state("lobby", 0, 4), now: now + 7_000 });
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(serverNow() - Date.now()).toBeGreaterThan(6_900);
+    // an older one sets nothing at all
+    FakeES.all[0].fire("state", { ...state("lobby", 0, 3), now: now });
+    expect(serverNow() - Date.now()).toBeGreaterThan(6_900);
+    syncServerClock(Date.now());
     stop();
   });
 

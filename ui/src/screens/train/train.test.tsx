@@ -1,6 +1,5 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { ApiError } from "../../api/client";
-import { serverNow, syncServerClock } from "../../api/clock";
 import { audio } from "../../test/audio";
 import { FAKE_SONGS, FakeWorld } from "../../test/fakeApi";
 import { renderApp } from "../../test/render";
@@ -211,35 +210,6 @@ describe("training", () => {
       FAKE_SONGS[1].id,
     ]);
     expect(drill.settings.length).toBe(2);
-  });
-
-  it("keeps the server clock from every training answer's now", async () => {
-    const world = new FakeWorld();
-    const api = world.device("p-jan");
-    const ahead = (ms: number) => () => Date.now() + ms;
-    const realStart = api.startTraining;
-    const realSession = api.trainSession;
-    const realAnswer = api.trainAnswer;
-    let skew = ahead(5_000);
-    api.startTraining = async (s) => ({ ...(await realStart(s)), now: skew() });
-    api.trainSession = async (id) => ({
-      ...(await realSession(id)),
-      now: skew(),
-    });
-    api.trainAnswer = async (id, b) => ({
-      ...(await realAnswer(id, b)),
-      now: skew(),
-    });
-    const offset = () => serverNow() - Date.now();
-    renderApp("/train", api);
-    fireEvent.click(await screen.findByRole("button", { name: /^Start/ }));
-    // start, then the session's own load: 5 s ahead
-    await waitFor(() => expect(offset()).toBeGreaterThan(4_900));
-    skew = ahead(-3_000);
-    fireEvent.click(await screen.findByRole("button", { name: /^Later/ }));
-    await fly();
-    await waitFor(() => expect(offset()).toBeLessThan(-2_900));
-    syncServerClock(Date.now());
   });
 
   it("offers to try again when the server says the next card failed (nextError), and resumes at the session's card", async () => {
