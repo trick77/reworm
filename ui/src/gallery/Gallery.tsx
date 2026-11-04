@@ -247,6 +247,14 @@ export default function Gallery() {
                 </Button>
               </div>
               <div className="row">
+                <Button icon="qr" style={{ flex: 2 }}>
+                  Join a game
+                </Button>
+                <Button variant="ghost" icon="party" style={{ flex: 1 }}>
+                  Host
+                </Button>
+              </div>
+              <div className="row">
                 <Button small variant="sky" icon="play">
                   Start training
                 </Button>

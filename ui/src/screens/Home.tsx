@@ -8,14 +8,7 @@ import { Button, Card, IconButton, Pill } from "../components/Controls";
 import { DeckArt } from "../components/DeckArt";
 import { Icon } from "../components/Icon";
 import { allYears, defaultTraining, load, save } from "../lib/prefs";
-import {
-  accColor,
-  Brand,
-  deckLabel,
-  Problem,
-  Screen,
-  Unpaired,
-} from "./common";
+import { accColor, Brand, deckLabel, Problem, Screen } from "./common";
 import { useStartTraining } from "./train/useStart";
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
@@ -30,8 +23,31 @@ export function lastTraining(decks?: Decks): TrainSettings {
   );
 }
 
-function GameNight({ avatars }: { avatars: string[] }) {
+type Action = { icon: "party" | "qr"; to: string; long: string; short: string };
+const HOST: Action = {
+  icon: "party",
+  to: "/host",
+  long: "Host a game",
+  short: "Host",
+};
+const JOIN: Action = {
+  icon: "qr",
+  to: "/join",
+  long: "Join a game",
+  short: "Join",
+};
+
+// GameNight leads with Join on a guest's phone (no profile, can only join) and with Host on a paired device.
+// guest null: not known yet, no buttons, so a guest never taps a Host that turns into Join under the finger.
+function GameNight({
+  avatars,
+  guest,
+}: {
+  avatars: string[];
+  guest: boolean | null;
+}) {
   const [, go] = useLocation();
+  const [first, second] = guest ? [JOIN, HOST] : [HOST, JOIN];
   return (
     <Card className="hero" style={{ marginTop: 18, padding: 18 }}>
       <div className="kata">Game night</div>
@@ -46,26 +62,34 @@ function GameNight({ avatars }: { avatars: string[] }) {
         Play with friends
       </div>
       <div className="sub" style={{ maxWidth: 250 }}>
-        One screen plays, phones are buzzers. Fastest right answer wins.
+        {guest
+          ? "Got a code or a QR from the host screen? Join, no account needed."
+          : "One screen plays, phones are buzzers. Fastest right answer wins."}
       </div>
       <div className="stack" style={{ marginTop: 12 }}>
         {avatars.slice(0, 3).map((a, i) => (
           <Avatar key={i} avatar={a} size={30} alt="" />
         ))}
       </div>
-      <div className="row" style={{ marginTop: 16, gap: 8 }}>
-        <Button icon="party" style={{ flex: 2 }} onClick={() => go("/host")}>
-          Host a game
-        </Button>
-        <Button
-          variant="ghost"
-          icon="qr"
-          style={{ flex: 1 }}
-          onClick={() => go("/join")}
-        >
-          Join
-        </Button>
-      </div>
+      {guest != null && (
+        <div className="row" style={{ marginTop: 16, gap: 8 }}>
+          <Button
+            icon={first.icon}
+            style={{ flex: 2 }}
+            onClick={() => go(first.to)}
+          >
+            {first.long}
+          </Button>
+          <Button
+            variant="ghost"
+            icon={second.icon}
+            style={{ flex: 1 }}
+            onClick={() => go(second.to)}
+          >
+            {second.short}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }
@@ -180,11 +204,24 @@ export function Home() {
       <div className="cols">
         <div className="col">
           <GameNight
+            guest={me ? false : unpaired || meError ? true : null}
             avatars={
               profiles.data?.map((p) => p.avatar) ?? ["vinyl", "mic", "guitar"]
             }
           />
-          {unpaired && <Unpaired what="Training, hosting and progress" />}
+          {unpaired && (
+            <div className="sub" style={{ marginTop: 14, fontSize: 13 }}>
+              Training and hosting need a profile.{" "}
+              <button
+                type="button"
+                className="link"
+                style={{ padding: "12px 4px", margin: "-12px -4px" }}
+                onClick={() => go("/pair")}
+              >
+                Pair this device
+              </button>
+            </div>
+          )}
           {meError && <Problem error={meError} retry={reload} />}
           {paired && (
             <Card style={{ marginTop: 10, padding: "12px 14px" }}>
