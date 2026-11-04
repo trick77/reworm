@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/trick77/reworm/internal/httpcache"
 )
 
 // fakeTokens hands out "tok1", then "tok2" after an Invalidate.
@@ -184,7 +186,7 @@ func TestGet_retriesRateLimitsAndCutBodies(t *testing.T) {
 	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 3 || len(waits) != 2 || waits[0] != 3*time.Second || waits[1] != time.Second {
+	if calls.Load() != 3 || len(waits) != 2 || waits[0] != 3*time.Second || waits[1] != 2*time.Second {
 		t.Errorf("calls %d, waits %v", calls.Load(), waits)
 	}
 
@@ -200,6 +202,70 @@ func TestGet_retriesRateLimitsAndCutBodies(t *testing.T) {
 	c.Sleep = func(context.Context, time.Duration) error { return context.Canceled }
 	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); !errors.Is(err, context.Canceled) {
 		t.Errorf("canceled wait: %v", err)
+	}
+}
+
+func TestGet_retriesABodyDroppedMidTransfer(t *testing.T) {
+	var calls atomic.Int32
+	c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Content-Length", "500")
+			_, _ = fmt.Fprint(w, `{"results":{"songs":`)
+			panic(http.ErrAbortHandler)
+		}
+		_, _ = fmt.Fprintf(w, `{"results":{"songs":{"data":[%s]}}}`, song("7", "Arrival", "1976", true))
+	}))
+	got, err := c.SearchSongs(context.Background(), "ch", "x", 5)
+	if err != nil || len(got) != 1 || calls.Load() != 2 {
+		t.Errorf("%v, %v after %d calls", got, err, calls.Load())
+	}
+}
+
+// A 200 whose body does not decode is evicted from the cache before the retry, so no later run replays it.
+func TestGet_evictsAnUndecodableCachedAnswer(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			_, _ = fmt.Fprint(w, `{"results":`) // complete on the wire, broken JSON
+			return
+		}
+		_, _ = fmt.Fprint(w, `{"results":{}}`)
+	}))
+	defer srv.Close()
+	tr := &httpcache.Transport{Dir: t.TempDir()}
+	c := &Client{BaseURL: srv.URL, HTTP: &http.Client{Transport: tr}, Dev: &fakeTokens{}, Evict: tr.Evict,
+		Sleep: func(context.Context, time.Duration) error { return nil }}
+	for range 2 {
+		if _, err := c.SearchSongs(context.Background(), "ch", "a b", 5); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls.Load() != 2 {
+		t.Errorf("calls = %d, want 2: the broken answer once, the good one once, then from the cache", calls.Load())
+	}
+
+	c.Evict = func(string, string) error { return errors.New("disk full") }
+	c.HTTP = srv.Client()
+	calls.Store(0)
+	if _, err := c.SearchSongs(context.Background(), "ch", "x", 5); err == nil || !strings.Contains(err.Error(), "evict") {
+		t.Errorf("evict failure: %v", err)
+	}
+}
+
+func TestSongByID(t *testing.T) {
+	c, _ := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/catalog/de/songs/1440820267" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = fmt.Fprintf(w, `{"data":[%s]}`, song("1440820267", "Arrival", "1976-10-11", true))
+	}))
+	s, ok, err := c.SongByID(context.Background(), "de", "1440820267")
+	if err != nil || !ok || s.Album != "Arrival" {
+		t.Errorf("%+v, %v, %v", s, ok, err)
+	}
+	if _, ok, err := c.SongByID(context.Background(), "de", "nope"); ok || err != nil {
+		t.Errorf("missing: %v, %v", ok, err)
 	}
 }
 
@@ -222,7 +288,7 @@ func TestGet_errors(t *testing.T) {
 	if retryAfter("") != 2*time.Second || retryAfter("999") != maxRetryAfter {
 		t.Error("retryAfter")
 	}
-	down := &Client{BaseURL: "http://127.0.0.1:1", Dev: &fakeTokens{}}
+	down := &Client{BaseURL: "http://127.0.0.1:1", Dev: &fakeTokens{}, Sleep: func(context.Context, time.Duration) error { return nil }}
 	if _, err := down.SearchSongs(context.Background(), "ch", "x", 5); err == nil {
 		t.Error("unreachable: no error")
 	}

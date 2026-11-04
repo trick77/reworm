@@ -55,6 +55,8 @@ type Client struct {
 	Dev     Tokens
 	// Sleep waits out a 429; tests replace it.
 	Sleep func(context.Context, time.Duration) error
+	// Evict, when set, drops a cached answer the client could not decode (httpcache.Transport.Evict).
+	Evict func(method, url string) error
 }
 
 // Song is one catalog song.
@@ -121,6 +123,15 @@ func (c *Client) SongsByISRC(ctx context.Context, storefront string, isrcs []str
 	q := url.Values{}
 	q.Set("filter[isrc]", strings.Join(isrcs, ","))
 	return c.songPages(ctx, "/v1/catalog/"+url.PathEscape(storefront)+"/songs?"+q.Encode())
+}
+
+// SongByID reads one catalog song; found is false when the storefront has no such song.
+func (c *Client) SongByID(ctx context.Context, storefront, id string) (s Song, found bool, err error) {
+	songs, err := c.songPages(ctx, "/v1/catalog/"+url.PathEscape(storefront)+"/songs/"+url.PathEscape(id))
+	if err != nil || len(songs) == 0 {
+		return Song{}, false, err
+	}
+	return songs[0], true, nil
 }
 
 // AlbumTracks lists an album's songs (music videos left out).
@@ -224,28 +235,38 @@ func (c *Client) SearchSongs(ctx context.Context, storefront, term string, limit
 }
 
 // get fetches path into out; found is false on a 404. A 401 or 403 refetches the developer token once and retries;
-// refused again, it is ErrDevTokenRefused. A 429 or a body cut off mid-JSON waits and retries, tries times in all.
+// refused again, it is ErrDevTokenRefused. A 429, a network error, a body cut off mid-transfer (Apple does that)
+// or a 200 that does not decode waits and retries, tries times in all; the undecodable 200 is evicted first, so
+// the cache cannot replay it.
 func (c *Client) get(ctx context.Context, path string, out any) (found bool, err error) {
 	refetched := false
 	for attempt := 1; ; attempt++ {
+		wait := time.Second << (attempt - 1) // 1 s, 2 s, 4 s
 		dev, err := c.Dev.Token(ctx)
 		if err != nil {
 			return false, err
 		}
-		status, body, wait, err := c.do(ctx, dev, path)
-		if err != nil {
-			return false, err
-		}
+		status, body, after, err := c.do(ctx, dev, path)
 		switch {
+		case err != nil && ctx.Err() != nil:
+			return false, ctx.Err()
+		case err != nil:
+			if attempt >= tries {
+				return false, fmt.Errorf("%w after %d tries", err, attempt)
+			}
 		case status == http.StatusOK:
 			err := json.Unmarshal(body, out)
 			if err == nil {
 				return true, nil
 			}
+			if c.Evict != nil {
+				if err := c.Evict(http.MethodGet, c.base()+path); err != nil {
+					return false, fmt.Errorf("apple music: evict %s: %w", redact(path), err)
+				}
+			}
 			if attempt >= tries {
 				return false, fmt.Errorf("apple music: decode %s: %w", redact(path), err)
 			}
-			wait = time.Second
 		case status == http.StatusNotFound:
 			return false, nil
 		case status == http.StatusUnauthorized || status == http.StatusForbidden:
@@ -256,7 +277,7 @@ func (c *Client) get(ctx context.Context, path string, out any) (found bool, err
 			refetched = true
 			continue
 		case status == http.StatusTooManyRequests && attempt < tries:
-			wait = min(wait*time.Duration(attempt), maxRetryAfter)
+			wait = min(after*time.Duration(attempt), maxRetryAfter)
 		default:
 			return false, fmt.Errorf("apple music: %s returned %d: %s", redact(path), status, apiError(body))
 		}
@@ -266,12 +287,15 @@ func (c *Client) get(ctx context.Context, path string, out any) (found bool, err
 	}
 }
 
-func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, time.Duration, error) {
-	base := strings.TrimRight(c.BaseURL, "/")
-	if base == "" {
-		base = APIURL
+func (c *Client) base() string {
+	if base := strings.TrimRight(c.BaseURL, "/"); base != "" {
+		return base
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
+	return APIURL
+}
+
+func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, time.Duration, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base()+path, nil)
 	if err != nil {
 		return 0, nil, 0, err
 	}
@@ -290,7 +314,7 @@ func (c *Client) do(ctx context.Context, dev, path string) (int, []byte, time.Du
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return 0, nil, 0, err
+		return 0, nil, 0, fmt.Errorf("apple music: %s: read: %w", redact(path), err)
 	}
 	return resp.StatusCode, body, retryAfter(resp.Header.Get("Retry-After")), nil
 }

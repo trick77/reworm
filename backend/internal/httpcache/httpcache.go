@@ -1,6 +1,7 @@
 // Package httpcache keeps the import's HTTP responses on disk, keyed by method and URL, so a re-run is cheap and
 // resumes where a blocked or interrupted one stopped. Only answers that will not change on a retry are kept: 2xx,
 // 3xx and 404. A 401/403 (a replayed refusal would discard every fresh Apple token), 429 and 5xx always go out again.
+// Whether a 200's body is usable only its client can tell: it evicts one it cannot decode (Evict).
 package httpcache
 
 import (
@@ -11,9 +12,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -59,21 +63,34 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A body cut off mid-transfer is a read error here (unexpected EOF): returned, never stored.
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	_ = resp.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("httpcache: read %s: %w", req.URL.Redacted(), err)
 	}
-	// A body shorter than announced (Apple cuts some off) goes to the caller, who retries, but never to disk.
-	complete := req.Method == http.MethodHead || resp.ContentLength < 0 || resp.ContentLength == int64(len(body))
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 	resp.ContentLength = int64(len(body))
-	if complete && cacheable(resp.StatusCode) {
+	if cacheable(resp.StatusCode) {
 		if err := store(path, req, resp, body); err != nil {
 			return nil, err
 		}
 	}
 	return resp, nil
+}
+
+// Evict drops the stored answer to method rawURL. A 200 the client cannot decode (complete on the wire, broken in
+// content) must not be replayed by every later run: the client evicts it, then retries.
+func (t *Transport) Evict(method, rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(t.key(method, u.String()))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func (t *Transport) next() http.RoundTripper {
@@ -87,8 +104,10 @@ func cacheable(status int) bool {
 	return (status >= 200 && status < 400) || status == http.StatusNotFound
 }
 
-func (t *Transport) path(req *http.Request) string {
-	sum := sha256.Sum256([]byte(req.Method + " " + req.URL.String()))
+func (t *Transport) path(req *http.Request) string { return t.key(req.Method, req.URL.String()) }
+
+func (t *Transport) key(method, u string) string {
+	sum := sha256.Sum256([]byte(method + " " + u))
 	key := hex.EncodeToString(sum[:])
 	return filepath.Join(t.Dir, key[:2], key+".gz")
 }

@@ -115,6 +115,48 @@ func TestTransport_cachesStableAnswersOnly(t *testing.T) {
 	}
 }
 
+func TestTransport_evictAndCutBodies(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := hits.Add(1)
+		if r.URL.Path == "/cut" && n == 1 {
+			// Announces 100 bytes, sends 5, drops the connection.
+			w.Header().Set("Content-Length", "100")
+			_, _ = io.WriteString(w, "hello")
+			panic(http.ErrAbortHandler)
+		}
+		_, _ = io.WriteString(w, "body")
+	}))
+	defer srv.Close()
+	tr := &Transport{Dir: t.TempDir()}
+	c := &http.Client{Transport: tr}
+
+	// A cut-off body is an error and never stored: the next request goes out.
+	if _, err := c.Get(srv.URL + "/cut"); err == nil { //nolint:noctx // test
+		t.Error("cut body: no error")
+	}
+	if _, body := get(t, c, http.MethodGet, srv.URL+"/cut"); body != "body" || hits.Load() != 2 {
+		t.Errorf("after a cut body: %q, %d hits", body, hits.Load())
+	}
+
+	// Evict drops a stored answer; evicting one that is not stored is no error.
+	hits.Store(0)
+	get(t, c, http.MethodGet, srv.URL+"/x?q=a+b&filter%5Bisrc%5D=X")
+	if err := tr.Evict(http.MethodGet, srv.URL+"/x?q=a+b&filter%5Bisrc%5D=X"); err != nil {
+		t.Fatal(err)
+	}
+	get(t, c, http.MethodGet, srv.URL+"/x?q=a+b&filter%5Bisrc%5D=X")
+	if hits.Load() != 2 {
+		t.Errorf("hits = %d, want 2 (evicted answer fetched again)", hits.Load())
+	}
+	if err := tr.Evict(http.MethodGet, srv.URL+"/never"); err != nil {
+		t.Errorf("evict missing: %v", err)
+	}
+	if err := tr.Evict(http.MethodGet, "://bad"); err == nil {
+		t.Error("evict bad url: no error")
+	}
+}
+
 func TestTransport_passesOtherMethodsAndErrors(t *testing.T) {
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
