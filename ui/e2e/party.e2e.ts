@@ -144,9 +144,12 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   const again = winner.page.getByRole("button", { name: LABEL[r.right] });
   await expect(again).toBeEnabled();
   await again.click();
-  s = await waitPhase(stage, code, "result");
+  // a right "spot on" scores 2: first to 2 again at once
+  s = await waitPhase(stage, code, ["result", "over"]);
   expect(s.round!.result!.winnerId).toBe(res.winnerId);
-  await expect(winner.page.getByText("You got it!")).toBeVisible();
+  await expect(
+    winner.page.getByText(s.phase === "over" ? "You win!" : "You got it!"),
+  ).toBeVisible();
 });
 
 test("buzzer: buzz pauses, reveal by two, judging agrees or the room breaks the tie, nobody buzzes", async ({
