@@ -1,12 +1,14 @@
 package covers
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -50,7 +52,7 @@ func TestCover_fetchedOnceThenFromDisk(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "covers")
 	h := New(lookup, dir, nil)
 	for range 2 {
-		rec := get(h, "dq")
+		rec := get(h, "dq?v="+deck.CoverVersion(stored["dq"]))
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" ||
 			rec.Header().Get("Cache-Control") != cacheControl || rec.Body.Len() != len(png) {
 			t.Fatalf("cover = %d %v", rec.Code, rec.Header())
@@ -65,6 +67,89 @@ func TestCover_fetchedOnceThenFromDisk(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 2 {
 		t.Errorf("cache dir = %v, %v", entries, err)
+	}
+}
+
+// A re-import that changes a song's cover: the new one is fetched (the old file is not served), the link naming it
+// is kept for good, an old or bare link is asked again.
+func TestCover_changedCoverIsFetchedAnew(t *testing.T) {
+	var hits atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write(append(slices.Clone(png), r.URL.Path...))
+	}))
+	defer upstream.Close()
+	var mu sync.Mutex
+	cover := upstream.URL + "/compilation.jpg"
+	lookup := func(context.Context, string) (string, error) { mu.Lock(); defer mu.Unlock(); return cover, nil }
+	h := New(lookup, filepath.Join(t.TempDir(), "covers"), nil)
+	oldV := deck.CoverVersion(cover)
+	if rec := get(h, "dq?v="+oldV); !bytes.HasSuffix(rec.Body.Bytes(), []byte("/compilation.jpg")) {
+		t.Fatalf("first cover = %q", rec.Body.Bytes())
+	}
+
+	mu.Lock()
+	cover = upstream.URL + "/original.jpg"
+	mu.Unlock()
+	newV := deck.CoverVersion(upstream.URL + "/original.jpg")
+	rec := get(h, "dq?v="+newV)
+	if !bytes.HasSuffix(rec.Body.Bytes(), []byte("/original.jpg")) || rec.Header().Get("Cache-Control") != cacheControl || hits.Load() != 2 {
+		t.Errorf("new cover = %q %v after %d fetches", rec.Body.Bytes(), rec.Header(), hits.Load())
+	}
+	for _, target := range []string{"dq?v=" + oldV, "dq"} {
+		rec := get(h, target)
+		if !bytes.HasSuffix(rec.Body.Bytes(), []byte("/original.jpg")) || rec.Header().Get("Cache-Control") != "no-cache" {
+			t.Errorf("%s = %q %v", target, rec.Body.Bytes(), rec.Header())
+		}
+	}
+	if hits.Load() != 2 {
+		t.Errorf("fetches = %d, want 2", hits.Load())
+	}
+
+	// A browser that holds the cover revalidates a stale link: 304, nothing sent; another cover's tag gets it.
+	req := httptest.NewRequest(http.MethodGet, "/api/covers/dq?v="+oldV, nil)
+	req.Header.Set("If-None-Match", `"`+newV+`"`)
+	mux := http.NewServeMux()
+	h.Mount(mux)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 || rec.Header().Get("ETag") != `"`+newV+`"` {
+		t.Errorf("revalidated = %d %v", rec.Code, rec.Header())
+	}
+	req.Header.Set("If-None-Match", `"`+oldV+`"`)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.HasSuffix(rec.Body.Bytes(), []byte("/original.jpg")) {
+		t.Errorf("old tag = %d %q", rec.Code, rec.Body.Bytes())
+	}
+}
+
+// The boot sweep keeps the covers the songs name and drops the rest: replaced covers and the files from before
+// covers were named by their version.
+func TestSweep(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "covers")
+	h := New(nil, dir, nil)
+	if n, err := h.Sweep(nil); n != 0 || err != nil {
+		t.Errorf("no dir: %d, %v", n, err)
+	}
+	keep := "https://img.example/a/{w}x{h}bb.jpg"
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{deck.CoverVersion(keep), deck.CoverVersion("https://img.example/replaced.jpg"),
+		"4f1c0e8a9b2d3c4e5f6a7b8c9d0e1f2a"} {
+		if err := os.WriteFile(filepath.Join(dir, name), png, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := h.Sweep([]string{keep, "https://img.example/never-fetched.jpg"})
+	entries, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	if n != 2 || err != nil || !slices.Equal(names, []string{deck.CoverVersion(keep), "sub"}) {
+		t.Errorf("swept %d, %v: left %v", n, err, names)
 	}
 }
 
@@ -183,14 +268,5 @@ func TestCover_unwritableDir(t *testing.T) {
 	h := New(func(context.Context, string) (string, error) { return upstream.URL + "/a.jpg", nil }, filepath.Join(file, "covers"), nil)
 	if rec := get(h, "dq"); rec.Code != http.StatusOK {
 		t.Errorf("unwritable cache = %d, want the cover anyway", rec.Code)
-	}
-}
-
-func TestSourceURL(t *testing.T) {
-	if got := SourceURL("https://is1.mzstatic.com/a/{w}x{h}bb.{f}"); got != "https://is1.mzstatic.com/a/600x600bb.jpg" {
-		t.Errorf("apple = %q", got)
-	}
-	if got := SourceURL("https://coverartarchive.org/release-group/x/front-500"); got != "https://coverartarchive.org/release-group/x/front-500" {
-		t.Errorf("caa = %q", got)
 	}
 }

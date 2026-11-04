@@ -25,7 +25,10 @@ func songs(n int) []deck.Song {
 	out := make([]deck.Song, n)
 	for i := range out {
 		out[i] = deck.Song{ID: fmt.Sprintf("s%d", i), Artist: fmt.Sprintf("Artist %d", i), Title: fmt.Sprintf("Title %d", i),
-			Year: 1960 + i, HasCover: i%2 == 0}
+			Year: 1960 + i}
+		if i%2 == 0 {
+			out[i].CoverVersion = "v1"
+		}
 	}
 	return out
 }

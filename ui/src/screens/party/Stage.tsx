@@ -298,7 +298,6 @@ function SongCol({
   res: RoundResult;
   judging: boolean;
 }) {
-  const api = useApi();
   const song = res.song;
   const shown = s.round?.proposedYear;
   const years = s.mode === "years" && shown != null;
@@ -313,7 +312,7 @@ function SongCol({
             title={song.title}
             artist={song.artist}
             album={song.title}
-            src={api.coverUrl(song.id)}
+            src={song.coverUrl}
             flip
           />
         }

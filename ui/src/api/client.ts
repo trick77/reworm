@@ -58,7 +58,6 @@ export interface Api {
     avatar?: string;
   }): Promise<void>;
   decks(): Promise<Decks>;
-  coverUrl(songId: string): string;
 
   createRoom(settings: RoomSettings): Promise<{ code: string }>;
   room(code: string): Promise<RoomState>;
@@ -207,7 +206,6 @@ export class HttpApi implements Api {
   claimPair = (b: { code: string; name?: string; avatar?: string }) =>
     this.post("/api/pair/claim", b);
   decks = () => this.get<Decks>("/api/decks");
-  coverUrl = (songId: string) => `/api/covers/${encodeURIComponent(songId)}`;
 
   createRoom = (s: RoomSettings) =>
     this.post<{ code: string }>("/api/rooms", s);

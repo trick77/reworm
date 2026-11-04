@@ -990,9 +990,6 @@ export class FakeApi implements Api {
       return Promise.resolve();
     });
   decks = () => this.log("decks", () => ok(FAKE_DECKS));
-  coverUrl = (songId: string) =>
-    this.world.songs.find((s) => s.id === songId)?.art ??
-    `/api/covers/${songId}`;
 
   createRoom = (s: RoomSettings) =>
     this.paired("createRoom", () =>

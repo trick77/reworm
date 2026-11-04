@@ -214,7 +214,6 @@ function verdictOf(a: Answered): {
 }
 
 function Reveal({ a, streak }: { a: Answered; streak: number }) {
-  const api = useApi();
   const s = a.res.song;
   const v = verdictOf(a);
   const tier = TIERS.find((t) => t.k === a.res.tier);
@@ -229,7 +228,7 @@ function Reveal({ a, streak }: { a: Answered; streak: number }) {
               title={s.title}
               artist={s.artist}
               album={s.title}
-              src={api.coverUrl(s.id)}
+              src={s.coverUrl}
               flip
             />
           }
@@ -421,7 +420,7 @@ function Summary({ id, t0 }: { id: string; t0: number }) {
                         title={m.song.title}
                         artist={m.song.artist}
                         album={m.song.title}
-                        src={api.coverUrl(m.song.id)}
+                        src={m.song.coverUrl}
                         size={42}
                         mini
                       />

@@ -68,6 +68,9 @@ describe("training", () => {
     await fly();
     expect(await screen.findByText(first.song.title)).toBeInTheDocument();
     expect(screen.getByText(/XP/)).toBeInTheDocument();
+    // the cover is the link the server sent (it names the cover), never one the UI builds from the id
+    const covers = [...document.querySelectorAll("img")].map((i) => i.src);
+    expect(first.song.art && covers.includes(first.song.art)).toBe(true);
     expect(screen.getByTestId("ruler")).toBeInTheDocument();
     expect(screen.getByText(`First released ${y}`)).toBeInTheDocument();
 

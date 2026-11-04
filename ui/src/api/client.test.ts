@@ -245,7 +245,6 @@ describe("HttpApi calls", () => {
     ]);
     expect(calls[12].body).toEqual({ round: 3, choice: "later" });
     expect(calls[15].body).toEqual({ round: 3, points: 2 });
-    expect(api.coverUrl("a/b")).toBe("/api/covers/a%2Fb");
     // training calls carry the time zone, the others don't
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     for (const c of calls.slice(16)) expect(c.headers?.["X-Timezone"]).toBe(tz);

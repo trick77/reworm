@@ -4,10 +4,13 @@ package deck
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -22,8 +25,29 @@ type Song struct {
 	ISRC       string
 	AppleID    string
 	Storefront string
-	// HasCover is whether the import stored a cover URL; the image itself is served by /api/covers/{id}.
-	HasCover bool
+	// CoverVersion names the cover the import stored (CoverVersion), "" when there is none; the image itself is
+	// served by /api/covers/{id}.
+	CoverVersion string
+}
+
+// coverSize is the edge Apple artwork is fetched at: crisp on a TV stage, ~50 KB.
+const coverSize = "600x600"
+
+// CoverSource is the URL a stored cover URL is fetched from: Apple's {w}x{h} template at coverSize, others as they
+// are.
+func CoverSource(stored string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(stored, "{w}x{h}", coverSize), "{f}", "jpg")
+}
+
+// CoverVersion is the short hash of the URL a cover is fetched from (CoverSource), "" for none. It is the cover's
+// name everywhere: in its link, so a cover that changes (a re-import picks the original album, another size) is a
+// new link and no browser shows its year-long copy of the old; and as its file in the server's cache.
+func CoverVersion(stored string) string {
+	if stored == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(CoverSource(stored)))
+	return hex.EncodeToString(sum[:6])
 }
 
 // Revealed is a song as the reveal shows it.
@@ -38,8 +62,8 @@ type Revealed struct {
 // Reveal is s as the reveal shows it: the cover from our own cache (D4), null when there is none.
 func (s Song) Reveal() Revealed {
 	r := Revealed{ID: s.ID, Artist: s.Artist, Title: s.Title, Year: s.Year}
-	if s.HasCover {
-		u := "/api/covers/" + s.ID
+	if s.CoverVersion != "" {
+		u := "/api/covers/" + url.PathEscape(s.ID) + "?v=" + s.CoverVersion
 		r.Cover = &u
 	}
 	return r
@@ -97,11 +121,13 @@ type Repo struct {
 func New(db *sql.DB) *Repo { return &Repo{db: db} }
 
 const songColumns = `id, artist, title, year, coalesce(isrc, ''), coalesce(apple_id, ''), coalesce(storefront, ''),
-	coalesce(cover_url, '') != ''`
+	coalesce(cover_url, '')`
 
 func scanSong(sc interface{ Scan(...any) error }) (Song, error) {
 	var s Song
-	err := sc.Scan(&s.ID, &s.Artist, &s.Title, &s.Year, &s.ISRC, &s.AppleID, &s.Storefront, &s.HasCover)
+	var cover string
+	err := sc.Scan(&s.ID, &s.Artist, &s.Title, &s.Year, &s.ISRC, &s.AppleID, &s.Storefront, &cover)
+	s.CoverVersion = CoverVersion(cover)
 	return s, err
 }
 
@@ -112,6 +138,25 @@ func (r *Repo) Get(ctx context.Context, id string) (Song, error) {
 		return Song{}, ErrNotFound
 	}
 	return s, err
+}
+
+// CoverURLs are the distinct cover URLs the songs table stores, inactive songs included (a game that started
+// before a re-import still reveals them).
+func (r *Repo) CoverURLs(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT cover_url FROM songs WHERE coalesce(cover_url, '') != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
 }
 
 // CoverURL is the cover URL the import stored for a song, "" when none.
