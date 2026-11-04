@@ -13,3 +13,7 @@ ui/coverage
 # context.
 backend/web/dist
 # ship:end
+# The song dataset the binary embeds (the build copies it into internal/dataset/files); a host copy there must not
+# come in instead.
+!data/songs.jsonl
+backend/internal/dataset/files

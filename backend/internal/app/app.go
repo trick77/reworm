@@ -13,6 +13,7 @@ import (
 	"github.com/trick77/ship/kit/logging"
 	"github.com/trick77/ship/kit/version"
 
+	"github.com/trick77/reworm/internal/dataset"
 	"github.com/trick77/reworm/internal/dev"
 	"github.com/trick77/reworm/internal/server"
 	"github.com/trick77/reworm/internal/store"
@@ -65,6 +66,13 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	defer func() { _ = db.Close() }()
+	// The embedded dataset, after the dev guard. Dev mode owns the songs table (fixtures only, the guard refuses
+	// any other id): no upsert there, it would bring the whole dataset in and active.
+	if !cfg.Dev {
+		if err := loadDataset(ctx, db, dataset.Songs); err != nil {
+			return err
+		}
+	}
 
 	api, err := newAPI(ctx, cfg, db)
 	if err != nil {

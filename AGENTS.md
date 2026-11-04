@@ -23,7 +23,8 @@ Party mode is the product, training a side feature on the same round engine.
 - Env prefix is `BACKEND_`, never `REWORM_` (as loom): `BACKEND_ADDR` (`:8080`), `BACKEND_DATA_DIR`
   (`/data`), `BACKEND_LOG_LEVEL`, via kit/env (empty = unset). The host is plain `PUBLIC_FQDN` only: the Traefik
   rule reads it too, one name so app and router never disagree.
-- Secrets only via env / `.env.local` (import: `LASTFM_API_KEY`), never committed.
+- Secrets only via env / `.env.local` (import: `BACKEND_LASTFM_API_KEY`, `BACKEND_CARDS_BASE_URL`,
+  `BACKEND_CARDS_FILES` = `file=Set Name;…`), never committed.
 - Dev mode (`BACKEND_DEV=1` + `BACKEND_DEV_PREVIEWS`/`_SONGS`, e2e): clip URLs name the song and every non-fixture
   song is deactivated, so it refuses `PUBLIC_FQDN`, a non-loopback `BACKEND_ADDR` and (read-only, before any
   write) a data dir with any id not `fixture-*`. A boot-time dataset upsert must skip in dev mode.
@@ -39,7 +40,11 @@ Party mode is the product, training a side feature on the same round engine.
 - Rebuild needing FKs off: first line `-- migrate:no-transaction`, then `PRAGMA foreign_keys = OFF; BEGIN; …
   COMMIT; PRAGMA foreign_keys = ON;` (SQLite ignores the pragma inside a transaction, kit runs each file in one).
 - MusicBrainz: 1 req/s, User-Agent `Reworm/<version> ( https://github.com/trick77/reworm )`. Every import HTTP
-  response cached on disk (`data/cache/`, ignored).
+  response cached on disk (`data/cache/`, ignored); a cold full import runs ~1 h, a rerun minutes.
+- Hand fixes: `data/overrides.json`, not YAML: go-yaml has 543 stars (2026-11), under the dependency bar.
+- Apple `songs?filter[isrc]` answers max 25 per ISRC, no next/offset (2026-11-03): a hit's original album drowns in
+  compilations, so the import also searches the MusicBrainz album by name. Apple back-dates compilation tracks to
+  the original year: the album name decides "original", not the date.
 - Runtime talks to Apple Music only (previews, covers); Last.fm, MusicBrainz, chart sites are import-only.
 
 ## Apple Music
