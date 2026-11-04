@@ -12,12 +12,20 @@ import { Pad } from "./Pad";
 
 type Guest = { name: string; avatar: string };
 
+// JOIN_ERRORS: the refusals a joining phone gets, by the server's code; anything else shows its message.
+const JOIN_ERRORS: Record<string, string> = {
+  room_full: "This game is full (8 players).",
+  kicked: "The host removed you from this game.",
+  name_taken: "That name is taken in this game. Pick another one.",
+  over: "This game is over.",
+  game_over: "This game is over.",
+  invalid_name: "Pick a name of 1 to 20 characters.",
+  invalid_avatar: "Pick one of the avatars.",
+};
+
 function joinError(e: ApiError, code: string): string {
   if (e.status === 404) return `No game with the code ${code}.`;
-  if (e.code === "kicked") return "The host removed you from this game.";
-  if (e.code === "room_full" || e.status === 409)
-    return "This game is full (8 players).";
-  return e.message;
+  return JOIN_ERRORS[e.code] ?? e.message;
 }
 
 function JoinForm({

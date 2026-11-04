@@ -102,6 +102,15 @@ export type HttpEnv = {
 export const BACKOFF_MS = 1000;
 export const BACKOFF_MAX_MS = 10_000;
 
+// timeZone: the IANA zone of this device ("Europe/Zurich"), UTC when the browser can't tell.
+export function timeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 const room = (code: string) => `/api/rooms/${encodeURIComponent(code)}`;
 
 function browserEnv(): HttpEnv {
@@ -117,16 +126,20 @@ export class HttpApi implements Api {
     this.env = { ...browserEnv(), ...env };
   }
 
-  private async call<T>(method: string, path: string, body?: unknown) {
+  private async call<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    extra?: Record<string, string>,
+  ) {
     let res: Response;
+    const headers: Record<string, string> = { ...extra };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     try {
       res = await this.env.fetch(path, {
         method,
         credentials: "same-origin",
-        headers:
-          body === undefined
-            ? undefined
-            : { "Content-Type": "application/json" },
+        headers: Object.keys(headers).length ? headers : undefined,
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch (e) {
@@ -217,23 +230,31 @@ export class HttpApi implements Api {
   judge = (code: string, round: number, points: Points) =>
     this.post(`${room(code)}/judge`, { round, points });
 
+  // training calls carry the device's time zone: the server counts streak days in it
+  private train = <T>(method: string, path: string, body?: unknown) =>
+    this.call<T>(method, path, body, { "X-Timezone": timeZone() });
   startTraining = (s: TrainSettings) =>
-    this.post<{ id: string; card: Card }>("/api/train/sessions", s);
+    this.train<{ id: string; card: Card }>("POST", "/api/train/sessions", s);
   trainSession = (id: string) =>
-    this.get<TrainSession>(`/api/train/sessions/${encodeURIComponent(id)}`);
+    this.train<TrainSession>(
+      "GET",
+      `/api/train/sessions/${encodeURIComponent(id)}`,
+    );
   trainAnswer = (
     id: string,
     b: { cardId: string; choice?: Choice; year?: number },
   ) =>
-    this.post<TrainAnswer>(
+    this.train<TrainAnswer>(
+      "POST",
       `/api/train/sessions/${encodeURIComponent(id)}/answer`,
       b,
     );
   trainSummary = (id: string) =>
-    this.get<TrainSummary>(
+    this.train<TrainSummary>(
+      "GET",
       `/api/train/sessions/${encodeURIComponent(id)}/summary`,
     );
-  trainStats = () => this.get<TrainStats>("/api/train/stats");
+  trainStats = () => this.train<TrainStats>("GET", "/api/train/stats");
 
   // subscribeRoom: snapshot first, then the event stream. A dropped stream is closed (EventSource's own
   // retry would skip what changed meanwhile) and reopened after a backoff, with a fresh snapshot.

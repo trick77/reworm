@@ -143,6 +143,8 @@ export type TrainAnswer = {
   xp: number;
   song: Song;
   next: Card | null;
+  // retryable: next is null because the next clip failed, not because the session is done (optional)
+  retryable?: boolean;
 };
 export type TrainSummary = {
   correct: number;

@@ -26,30 +26,30 @@ export const toApiError = (e: unknown): ApiError =>
     ? e
     : new ApiError(0, "unknown", e instanceof Error ? e.message : String(e));
 
-type Loaded<T> = { key: string; data?: T; error?: ApiError };
+type Loaded<T> = { key: string; tick: number; data?: T; error?: ApiError };
 
-// useAsync loads fn() for `key` (null: nothing to load) and again on reload(). The previous key's data
-// stays until the new one is in; `loading` is true meanwhile.
+// useAsync loads fn() for `key` (null: nothing to load) and again on reload(). Data belongs to its key:
+// another key shows none until its own is in; a reload keeps the key's data meanwhile (`loading`).
 export function useAsync<T>(key: string | null, fn: () => Promise<T>) {
-  const [state, setState] = useState<Loaded<T>>({ key: "" });
+  const [state, setState] = useState<Loaded<T> | null>(null);
   const [tick, setTick] = useState(0);
   const load = useEffectEvent(fn);
   useEffect(() => {
     if (key == null) return;
     let live = true;
-    const k = `${key}#${tick}`;
     load().then(
-      (data) => live && setState({ key: k, data }),
-      (e: unknown) => live && setState({ key: k, error: toApiError(e) }),
+      (data) => live && setState({ key, tick, data }),
+      (e: unknown) => live && setState({ key, tick, error: toApiError(e) }),
     );
     return () => {
       live = false;
     };
   }, [key, tick]);
-  const current = state.key === `${key}#${tick}`;
+  const mine = key != null && state?.key === key;
+  const current = mine && state.tick === tick;
   return {
-    data: state.data,
-    error: current ? state.error : undefined,
+    data: mine ? state.data : undefined,
+    error: current ? state!.error : undefined,
     loading: key != null && !current,
     reload: () => setTick((t) => t + 1),
   };

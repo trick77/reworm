@@ -7,17 +7,16 @@ import { AwardBadge } from "../components/AwardBadge";
 import { Button, Card, Pill } from "../components/Controls";
 import { Icon } from "../components/Icon";
 import { allYears, defaultTraining, load, save } from "../lib/prefs";
-import { Brand, DeckArt, deckLabel, Problem, Screen, Unpaired } from "./common";
+import {
+  accColor,
+  Brand,
+  DeckArt,
+  deckLabel,
+  Problem,
+  Screen,
+  Unpaired,
+} from "./common";
 import { useStartTraining } from "./train/useStart";
-
-const accColor = (p: number) =>
-  p > 0.78
-    ? "#3dbb8c"
-    : p > 0.65
-      ? "#9bc36b"
-      : p > 0.55
-        ? "#e9b44c"
-        : "#e0675d";
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
 

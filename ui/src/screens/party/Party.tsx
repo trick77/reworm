@@ -170,23 +170,44 @@ const roomSettings = (s: RoomState): RoomSettings => ({
   difficulty: s.settings.difficulty,
 });
 
+// echoes: the server's settings hold every pending change.
+const echoes = (server: RoomSettings, pending: Partial<RoomSettings>) =>
+  (Object.keys(pending) as (keyof RoomSettings)[]).every(
+    (k) => stable(server[k]) === stable(pending[k]),
+  );
+
+// stable: JSON with object keys sorted, so the server's key order doesn't matter.
+const stable = (v: unknown): string =>
+  JSON.stringify(v, (_, x: unknown) =>
+    x && typeof x === "object" && !Array.isArray(x)
+      ? Object.fromEntries(
+          Object.entries(x as Record<string, unknown>).sort(([a], [b]) =>
+            a < b ? -1 : 1,
+          ),
+        )
+      : x,
+  );
+
 function Lobby({ state, host }: { state: RoomState; host: boolean }) {
   const api = useApi();
   const decks = useAsync(host ? "decks" : null, () => api.decks());
   const [error, setError] = useState<ApiError | null>(null);
   const [picking, setPicking] = useState(false);
-  // draft: the settings sent but not yet echoed; a newer room state replaces it
-  const [draft, setDraft] = useState<{ s: RoomSettings; on: RoomState } | null>(
-    null,
-  );
-  const cur = draft?.on === state ? draft.s : roomSettings(state);
+  // pending: the user's changes not yet echoed by the server. They stay on top of every newer room
+  // state (a player joining) until the server's settings carry them; a refused change drops them.
+  const [pending, setPending] = useState<Partial<RoomSettings> | null>(null);
+  const server = roomSettings(state);
+  const open = pending != null && !echoes(server, pending);
+  const cur = open ? { ...server, ...pending } : server;
   const change = (patch: Partial<RoomSettings>) => {
     const next = { ...cur, ...patch };
-    setDraft({ s: next, on: state });
+    const p = { ...(open ? pending : {}), ...patch };
+    setPending(p);
     save("room", next);
-    api
-      .roomSettings(state.code, next)
-      .catch((e: unknown) => setError(toApiError(e)));
+    api.roomSettings(state.code, next).catch((e: unknown) => {
+      setPending((cur) => (cur === p ? null : cur));
+      setError(toApiError(e));
+    });
   };
   const start = () => {
     unlockAudio(); // inside the tap: the stage plays every round's clip without another one

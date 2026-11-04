@@ -1,4 +1,5 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { ApiError } from "../../api/client";
 import { audio } from "../../test/audio";
 import { FAKE_SONGS, FakeWorld } from "../../test/fakeApi";
 import { renderApp } from "../../test/render";
@@ -167,6 +168,77 @@ describe("training", () => {
       await screen.findByRole("button", { name: "Another round" }),
     );
     await waitFor(() => expect(world.sessions.size).toBe(2));
+  });
+
+  it("drills each missed song once, however often it was missed", async () => {
+    const world = new FakeWorld();
+    const api = world.device("p-jan");
+    const { id } = await api.startTraining({
+      deck: { sets: [], categories: [], genres: [], from: 1900, to: 2100 },
+      mode: "pin",
+      difficulty: "medium",
+      clip: { length: 20, start: "chorus" },
+      length: 2,
+    });
+    const real = api.trainSummary;
+    api.trainSummary = async (sid) => {
+      const s = await real(sid);
+      const song = FAKE_SONGS[0];
+      const miss = { song, choice: 1900 };
+      return {
+        ...s,
+        misses: [miss, miss, { song: FAKE_SONGS[1], choice: 1900 }],
+      };
+    };
+    renderApp(`/train/${id}`, api);
+    fireEvent.click(await screen.findByRole("button", { name: "End session" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Drill misses (2)" }),
+    );
+    await waitFor(() => expect(world.sessions.size).toBe(2));
+    const drill = [...world.sessions.values()][1];
+    expect(drill.settings.songIds).toEqual([
+      FAKE_SONGS[0].id,
+      FAKE_SONGS[1].id,
+    ]);
+    expect(drill.settings.length).toBe(2);
+  });
+
+  it("offers to try again when the next clip failed, and resumes at the session's card", async () => {
+    const world = new FakeWorld();
+    const api = world.device("p-jan");
+    const { id } = await api.startTraining({
+      deck: { sets: [], categories: [], genres: [], from: 1900, to: 2100 },
+      mode: "pin",
+      difficulty: "medium",
+      clip: { length: 20, start: "chorus" },
+      length: 3,
+    });
+    const real = api.trainAnswer;
+    api.trainAnswer = async (sid, b) => ({
+      ...(await real(sid, b)),
+      next: null,
+      retryable: true,
+    });
+    const realSession = api.trainSession;
+    let down = true;
+    api.trainSession = (sid) =>
+      down
+        ? Promise.reject(new ApiError(503, "previews_unavailable", "no clip"))
+        : realSession(sid);
+    down = false;
+    renderApp(`/train/${id}`, api);
+    fireEvent.click(await screen.findByRole("button", { name: /Lock it in/ }));
+    expect(
+      await screen.findByText(/The next song didn't load/),
+    ).toBeInTheDocument();
+    down = true;
+    fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+    expect(await screen.findByText(/no clip/)).toBeInTheDocument();
+    down = false;
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(await screen.findByLabelText("Your year")).toBeInTheDocument();
+    expect(screen.getByLabelText("Song 2 of 3")).toBeInTheDocument();
   });
 
   it("plays, pauses and replays the clip by buttons and keys", async () => {

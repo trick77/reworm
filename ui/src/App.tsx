@@ -43,7 +43,9 @@ function Routes({ dev }: { dev: boolean }) {
       <Route path="/room/:code">
         {(p) => <Room key={p.code} code={p.code.toUpperCase()} />}
       </Route>
-      <Route path="/join/:code?">{(p) => <Join code={p.code} />}</Route>
+      <Route path="/join/:code?">
+        {(p) => <Join key={p.code ?? ""} code={p.code} />}
+      </Route>
       <Route path="/pair/:code?">{(p) => <Pair code={p.code} />}</Route>
       <Route path="/setup" component={Setup} />
       <Route path="/who" component={Who} />

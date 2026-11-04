@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useApi } from "../../api/context";
 import type {
+  Phase,
   RoomPlayer,
   RoomState,
   Round,
@@ -15,7 +16,7 @@ import { usePlayer } from "../../audio/usePlayer";
 import { AppShell } from "../../components/AppShell";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton, Pill } from "../../components/Controls";
-import { CountdownRing } from "../../components/Countdown";
+import { DeadlineRing } from "../../components/Countdown";
 import { Cover, SongHead } from "../../components/Cover";
 import {
   Confetti,
@@ -29,7 +30,13 @@ import { Vinyl } from "../../components/Vinyl";
 import { Waveform } from "../../components/Waveform";
 import { YearCard } from "../../components/YearCard";
 import { save } from "../../lib/prefs";
-import { Brand, secondsLeft } from "../common";
+import { Brand } from "../common";
+
+// The windows (D11, buzzer rules): 15 s to answer, 10 s to say it after a buzz, 20 s to judge. The
+// rings count to the server's deadlines; these are only their full length.
+export const ROUND_S = 15;
+export const ANSWER_S = 10;
+export const JUDGE_S = 20;
 
 export const toPlayers = (ps: RoomPlayer[]): Player[] =>
   ps.map((p) => ({
@@ -51,14 +58,31 @@ export const winTime = (res: RoundResult) =>
 
 // roundView: what the round shows. Paused keeps what was on screen: the round has a result → the
 // result, unless it is a buzzer round still being judged (its result holds the song, no winner yet).
-export function roundView(s: RoomState): "live" | "judging" | "result" {
+// `before` is the phase this screen saw before the pause (usePhaseBeforePause); without it (opened while
+// paused) a buzzer round with a song but no winner counts as still being judged.
+export type RoundView = "live" | "judging" | "result";
+export function roundView(s: RoomState, before?: Phase | null): RoundView {
   const r = s.round;
   if (!r) return "live";
-  if (s.phase === "result") return "result";
-  if (s.phase === "judging") return r.result ? "judging" : "live";
-  if (s.phase !== "paused" || !r.result) return "live";
+  const phase = s.phase === "paused" && before ? before : s.phase;
+  if (phase === "result") return "result";
+  if (phase === "judging") return r.result ? "judging" : "live";
+  if (phase !== "paused" || !r.result) return "live";
   const open = s.mode === "buzzer" && r.buzz && r.result.winnerId == null;
   return open ? "judging" : "result";
+}
+
+// usePhaseBeforePause remembers this round's last phase before a pause (what was on screen).
+export function usePhaseBeforePause(s: RoomState | undefined): Phase | null {
+  const key = s?.round ? roundKey(s.round) : "";
+  const [seen, setSeen] = useState<{ key: string; phase: Phase } | null>(null);
+  if (
+    s &&
+    s.phase !== "paused" &&
+    (seen?.key !== key || seen.phase !== s.phase)
+  )
+    setSeen({ key, phase: s.phase });
+  return seen?.key === key ? seen.phase : null;
 }
 
 // photoLine: a later press in the 1 s window, "+0.18 s", or "photo finish" under 50 ms.
@@ -196,9 +220,9 @@ function YearsLive({ s }: { s: RoomState }) {
         className="row"
         style={{ justifyContent: "center", gap: 22, marginTop: 20 }}
       >
-        <CountdownRing
-          key={`r${roundKey(r)}`}
-          seconds={secondsLeft(r.endsAt)}
+        <DeadlineRing
+          endsAt={r.endsAt}
+          total={ROUND_S}
           size={104}
           paused={s.phase === "paused"}
         />
@@ -229,9 +253,9 @@ function BuzzerLive({ s }: { s: RoomState }) {
           className="row"
           style={{ justifyContent: "center", gap: 22, marginTop: 18 }}
         >
-          <CountdownRing
-            key={`b${roundKey(r)}`}
-            seconds={secondsLeft(r.buzz.answerEndsAt)}
+          <DeadlineRing
+            endsAt={r.buzz.answerEndsAt}
+            total={ANSWER_S}
             size={96}
             paused={s.phase === "paused"}
           />
@@ -262,9 +286,9 @@ function BuzzerLive({ s }: { s: RoomState }) {
         First buzz stops the music — then say artist + title
       </div>
       <div className="row" style={{ justifyContent: "center", marginTop: 22 }}>
-        <CountdownRing
-          key={`r${roundKey(r)}`}
-          seconds={secondsLeft(r.endsAt)}
+        <DeadlineRing
+          endsAt={r.endsAt}
+          total={ROUND_S}
           size={104}
           paused={s.phase === "paused"}
         />
@@ -275,7 +299,15 @@ function BuzzerLive({ s }: { s: RoomState }) {
 
 const JUDGE_LABEL = ["neither", "one of them", "artist + title"];
 
-function SongCol({ s, res }: { s: RoomState; res: RoundResult }) {
+function SongCol({
+  s,
+  res,
+  judging,
+}: {
+  s: RoomState;
+  res: RoundResult;
+  judging: boolean;
+}) {
   const api = useApi();
   const song = res.song;
   const shown = s.round?.proposedYear;
@@ -299,7 +331,7 @@ function SongCol({ s, res }: { s: RoomState; res: RoundResult }) {
         artist={song.artist}
       />
       <Verdict
-        result={res.winnerId || s.phase === "judging" ? "hit" : "miss"}
+        result={res.winnerId || judging ? "hit" : "miss"}
         stamp={false}
         center
         year={song.year}
@@ -339,9 +371,9 @@ function Judging({ s }: { s: RoomState }) {
           className="row"
           style={{ justifyContent: "center", marginTop: 14 }}
         >
-          <CountdownRing
-            key={`j${roundKey(r)}`}
-            seconds={secondsLeft(r.judgeEndsAt)}
+          <DeadlineRing
+            endsAt={r.judgeEndsAt}
+            total={JUDGE_S}
             size={72}
             paused={s.phase === "paused"}
           />
@@ -474,7 +506,7 @@ export function Stage({
   const [sound, setSound] = useState(audioUnlocked);
   const r = s.round;
   const res = r?.result;
-  const view = roundView(s);
+  const view = roundView(s, usePhaseBeforePause(s));
   const judging = view === "judging";
   const showResult = view === "result";
   const enableSound = () => {
@@ -494,7 +526,7 @@ export function Stage({
   else if (showResult || judging)
     body = (
       <div className="cols mid">
-        <SongCol s={s} res={res!} />
+        <SongCol s={s} res={res!} judging={judging} />
         {judging ? <Judging s={s} /> : <Winner s={s} res={res!} />}
       </div>
     );

@@ -48,6 +48,29 @@ describe("pairing", () => {
     });
   });
 
+  it("shows a full address in the QR when the server hands a path", async () => {
+    const world = new FakeWorld();
+    const api = world.device("p-jan");
+    api.pair = () =>
+      Promise.resolve({
+        code: "H4K9QZ",
+        url: "/pair/H4K9QZ",
+        expiresAt: Date.now() + 60_000,
+      });
+    renderApp("/me", api);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Add a device" }),
+    );
+    const panel = await screen.findByRole("dialog", { name: "Add a device" });
+    expect(panel.querySelector("[data-qr]")).toHaveAttribute(
+      "data-qr",
+      `${location.origin}/pair/H4K9QZ`,
+    );
+    expect(
+      within(panel).getByText(/valid 1:00|valid 0:59/),
+    ).toBeInTheDocument();
+  });
+
   it("reports an unknown code", async () => {
     const world = new FakeWorld();
     renderApp("/pair/AAAAAA", world.device());

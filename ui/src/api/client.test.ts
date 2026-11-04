@@ -2,7 +2,12 @@ import { ApiError, BACKOFF_MS, HttpApi, type EventSourceLike } from "./client";
 import { secondsLeft, serverNow, syncServerClock } from "./clock";
 import type { RoomState } from "./types";
 
-type Call = { url: string; method: string; body?: unknown };
+type Call = {
+  url: string;
+  method: string;
+  body?: unknown;
+  headers?: Record<string, string>;
+};
 
 function fetchStub(reply: (c: Call) => Response | Promise<Response>) {
   const calls: Call[] = [];
@@ -11,6 +16,7 @@ function fetchStub(reply: (c: Call) => Response | Promise<Response>) {
       url,
       method: init?.method ?? "GET",
       body: init?.body ? JSON.parse(init.body as string) : undefined,
+      headers: init?.headers as Record<string, string> | undefined,
     };
     calls.push(c);
     return reply(c);
@@ -220,6 +226,10 @@ describe("HttpApi calls", () => {
     expect(calls[12].body).toEqual({ round: 3, choice: "later" });
     expect(calls[15].body).toEqual({ round: 3, points: 2 });
     expect(api.coverUrl("a/b")).toBe("/api/covers/a%2Fb");
+    // training calls carry the time zone, the others don't
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    for (const c of calls.slice(16)) expect(c.headers?.["X-Timezone"]).toBe(tz);
+    expect(calls[1].headers).toBeUndefined();
   });
 });
 

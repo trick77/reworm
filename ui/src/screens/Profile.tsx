@@ -108,8 +108,10 @@ function PairPanel({
   code: PairCode;
   onClose: () => void;
 }) {
-  const now = useNow(1000);
-  const left = secondsLeft(code.expiresAt, now);
+  useNow(1000); // ticks the expiry; the time itself is the server's (expiresAt)
+  const left = secondsLeft(code.expiresAt);
+  // the server may hand a path (/pair/CODE): the QR needs the full address
+  const url = new URL(code.url, window.location.origin).href;
   return (
     <Card
       className="pair-panel fade-in"
@@ -124,7 +126,7 @@ function PairPanel({
           ? "Scan on their phone: they pick a name and avatar and get their own progress."
           : "Scan with the new device's camera, or open the site there and type the code. It logs in as you."}
       </div>
-      <QrCode value={code.url} size={150} />
+      <QrCode value={url} size={150} />
       <div
         className="num"
         style={{

@@ -624,6 +624,9 @@
   place-items: center;
   font-weight: 800;
 }
+.countdown .bar-live {
+  transition: stroke-dashoffset 0.25s linear;
+}
 .paused,
 .paused * {
   animation-play-state: paused !important;
@@ -643,6 +646,10 @@
   animation-name: drainw;
   animation-timing-function: linear;
   animation-fill-mode: forwards;
+}
+.tbar.live i {
+  animation: none;
+  transition: width 0.25s linear;
 }
 
 /* cover */

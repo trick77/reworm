@@ -89,6 +89,28 @@ describe("party: lobby and join", () => {
     expect(await p.findByRole("alert")).toHaveTextContent("full");
   });
 
+  it("says why a join was refused, by the server's code", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    const api = world.device();
+    const refusals: [ApiError, string][] = [
+      [new ApiError(409, "name_taken", "x"), "That name is taken"],
+      [new ApiError(409, "over", "x"), "This game is over."],
+      [new ApiError(400, "odd", "Something odd"), "Something odd"],
+    ];
+    let next = 0;
+    api.joinRoom = () => Promise.reject(refusals[next++][0]);
+    const pad = renderApp("/join/K7Q4", api);
+    const p = within(pad.container);
+    fireEvent.change(p.getByLabelText("Your name"), {
+      target: { value: "Mia" },
+    });
+    for (const [, text] of refusals) {
+      fireEvent.click(p.getByRole("button", { name: "Join game" }));
+      expect(await p.findByText(new RegExp(text))).toBeInTheDocument();
+    }
+  });
+
   it("changes the game settings in the lobby and kicks a player", async () => {
     const world = new FakeWorld();
     const { s } = await hostRoom(world);
@@ -433,5 +455,74 @@ describe("party: buzzer mode", () => {
     await world.judgeAs("K7Q4", luca, 1, 0);
     expect(await p.findByText("Nobody got it")).toBeInTheDocument();
     expect(await s.findByText("No points this round")).toBeInTheDocument();
+    // paused over a round settled at 0: still the result, not the judging
+    await world.hostAction("K7Q4", "pause");
+    expect(await p.findByText("Paused by the host")).toBeInTheDocument();
+    expect(s.getByText("No points this round")).toBeInTheDocument();
+    expect(s.queryByText(/Did Luca get it/)).toBeNull();
+    expect(p.getByText("Nobody got it")).toBeInTheDocument();
+  });
+
+  it("keeps the judging on screen through a pause, without a miss", async () => {
+    const world = new FakeWorld();
+    const { s, stage } = await hostRoom(world);
+    fireEvent.click(s.getByRole("button", { name: "Buzzer" }));
+    await waitFor(() => expect(world.room("K7Q4").state.mode).toBe("buzzer"));
+    const { p } = await joinPad(world, "Mia");
+    const luca = world.addPlayer("K7Q4", "Luca", "guitar");
+    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    await p.findByRole("button", { name: "BUZZ" });
+    await world.buzzAs("K7Q4", luca, 1);
+    await world.revealAs("K7Q4", luca, 1);
+    fireEvent.click(await p.findByRole("button", { name: "Reveal the song" }));
+    expect(await s.findByText("Did Luca get it?")).toBeInTheDocument();
+    await world.hostAction("K7Q4", "pause");
+    expect(await p.findByText("Paused by the host")).toBeInTheDocument();
+    expect(s.getByText("Did Luca get it?")).toBeInTheDocument();
+    expect(stage.container.querySelector(".verdict.bad")).toBeNull();
+    expect(p.getByRole("group", { name: "Judge" })).toBeInTheDocument();
+  });
+});
+
+describe("party: requests that fail", () => {
+  it("frees a press that failed in transit; a refusal stands", async () => {
+    const world = new FakeWorld();
+    const { s } = await hostRoom(world);
+    const { p, padApi } = await joinPad(world, "Mia");
+    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    const real = padApi.answer;
+    let fail: ApiError | null = new ApiError(0, "network", "offline");
+    padApi.answer = (...a) => (fail ? Promise.reject(fail) : real(...a));
+    fireEvent.click(await p.findByRole("button", { name: "Earlier" }));
+    // the request never arrived: the buttons come back
+    await waitFor(() =>
+      expect(p.getByRole("button", { name: "Earlier" })).toBeEnabled(),
+    );
+    fail = new ApiError(409, "too_late", "too late");
+    fireEvent.click(p.getByRole("button", { name: "Earlier" }));
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    expect(p.getByRole("button", { name: "Earlier" })).toBeDisabled();
+  });
+
+  it("keeps a lobby change on screen through other room updates until the server echoes it", async () => {
+    const world = new FakeWorld();
+    const { s, stageApi } = await hostRoom(world);
+    const real = stageApi.roomSettings;
+    let release: () => void = () => {};
+    stageApi.roomSettings = (code, st) =>
+      new Promise<void>((r) => (release = r)).then(() => real(code, st));
+    fireEvent.click(s.getByRole("button", { name: "Buzzer" }));
+    expect(s.getByRole("button", { name: "Buzzer" })).toHaveClass("on");
+    // a player joins meanwhile: a new room state, still the old settings
+    act(() => void world.addPlayer("K7Q4", "Luca", "guitar"));
+    expect(await s.findByText("Players · 1")).toBeInTheDocument();
+    expect(s.getByRole("button", { name: "Buzzer" })).toHaveClass("on");
+    // a second change builds on the first
+    fireEvent.click(s.getByRole("button", { name: "15" }));
+    expect(s.getByRole("button", { name: "Buzzer" })).toHaveClass("on");
+    release();
+    await waitFor(() => expect(world.room("K7Q4").state.toWin).toBe(15));
+    expect(world.room("K7Q4").state.mode).toBe("buzzer");
+    expect(s.getByRole("button", { name: "15" })).toHaveClass("on");
   });
 });

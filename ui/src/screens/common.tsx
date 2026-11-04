@@ -216,6 +216,16 @@ export function Ring({
   );
 }
 
+// accColor: an accuracy (0–1) as the mock's heat colour, green to red (decade tiles, by-decade bars).
+export const accColor = (p: number) =>
+  p > 0.78
+    ? "#3dbb8c"
+    : p > 0.65
+      ? "#9bc36b"
+      : p > 0.55
+        ? "#e9b44c"
+        : "#e0675d";
+
 // initials: the deck art's letters, as the mock's initials().
 export function initials(s: string): string {
   return s

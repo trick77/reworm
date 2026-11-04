@@ -1,6 +1,7 @@
 // The pad: a phone in a party room. No audio: the stage plays. Years mode is three big buttons; buzzer
 // mode one BUZZ button, then Reveal and the 2 / 1 / 0 judging.
 import { useEffect, useState, type ReactNode } from "react";
+import { ApiError } from "../../api/client";
 import { useApi } from "../../api/context";
 import type {
   Points,
@@ -13,10 +14,20 @@ import { useRoom } from "../../api/useRoom";
 import { AnswerPad } from "../../components/AnswerPad";
 import { Avatar } from "../../components/Avatar";
 import { Button, Card, Pill } from "../../components/Controls";
-import { CountdownRing, TimerBar } from "../../components/Countdown";
+import { DeadlineBar, DeadlineRing } from "../../components/Countdown";
 import { Cover } from "../../components/Cover";
-import { Loading, Problem, Screen, secondsLeft } from "../common";
-import { direction, PHOTO_MS, roundKey, roundView, winTime } from "./Stage";
+import { Loading, Problem, Screen } from "../common";
+import {
+  ANSWER_S,
+  direction,
+  PHOTO_MS,
+  ROUND_S,
+  roundKey,
+  roundView,
+  usePhaseBeforePause,
+  winTime,
+  type RoundView,
+} from "./Stage";
 
 const ord = (n: number) =>
   n +
@@ -180,6 +191,18 @@ function Over({ s, me }: { s: RoomState; me: RoomPlayer }) {
   );
 }
 
+// LateNotice: joined mid-round, this round is sat out.
+function LateNotice() {
+  return (
+    <Center>
+      <div className="pad-big">You're in from the next round</div>
+      <div className="sub" style={{ marginTop: 4 }}>
+        Watch the big screen meanwhile.
+      </div>
+    </Center>
+  );
+}
+
 // sent: this pad's last press, per round (roundKey: a rematch's round 1 is a new one), so a double tap
 // goes up once and the buttons dim at once.
 type Sent = { key: string; what: string } | null;
@@ -204,15 +227,7 @@ function YearsLive({
   // out without a press here is taken as late.
   const late =
     me.state === "late" || (me.state === "out" && s.seq == null && !mine);
-  if (late)
-    return (
-      <Center>
-        <div className="pad-big">You're in from the next round</div>
-        <div className="sub" style={{ marginTop: 4 }}>
-          Watch the big screen meanwhile.
-        </div>
-      </Center>
-    );
+  if (late) return <LateNotice />;
   if (me.state === "out")
     return (
       <Center>
@@ -232,9 +247,9 @@ function YearsLive({
         Round {r.n} · listen to the big screen
       </div>
       <div className="pad-year num">{r.proposedYear}</div>
-      <TimerBar
-        key={roundKey(r)}
-        seconds={secondsLeft(r.endsAt)}
+      <DeadlineBar
+        endsAt={r.endsAt}
+        total={ROUND_S}
         paused={s.phase === "paused"}
       />
       <AnswerPad
@@ -259,17 +274,19 @@ function BuzzerLive({
   me,
   sent,
   send,
+  view,
 }: {
   s: RoomState;
   me: RoomPlayer;
   sent: Sent;
   send: (what: string, f: () => Promise<void>) => void;
+  view: RoundView;
 }) {
   const api = useApi();
   const r = s.round!;
   const buzz = r.buzz;
   const mine = sentIn(sent, r);
-  if (roundView(s) === "judging" && r.result && buzz) {
+  if (view === "judging" && r.result && buzz) {
     const buzzer = s.players.find((p) => p.id === buzz.playerId);
     const voted = r.judgeVotes[me.id] != null || mine === "judge";
     return (
@@ -321,9 +338,9 @@ function BuzzerLive({
                 className="row"
                 style={{ justifyContent: "center", margin: "16px 0" }}
               >
-                <CountdownRing
-                  key={`b${roundKey(r)}`}
-                  seconds={secondsLeft(buzz.answerEndsAt)}
+                <DeadlineRing
+                  endsAt={buzz.answerEndsAt}
+                  total={ANSWER_S}
                   size={120}
                   paused={s.phase === "paused"}
                 />
@@ -361,24 +378,16 @@ function BuzzerLive({
       </>
     );
   }
-  if (me.state === "late")
-    return (
-      <Center>
-        <div className="pad-big">You're in from the next round</div>
-        <div className="sub" style={{ marginTop: 4 }}>
-          Watch the big screen meanwhile.
-        </div>
-      </Center>
-    );
+  if (me.state === "late") return <LateNotice />;
   const done = mine === "buzz";
   return (
     <>
       <div className="sub center" style={{ marginTop: 18 }}>
         Round {r.n} · listen to the big screen
       </div>
-      <TimerBar
-        key={roundKey(r)}
-        seconds={secondsLeft(r.endsAt)}
+      <DeadlineBar
+        endsAt={r.endsAt}
+        total={ROUND_S}
         paused={s.phase === "paused"}
       />
       <button
@@ -410,6 +419,7 @@ export function Pad({
 }) {
   const { state: s, error, live } = useRoom(code);
   const [sent, setSent] = useState<Sent>(null);
+  const before = usePhaseBeforePause(s);
   const me = s?.players.find((p) => p.id === playerId);
   const gone = (!!s && !me) || error?.status === 404;
   useEffect(() => {
@@ -432,11 +442,16 @@ export function Pad({
   const r = s.round;
   const send = (what: string, f: () => Promise<void>) => {
     if (!r || sentIn(sent, r) === what) return;
-    setSent({ key: roundKey(r), what });
-    f().catch(() => {
-      // refused (too late, already out): the room state says what happened
+    const press = { key: roundKey(r), what };
+    setSent(press);
+    f().catch((e: unknown) => {
+      // a deliberate refusal (409: too late, out, late) stands, the room state says what happened;
+      // a failed request (network, 5xx) frees the button to try again
+      if (e instanceof ApiError && e.status === 409) return;
+      setSent((cur) => (cur === press ? null : cur));
     });
   };
+  const view = roundView(s, before);
 
   let body: ReactNode;
   if (s.phase === "lobby")
@@ -475,10 +490,10 @@ export function Pad({
         <div className="sub">Waiting for the next round…</div>
       </Center>
     );
-  else if (roundView(s) === "result") body = <Result s={s} me={me} />;
+  else if (view === "result") body = <Result s={s} me={me} />;
   else if (s.mode === "years")
     body = <YearsLive s={s} me={me} sent={sent} send={send} />;
-  else body = <BuzzerLive s={s} me={me} sent={sent} send={send} />;
+  else body = <BuzzerLive s={s} me={me} sent={sent} send={send} view={view} />;
 
   return (
     <Screen className="column">

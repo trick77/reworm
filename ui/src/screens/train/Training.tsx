@@ -31,6 +31,7 @@ import {
   YEAR_MIN,
 } from "../../lib/prefs";
 import {
+  accColor,
   Loading,
   Problem,
   Ring,
@@ -292,8 +293,7 @@ function Summary({ id, t0 }: { id: string; t0: number }) {
   const again = useStartTraining();
   const [now] = useState(() => Date.now());
   const s = sum.data;
-  const col = (p: number) =>
-    p > 0.78 ? "var(--jade)" : p > 0.55 ? "var(--gold)" : "var(--rose)";
+  const drill = s ? [...new Set(s.misses.map((m) => m.song.id))] : [];
   const mins = Math.max(1, Math.round((now - t0) / 60000));
   const settings = load<TrainSettings>("train");
   return (
@@ -303,21 +303,21 @@ function Summary({ id, t0 }: { id: string; t0: number }) {
           <Button variant="ghost" onClick={() => go("/")}>
             Done
           </Button>
-          {s && s.misses.length > 0 ? (
+          {drill.length > 0 ? (
             <Button
               disabled={again.busy}
               onClick={() =>
                 again.start(
                   {
                     ...(settings ?? defaultTraining(allYears())),
-                    songIds: [...new Set(s.misses.map((m) => m.song.id))],
-                    length: s.misses.length,
+                    songIds: drill,
+                    length: drill.length,
                   },
                   false,
                 )
               }
             >
-              Drill misses ({s.misses.length})
+              Drill misses ({drill.length})
             </Button>
           ) : (
             <Button
@@ -397,7 +397,7 @@ function Summary({ id, t0 }: { id: string; t0: number }) {
                         <i
                           style={{
                             width: `${Math.max(p * 100, 4)}%`,
-                            background: col(p),
+                            background: accColor(p),
                           }}
                         />
                       </div>
@@ -530,6 +530,18 @@ export function Training({ id }: { id: string }) {
     if (answered.res.next) {
       setCard(answered.res.next);
       setView("play");
+    } else if (answered.res.retryable) {
+      // the next clip failed on the server: the session resumes at its card once it loads
+      setError(null);
+      api.trainSession(id).then(
+        (s) => {
+          if (s.card) {
+            setCard(s.card);
+            setView("play");
+          } else setView("summary");
+        },
+        (e: unknown) => setError(toApiError(e)),
+      );
     } else setView("summary");
   };
   const onEnter = useEffectEvent((e: KeyboardEvent) => {
@@ -610,13 +622,23 @@ export function Training({ id }: { id: string }) {
       <AppShell
         footer={
           <Button onClick={next}>
-            {answered.res.next ? "Next song" : "See results"}{" "}
+            {answered.res.next
+              ? "Next song"
+              : answered.res.retryable
+                ? "Try again"
+                : "See results"}{" "}
             <span className="kbd">⏎</span>
           </Button>
         }
         scrollClassName="fade-in"
       >
         {head}
+        {answered.res.retryable && !answered.res.next && (
+          <div className="err" role="alert">
+            The next song didn't load.
+            {error ? ` ${error.message}` : ""}
+          </div>
+        )}
         <Reveal a={answered} streak={streak} />
         <div style={{ height: 8 }} />
       </AppShell>
