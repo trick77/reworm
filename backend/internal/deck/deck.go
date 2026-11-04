@@ -45,8 +45,11 @@ func (s Song) Reveal() Revealed {
 	return r
 }
 
-// Selector picks a deck: songs in any of the sets, categories or genres (all songs when the three are empty), with
-// a year in [From, To].
+// General is the genre of every song: no song carries it, picking it picks all (the widest span, as the picker says).
+const General = "general"
+
+// Selector picks a deck: songs in any of the sets, categories or genres (all songs when the three are empty or the
+// genres name General), with a year in [From, To].
 type Selector struct {
 	Sets       []string `json:"sets"`
 	Categories []string `json:"categories"`
@@ -139,8 +142,10 @@ func (r *Repo) Select(ctx context.Context, sel Selector) ([]Song, error) {
 		conds = append(conds, `EXISTS (SELECT 1 FROM json_each(`+f.col+`) WHERE value IN (SELECT value FROM json_each(?)))`)
 		args = append(args, string(ids))
 	}
-	if len(conds) > 0 {
+	if len(conds) > 0 && !slices.Contains(sel.Genres, General) {
 		q += ` AND (` + strings.Join(conds, " OR ") + `)`
+	} else {
+		args = args[:2]
 	}
 	rows, err := r.db.QueryContext(ctx, q+` ORDER BY id`, args...)
 	if err != nil {
@@ -181,10 +186,12 @@ type Decks struct {
 	Genres     []Group `json:"genres"`
 }
 
-// Decks counts the active songs per set, category and genre.
+// Decks counts the active songs per set, category and genre; General, first of the genres, counts them all.
 func (r *Repo) Decks(ctx context.Context) (Decks, error) {
 	d := Decks{Sets: []Set{}, Categories: []Group{}, Genres: []Group{}}
 	rows, err := r.db.QueryContext(ctx, `
+SELECT 'all', '`+General+`', count(*), 0, 0 FROM songs WHERE active = 1 HAVING count(*) > 0
+UNION ALL
 SELECT 'sets', j.value, count(*), min(s.year), max(s.year) FROM songs s, json_each(s.sets) j WHERE s.active = 1 GROUP BY j.value
 UNION ALL
 SELECT 'categories', j.value, count(*), 0, 0 FROM songs s, json_each(s.categories) j WHERE s.active = 1 GROUP BY j.value
@@ -205,7 +212,12 @@ SELECT 'genres', j.value, count(*), 0, 0 FROM songs s, json_each(s.genres) j WHE
 			d.Sets = append(d.Sets, Set{ID: id, Name: Name(id), Count: n, From: from, To: to})
 		case "categories":
 			d.Categories = append(d.Categories, Group{ID: id, Name: Name(id), Count: n})
+		case "all":
+			d.Genres = append(d.Genres, Group{ID: id, Name: Name(id), Count: n})
 		default:
+			if id == General {
+				continue // a song tagged so by hand: General counts every song already
+			}
 			d.Genres = append(d.Genres, Group{ID: id, Name: Name(id), Count: n})
 		}
 	}

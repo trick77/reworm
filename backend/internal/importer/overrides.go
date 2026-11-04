@@ -16,16 +16,18 @@ import (
 
 // overridesDoc explains the file in the file: JSON has no comments, the loader skips this key.
 const overridesDoc = "Hand fixes by song id (see data/songs.jsonl), applied after the import: " +
-	`"songs": {"<id>": {"year": 1976, "apple_id": "1422648512", "storefront": "ch", "exclude": true}}. ` +
+	`"songs": {"<id>": {"year": 1976, "apple_id": "1422648512", "storefront": "ch", "genres": ["pop"], "exclude": true}}. ` +
 	"year replaces the card year (year_source becomes override); apple_id (+ storefront, default ch) picks the Apple " +
-	"track, its album, ISRC and cover follow from it; exclude drops the song from the dataset. Every field is optional."
+	"track, its album, ISRC and cover follow from it; genres replaces the genres from Last.fm ([] for none); exclude " +
+	"drops the song from the dataset. Every field is optional."
 
-// Override is one hand fix.
+// Override is one hand fix. Genres nil leaves the song's; an empty list clears them.
 type Override struct {
-	Year       int    `json:"year,omitempty"`
-	AppleID    string `json:"apple_id,omitempty"`
-	Storefront string `json:"storefront,omitempty"`
-	Exclude    bool   `json:"exclude,omitempty"`
+	Year       int      `json:"year,omitempty"`
+	AppleID    string   `json:"apple_id,omitempty"`
+	Storefront string   `json:"storefront,omitempty"`
+	Genres     []string `json:"genres,omitempty"`
+	Exclude    bool     `json:"exclude,omitempty"`
 }
 
 type overridesFile struct {
@@ -52,6 +54,11 @@ func loadOverrides(path string) (map[string]Override, error) {
 	for id, o := range f.Songs {
 		if o.Year != 0 && !song.ValidYear(o.Year) {
 			return nil, fmt.Errorf("overrides: %s: year %d", id, o.Year)
+		}
+		for _, g := range o.Genres {
+			if !knownGenre(g) {
+				return nil, fmt.Errorf("overrides: %s: genre %q is none of the import's", id, g)
+			}
 		}
 	}
 	return f.Songs, nil
@@ -85,6 +92,9 @@ func (p *Pipeline) applyOverrides(ctx context.Context, rs []resolved, ov map[str
 		}
 		if o.Year != 0 {
 			r.Song.Year, r.Song.YearSource = o.Year, song.YearOverride
+		}
+		if o.Genres != nil {
+			r.Song.Genres = slices.Sorted(slices.Values(o.Genres))
 		}
 		if o.AppleID != "" {
 			sf := o.Storefront

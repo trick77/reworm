@@ -57,6 +57,12 @@ var rank = func() map[string]int {
 	return m
 }()
 
+// Known says id is a slug listed here.
+func Known(id string) bool {
+	_, ok := rank[id]
+	return ok
+}
+
 // Name is the display name of a set, category or genre slug.
 func Name(id string) string {
 	if i, ok := rank[id]; ok {

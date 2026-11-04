@@ -5,7 +5,9 @@ always win); MusicBrainz and Apple years are only compared. MusicBrainz: recordi
 after the card's, the earliest official one wins. Apple, per storefront ch → de → us: ISRC lookup (title and
 artist must match), in ch also the MusicBrainz original album by name; the first original-album track wins,
 else the first ISRC hit, else an artist + title search in ch and us. Only tracks with a preview count. Songs
-without one stay in the dataset (no clip until an override).
+without one stay in the dataset (no clip until an override). Last.fm, by the card's artist + title, the main
+artist and the MusicBrainz credit: the most listened track gives the listeners and, by its top tags, the
+genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre.
 
 ## Totals
 
@@ -23,6 +25,8 @@ without one stay in the dataset (no clip until an override).
 | cover: Apple (original album) | 1853 |
 | cover: Cover Art Archive | 627 |
 | cover: none | 277 |
+| Last.fm track found | 2718 |
+| no genre | 195 |
 | overrides applied | 0 |
 
 ## Sets
@@ -46,6 +50,25 @@ without one stay in the dataset (no clip until an override).
 | category | songs |
 |---|---:|
 | gen-alpha | 337 |
+
+## Genres (Last.fm listeners of the songs)
+
+| genre | songs | p10 | p50 |
+|---|---:|---:|---:|
+| chanson | 4 | 9898 | 9972 |
+| country | 51 | 831 | 185335 |
+| dance | 396 | 13675 | 320969 |
+| disco-funk | 171 | 18637 | 284259 |
+| hip-hop | 143 | 25347 | 257856 |
+| indie | 306 | 61890 | 968344 |
+| italo | 5 | 69228 | 125341 |
+| latin | 68 | 3181 | 187732 |
+| metal | 210 | 97737 | 582831 |
+| pop | 1167 | 7584 | 301097 |
+| reggae | 54 | 58338 | 241940 |
+| rnb-soul | 337 | 31330 | 341092 |
+| rock | 882 | 30441 | 566380 |
+| schlager | 409 | 84 | 3232 |
 
 ## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (361)
 
@@ -1255,3 +1278,47 @@ without one stay in the dataset (no clip until an override).
 | Vicky Leandros | Theo, wirfahr'n nach Lodz |
 | Wencke Myhre | Ich Glou'an Den Weihnachtsmann |
 | Wendy Carlos | Shining |
+
+## Not on Last.fm (39)
+
+| artist | title | genres (artist tags) |
+|---|---|---|
+| Andrew Lloyd Webber, Gerard Butler, Emmy Rossum | Das Phantom der Opera |  |
+| Christina Perri | The Twilight Saga: Breaking Dawn (A thousand years) | indie, pop |
+| Chuck Lorre, Lee Aronsohn | Two and a Half Men (Manly Men) |  |
+| David Rose,Daniel Caine Orchestra | Unsere kleine Farm |  |
+| Dieter Thomas Kuhn, Michael Holm | Barfuß im Regen | schlager |
+| DJ Jazzy Jeff & Will Smith | Der Prinz von Bel-Air | hip-hop |
+| Dominik Hause & Mike Post | Das A-Team |  |
+| Dominik Hauser | Dallas |  |
+| Dominik Hauser | L.A. Law - Law & Order |  |
+| Doris Day, Frank DeVol | Der Mann, der zuviel wusste (Que Sera Sera) |  |
+| Encanto Cast | Encanto (We Don't Talk About Bruno) |  |
+| Éric Serra, Inva Mula | Das fünfte Element (The Diva Dance) | dance |
+| Gabriel Mann | Modern Family |  |
+| Gato Barbieri | Der letzte Tango in Paris |  |
+| Hey Beautiful | How I Met Your Mother |  |
+| High School Musical Cast | High School Musical (We're All In This Together) | pop |
+| Howard Shore | Der Herr der Ringe (The Shire) |  |
+| Jack Elliot | Drei Engel für Charlie | country |
+| John Barry | Jenseits von Afrika (I Had A Farm) |  |
+| John Beal | Akte X - The X Files |  |
+| John Williams | Jäger des verlorenen Schatzes (Indiana Jones) |  |
+| John Williams | Krieg der Sterne (Star Wars) |  |
+| Kelly Rowland | Dilemma (feat. Kelly Rowland) Nelly | pop, rnb-soul |
+| Maite Kelly | Warum hast Du nicht nein gesagt Roland Kaiser | pop, rock, schlager |
+| Malcolm Arnold | Die Brücke am Kwai (The Colonel Bogey March) |  |
+| Manuela Fellner | 7 Tage hat die Woche | schlager |
+| Marc Bradley | Falcon Crest |  |
+| Matthias Reim | Verdammt lch lieb' dich | schlager |
+| Nerf Herder | Buffy, im Bann der Dämonen - Buffy The Vampire Slayer | indie, rock |
+| Nik P., DJ Ötzi | Ein Stern, der Deinen Namen trägt | schlager |
+| Randy Newman | Die Monster AG | pop |
+| Ray Evans, Jerry Livingston | Bonanza |  |
+| Richard Hall, Moby | Die Bourne Identität (Extreme Ways) |  |
+| Richard Strauss | 2001 Odyssee im Weltraum (Also Spracht Zarathustra) |  |
+| Robert D. | Matrix (Clubbed to Death) |  |
+| Sherwood Schwartz, Frank Devol | Drei Mädchen und drei Jungen - The Brady Bunch |  |
+| The Snowths | Die Muppet Show (Mah Na Mah Na) |  |
+| Vicky Leandros | Theo, wirfahr'n nach Lodz | pop, schlager |
+| Wencke Myhre | Ich Glou'an Den Weihnachtsmann | schlager |

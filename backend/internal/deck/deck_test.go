@@ -59,6 +59,8 @@ func TestSelect(t *testing.T) {
 		{Selector{Categories: []string{"number-ones"}}, []string{"dq"}},
 		{Selector{Genres: []string{"rock"}, From: 1990}, []string{"ww"}},
 		{Selector{Sets: []string{"nothing"}}, nil},
+		// General is every song: whatever else is picked beside it, in the year range.
+		{Selector{Sets: []string{"nothing"}, Genres: []string{"rock", General}, From: 1970}, []string{"br", "dq", "ww"}},
 	}
 	for _, c := range cases {
 		if err := c.sel.Normalize(2026); err != nil {
@@ -143,7 +145,7 @@ func TestDecksHandler(t *testing.T) {
 	if !slices.Equal(d.Categories, []Group{{"number-ones", "Number ones", 1}, {"evergreens", "Evergreens (pre-1950)", 1}}) {
 		t.Errorf("categories = %+v", d.Categories)
 	}
-	if !slices.Equal(d.Genres, []Group{{"pop", "Pop", 1}, {"rock", "Rock", 2}, {"disco-funk", "Disco & Funk", 1}}) {
+	if !slices.Equal(d.Genres, []Group{{"general", "General", 4}, {"pop", "Pop", 1}, {"rock", "Rock", 2}, {"disco-funk", "Disco & Funk", 1}}) {
 		t.Errorf("genres = %+v", d.Genres)
 	}
 }

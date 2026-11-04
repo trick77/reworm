@@ -24,6 +24,7 @@ import (
 	"github.com/trick77/reworm/internal/appletoken"
 	"github.com/trick77/reworm/internal/cards"
 	"github.com/trick77/reworm/internal/httpcache"
+	"github.com/trick77/reworm/internal/lastfm"
 	"github.com/trick77/reworm/internal/musicbrainz"
 	"github.com/trick77/reworm/internal/song"
 )
@@ -32,15 +33,16 @@ const usage = `usage: import [-env file] [-data dir] [-workers n] [-offline] car
 
   cards  download the card lists (BACKEND_CARDS_BASE_URL, BACKEND_CARDS_FILES) into <data>/cards/<set>.csv
   songs  resolve the snapshots of the sets BACKEND_CARDS_FILES names against MusicBrainz, Apple Music and the
-         Cover Art Archive into <data>/songs.jsonl and <data>/import-report.md; every answer is cached in <data>/cache.
+         Cover Art Archive, listeners and genres from Last.fm (BACKEND_LASTFM_API_KEY), into <data>/songs.jsonl and
+         <data>/import-report.md; every answer is cached in <data>/cache.
          -offline answers from the cache only: a song that would need the network keeps its previous entry`
 
 // Endpoints are the services' base URLs; tests point them at fixtures.
 type Endpoints struct {
-	MusicBrainz, AppleAPI, ApplePlayer, CoverArt string
-	// MBEvery spaces MusicBrainz requests (1 s); AppleEvery Apple's (cache misses only, as MusicBrainz). Above 0:
-	// kit's throttle refuses a zero gap (tests take 1 ns).
-	MBEvery, AppleEvery time.Duration
+	MusicBrainz, AppleAPI, ApplePlayer, CoverArt, LastFM string
+	// MBEvery spaces MusicBrainz requests (1 s); AppleEvery Apple's, LastFMEvery Last.fm's (cache misses only, as
+	// MusicBrainz). Above 0: kit's throttle refuses a zero gap (tests take 1 ns).
+	MBEvery, AppleEvery, LastFMEvery time.Duration
 }
 
 // maxQueue is how long a request may wait for its paced turn: never refused, the workers just queue.
@@ -52,9 +54,11 @@ const appleTries = 4
 // DefaultEndpoints are the real services.
 var DefaultEndpoints = Endpoints{
 	MusicBrainz: musicbrainz.BaseURL, AppleAPI: applemusic.DefaultBaseURL, ApplePlayer: applemusic.PlayerURL, CoverArt: CAAURL,
+	LastFM: lastfm.BaseURL,
 	// Apple: the web player's API is unofficial with unpublished limits; 5 req/s caused a ~3.5 h block (2026-11-04),
-	// so 20 req/min, the one rate Apple publishes (its iTunes Search API).
-	MBEvery: time.Second, AppleEvery: 3 * time.Second,
+	// so 20 req/min, the one rate Apple publishes (its iTunes Search API). Last.fm's terms: at most 5 req/s
+	// averaged over 5 minutes.
+	MBEvery: time.Second, AppleEvery: 3 * time.Second, LastFMEvery: 250 * time.Millisecond,
 }
 
 // Main runs the command: args without the program name, getenv the process environment. It returns the exit code.
@@ -148,8 +152,13 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 	if err != nil {
 		return err
 	}
+	cfg := env.New(lookup)
+	lastfmKey := cfg.Required("BACKEND_LASTFM_API_KEY")
+	if err := cfg.Err(); err != nil {
+		return err
+	}
 	cacheDir := filepath.Join(dataDir, "cache")
-	p := newPipeline(cacheDir, workers, offline, ep, log)
+	p := newPipeline(cacheDir, workers, offline, ep, lastfmKey, log)
 	if offline {
 		if p.Previous, err = previousSongs(filepath.Join(dataDir, "songs.jsonl")); err != nil {
 			return err
@@ -164,6 +173,10 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 	}
 	rs, merged, err := p.merge(ctx, rs)
 	if err != nil {
+		return err
+	}
+	log.Info("Last.fm listeners and genres", "songs", len(rs))
+	if err := p.tagAll(ctx, rs); err != nil {
 		return err
 	}
 	kept, applied, unknown, err := p.applyOverrides(ctx, rs, ov)
@@ -225,9 +238,11 @@ func previousSongs(path string) (map[string]song.Song, error) {
 // throttle, one turn at a time for all workers), so only misses wait; the Apple token kept in the cache dir (its
 // page and bundle are not cached: a cached bundle would hand out an expired token forever). Offline, every miss is
 // httpcache.ErrOffline instead of a request.
-func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, log *slog.Logger) *Pipeline {
-	// One cache dir for all; clients evict what they cannot decode (any Transport on the dir does).
-	cache := &httpcache.Transport{Dir: filepath.Join(cacheDir, "http")}
+func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, lastfmKey string, log *slog.Logger) *Pipeline {
+	// One cache dir for all; clients evict what they cannot decode (any Transport on the dir does). Last.fm's key is
+	// no part of a cached answer (Redact): it never sits in data/cache, a new key keeps the cache.
+	redact := []string{lastfm.KeyParam}
+	cache := &httpcache.Transport{Dir: filepath.Join(cacheDir, "http"), Redact: redact}
 	var net http.RoundTripper // nil: the default transport
 	if offline {
 		net = httpcache.Offline{}
@@ -237,8 +252,9 @@ func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, log *
 		if gap > 0 && !offline {
 			next = &httpcache.Paced{Throttle: ratelimit.NewThrottle(gap, maxQueue)}
 		}
-		return &http.Client{Timeout: time.Minute, Transport: &httpcache.Transport{Dir: cache.Dir, Next: next}}
+		return &http.Client{Timeout: time.Minute, Transport: &httpcache.Transport{Dir: cache.Dir, Next: next, Redact: redact}}
 	}
+	userAgent := "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )"
 	tokenPath := filepath.Join(cacheDir, "apple-token.json")
 	tokens := &applemusic.Source{BaseURL: ep.ApplePlayer, HTTP: &http.Client{Timeout: time.Minute, Transport: net},
 		OnNew: func(t applemusic.Token) {
@@ -254,8 +270,10 @@ func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, log *
 	return &Pipeline{
 		MB: &musicbrainz.Client{BaseURL: ep.MusicBrainz,
 			HTTP:      cached(ep.MBEvery),
-			UserAgent: "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )",
+			UserAgent: userAgent,
 			Evict:     cache.Evict},
+		LastFM: &lastfm.Client{BaseURL: ep.LastFM, Key: lastfmKey, HTTP: cached(ep.LastFMEvery), UserAgent: userAgent,
+			Evict: cache.Evict},
 		// A batch: four tries on a cut body or a network blip, none on an offline miss (no retry fills the
 		// cache), and a 429 stops the run (applemusic.ErrRateLimited).
 		Apple: &applemusic.Client{BaseURL: ep.AppleAPI, HTTP: cached(ep.AppleEvery), Dev: tokens, Tries: appleTries,

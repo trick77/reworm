@@ -1,6 +1,8 @@
 package httpcache
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -225,5 +227,56 @@ func TestOffline_answersFromTheCacheOnly(t *testing.T) {
 	}
 	if hits.Load() != 1 {
 		t.Errorf("hits = %d, want 1", hits.Load())
+	}
+}
+
+// A secret in the query (an API key) is no part of the cache: not in the key, not on disk. A new key finds the
+// answers the old one fetched; a URL without the parameter keys as it always did.
+func TestTransport_redactsSecretParams(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1); _, _ = io.WriteString(w, "x") }))
+	defer srv.Close()
+	dir := t.TempDir()
+	tr := &Transport{Dir: dir, Redact: []string{"api_key"}}
+	c := &http.Client{Transport: tr}
+	get(t, c, http.MethodGet, srv.URL+"/q?track=a&api_key=old-secret")
+	if _, body := get(t, c, http.MethodGet, srv.URL+"/q?track=a&api_key=new-secret"); body != "x" || hits.Load() != 1 {
+		t.Errorf("rotated key: body %q, %d hits, want the cached answer", body, hits.Load())
+	}
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p) //nolint:gosec // test dir
+		if err != nil {
+			return err
+		}
+		zr, err := gzip.NewReader(bytes.NewReader(b))
+		if err != nil {
+			return err
+		}
+		plain, err := io.ReadAll(zr)
+		if err != nil {
+			return err
+		}
+		if bytes.Contains(plain, []byte("secret")) {
+			t.Errorf("%s stores the key: %s", p, plain)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tr.Evict(http.MethodGet, srv.URL+"/q?track=a&api_key=other"); err != nil {
+		t.Fatal(err)
+	}
+	get(t, c, http.MethodGet, srv.URL+"/q?track=a&api_key=old-secret")
+	if hits.Load() != 2 {
+		t.Errorf("evicted by another key: %d hits, want 2", hits.Load())
+	}
+	// Without the parameter the URL keys exactly as before (no re-encoding: existing caches stay valid).
+	u := "https://x.example/s?b=2&a=1"
+	if got, want := tr.key(http.MethodGet, tr.id(u)), (&Transport{Dir: dir}).key(http.MethodGet, u); got != want {
+		t.Errorf("key moved for a URL without a secret: %s != %s", got, want)
 	}
 }

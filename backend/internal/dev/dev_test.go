@@ -132,7 +132,7 @@ func TestLoadSongs(t *testing.T) {
 		t.Fatalf("active songs = %+v, %v", got, err)
 	}
 	d, err := songs.Decks(ctx)
-	if err != nil || len(d.Sets) != 1 || d.Sets[0].Count != 2 || len(d.Categories) != 1 || len(d.Genres) != 1 {
+	if err != nil || len(d.Sets) != 1 || d.Sets[0].Count != 2 || len(d.Categories) != 1 || len(d.Genres) != 2 {
 		t.Errorf("decks = %+v, %v", d, err)
 	}
 	if err := CheckData(ctx, db); err != nil {

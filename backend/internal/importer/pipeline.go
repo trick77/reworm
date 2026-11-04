@@ -38,11 +38,13 @@ type Recordings interface {
 	Search(ctx context.Context, artist, title string, until int) ([]musicbrainz.Recording, error)
 }
 
-// Pipeline resolves card songs against MusicBrainz, Apple and the Cover Art Archive.
+// Pipeline resolves card songs against MusicBrainz, Apple and the Cover Art Archive, then Last.fm (listeners,
+// genres; none when LastFM is nil).
 type Pipeline struct {
 	MB      Recordings
 	Apple   Catalog
 	Covers  *CoverArt
+	LastFM  Listening
 	Workers int
 	Log     *slog.Logger
 	// Previous, set offline, is the last dataset by card key: a song whose resolve would need the network
@@ -69,6 +71,8 @@ type resolved struct {
 	AppleYear     int
 	AppleOriginal bool
 	MBMatched     bool
+	// LastFM says Last.fm knows the track (by one of its readings).
+	LastFM bool
 	// Low lists why a match is low confidence; empty when it is not.
 	Low []string
 	// match and track are the MusicBrainz match and the Apple track: kept to redo the cover when the year or the
