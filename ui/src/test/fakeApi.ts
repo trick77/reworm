@@ -197,7 +197,8 @@ function refusal(
   if (!st.players.some((p) => p.id === playerId))
     return fail(401, "not_in_room", "not in this room");
   if (st.mode !== mode) return fail(409, "wrong_mode");
-  if (st.phase === "paused") return fail(409, "wrong_phase");
+  if (st.phase === "paused" || st.phase === "countdown")
+    return fail(409, "wrong_phase");
   if (st.round?.n !== round || st.phase !== phase)
     return fail(409, "wrong_round");
   return null;
@@ -515,6 +516,7 @@ export class FakeWorld {
     }
     st.phase = "countdown";
     this.schedule(code, start, () => {
+      if (st.phase !== "countdown" || st.round?.n !== n) return;
       st.phase = "playing";
       this.schedule(code, st.round!.endsAt, timeUp);
       this.emit(code);

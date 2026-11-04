@@ -9,14 +9,18 @@ import type {
   Round,
   RoundResult,
 } from "../../api/types";
-import { serverNow } from "../../api/clock";
 import { player } from "../../audio/player";
 import { audioUnlocked, unlockAudio } from "../../audio/unlock";
 import { usePlayer } from "../../audio/usePlayer";
 import { AppShell } from "../../components/AppShell";
 import { Avatar } from "../../components/Avatar";
 import { Button, IconButton, Pill } from "../../components/Controls";
-import { DeadlineRing, StartCountdown } from "../../components/Countdown";
+import {
+  DeadlineRing,
+  StartCountdown,
+  started,
+  useSecondsTo,
+} from "../../components/Countdown";
 import { Cover, SongHead } from "../../components/Cover";
 import {
   Confetti,
@@ -76,8 +80,8 @@ export function direction(shown: number, year: number) {
 }
 
 // useStageAudio plays each new round's clip (fade in), pauses with the room, fades out on a buzz and on
-// the result, and keeps the next round's clip preloaded. The clip starts at the countdown's end by the server
-// clock, not when the "playing" state arrives up to a tick later; that state still starts it if the timer lost.
+// the result, and keeps the next round's clip preloaded, the countdown's own too. It gets the room as drawn
+// (started): the clip starts on the countdown's last second by the server clock, not when "playing" arrives.
 function useStageAudio(s: RoomState) {
   const played = useRef<string | null>(null);
   const prev = useRef<string | null>(null);
@@ -85,22 +89,10 @@ function useStageAudio(s: RoomState) {
   const url = s.round?.clip.previewUrl;
   const from = s.round?.clip.from ?? 0;
   const length = s.round?.clip.length;
-  const startsAt = s.round?.startedAt ?? 0;
   const next = s.nextClip?.previewUrl;
   useEffect(() => {
-    if (s.phase !== "countdown" || n == null || !url) return;
-    const p = player();
-    p.prefetch(url);
-    const id = setTimeout(
-      () => {
-        if (played.current === n) return;
-        played.current = n;
-        p.play(url, { from, length });
-      },
-      Math.max(0, startsAt - serverNow()),
-    );
-    return () => clearTimeout(id);
-  }, [s.phase, n, url, from, length, startsAt]);
+    if (s.phase === "countdown" && url) player().prefetch(url);
+  }, [s.phase, url]);
   useEffect(() => {
     const p = player();
     const was = prev.current;
@@ -495,7 +487,7 @@ function Over({ s, host }: { s: RoomState; host: boolean }) {
 }
 
 export function Stage({
-  state: s,
+  state: raw,
   host,
   live,
 }: {
@@ -504,6 +496,10 @@ export function Stage({
   live: boolean;
 }) {
   const api = useApi();
+  const left = useSecondsTo(
+    raw.phase === "countdown" ? (raw.round?.startedAt ?? null) : null,
+  );
+  const s = started(raw, left);
   useStageAudio(s);
   const [sound, setSound] = useState(audioUnlocked);
   const r = s.round;
@@ -526,7 +522,7 @@ export function Stage({
   else if (!r)
     body = <div className="over center sub">Waiting for the next round…</div>;
   else if (s.phase === "countdown")
-    body = <StartCountdown startsAt={r.startedAt} round={r.n} />;
+    body = <StartCountdown left={left} round={r.n} />;
   else if (showResult || judging)
     body = (
       <div className="cols mid">

@@ -18,6 +18,8 @@ import {
   DeadlineBar,
   DeadlineRing,
   StartCountdown,
+  started,
+  useSecondsTo,
 } from "../../components/Countdown";
 import { Cover } from "../../components/Cover";
 import { Loading, Problem, Screen } from "../common";
@@ -416,7 +418,11 @@ export function Pad({
   playerId: string;
   onGone: () => void;
 }) {
-  const { state: s, error, live } = useRoom(code);
+  const { state: raw, error, live } = useRoom(code);
+  const left = useSecondsTo(
+    raw?.phase === "countdown" ? (raw.round?.startedAt ?? null) : null,
+  );
+  const s = raw && started(raw, left);
   const [sent, setSent] = useState<Sent>(null);
   const me = s?.players.find((p) => p.id === playerId);
   const gone = (!!s && !me) || error?.status === 404;
@@ -489,7 +495,7 @@ export function Pad({
       </Center>
     );
   else if (s.phase === "countdown")
-    body = <StartCountdown startsAt={r.startedAt} round={r.n} />;
+    body = <StartCountdown left={left} round={r.n} />;
   else if (view === "result") body = <Result s={s} me={me} />;
   else if (s.mode === "years")
     body = <YearsLive s={s} me={me} sent={sent} send={send} />;

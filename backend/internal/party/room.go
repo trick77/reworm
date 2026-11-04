@@ -195,10 +195,11 @@ func (c *Config) Normalize(thisYear int) error {
 	return nil
 }
 
-func newRoom(code, hostProfile string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
+func newRoom(code, hostProfile string, c Config, countdown time.Duration, clock func() time.Time, rng *rand.Rand,
+	resolve Resolver) *Room {
 	r := &Room{code: code, hostProfile: hostProfile, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{}, clock: clock,
 		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey}),
-		countdown: Countdown}
+		countdown: countdown}
 	r.lastActive = clock()
 	r.idle.Store(r.lastActive.UnixMilli())
 	r.configure(c)
@@ -526,7 +527,7 @@ func (r *Room) Kick(now time.Time, profileID, playerID string) error {
 func (r *Room) settle(now time.Time) {
 	rd := r.round
 	switch r.phase {
-	case PhasePlaying:
+	case PhasePlaying, PhaseCountdown:
 		if r.mode == ModeYears && !r.anyThinking() {
 			r.finish(now, nil, 0)
 		}

@@ -1,6 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
 import { syncServerClock } from "../api/clock";
-import { CountdownRing, StartCountdown, TimerBar } from "./Countdown";
+import {
+  CountdownRing,
+  StartCountdown,
+  TimerBar,
+  useSecondsTo,
+} from "./Countdown";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -57,22 +62,29 @@ describe("CountdownRing", () => {
 describe("StartCountdown", () => {
   afterEach(() => syncServerClock(Date.now()));
 
-  it("counts 3, 2, 1 to the start by the server clock, then says Go", () => {
+  // Counter is what stage and pad do: the seconds by the server clock, the countdown until they run out.
+  function Counter({ at }: { at: number }) {
+    const left = useSecondsTo(at);
+    return left ? <StartCountdown left={left} round={2} /> : <p>Live</p>;
+  }
+
+  it("counts 3, 2, 1 to the start by the server clock, on the second, then stops", () => {
     // this device runs 5 s behind the server: the digits follow the server's time
     syncServerClock(Date.now() + 5000);
-    const startsAt = Date.now() + 5000 + 3000;
-    render(<StartCountdown startsAt={startsAt} round={2} />);
+    render(<Counter at={Date.now() + 5000 + 3000} />);
     const timer = screen.getByRole("timer");
     expect(timer).toHaveTextContent("3");
     expect(timer).toHaveTextContent("Round 2 · get ready");
     expect(timer).toHaveAccessibleName("Round 2 starts in 3");
-    act(() => vi.advanceTimersByTime(1000));
+    act(() => vi.advanceTimersByTime(999));
+    expect(timer).toHaveTextContent("3");
+    act(() => vi.advanceTimersByTime(1));
     expect(timer).toHaveTextContent("2");
     act(() => vi.advanceTimersByTime(1000));
     expect(timer).toHaveTextContent("1");
     act(() => vi.advanceTimersByTime(1000));
-    expect(timer).toHaveTextContent("Go!");
-    expect(timer).toHaveAccessibleName("Go");
+    expect(screen.getByText("Live")).toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(0); // nothing ticks once it ran out
   });
 });
 

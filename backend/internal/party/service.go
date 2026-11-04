@@ -171,8 +171,7 @@ func (s *Service) create(hostProfile string, c Config) (*Room, error) {
 	for s.rooms[code] != nil {
 		code = api.Code(4)
 	}
-	r := newRoom(code, hostProfile, c, s.o.Now, s.o.Rand(), s.resolver())
-	r.countdown = s.countdown
+	r := newRoom(code, hostProfile, c, s.countdown, s.o.Now, s.o.Rand(), s.resolver())
 	s.rooms[code] = r
 	return r, nil
 }

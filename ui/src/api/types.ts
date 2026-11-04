@@ -90,7 +90,6 @@ export type RoundResult = {
 export type Round = {
   n: number;
   startedAt: number; // the clip's start: still ahead during the countdown
-
   endsAt: number;
   judgeEndsAt: number | null; // buzzer: the judging window's end, null before the reveal
   proposedYear?: number;

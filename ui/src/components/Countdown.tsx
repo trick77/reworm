@@ -6,6 +6,7 @@ import {
   type CSSProperties,
 } from "react";
 import { secondsLeft, serverNow } from "../api/clock";
+import type { RoomState } from "../api/types";
 import { cx } from "../lib/cx";
 
 const TICK_MS = 250;
@@ -161,36 +162,47 @@ export function DeadlineRing({
   );
 }
 
-// GO_TICK_MS keeps the 3, 2, 1 within a frame or so of the server's second, on every screen alike.
-const GO_TICK_MS = 50;
+// useSecondsTo is the whole seconds left to `at` (server ms), 0 once it passed or for null. It re-renders exactly
+// on each server-clock second, not on a poll: every screen changes digit, and starts the round, at the same moment.
+export function useSecondsTo(at: number | null): number {
+  const [tick, setTick] = useState(0);
+  const left = at == null ? 0 : secondsLeft(at);
+  useEffect(() => {
+    if (at == null || left === 0) return;
+    const ms = at - serverNow() - (left - 1) * 1000;
+    const id = setTimeout(() => setTick((t) => t + 1), Math.max(0, ms));
+    return () => clearTimeout(id);
+  }, [at, left, tick]);
+  return left;
+}
 
-// StartCountdown is the 3, 2, 1 before a round, to the clip's start (startsAt, server ms). Every screen reads the
-// server clock, so stage and phones change digit together; "Go!" holds until the room says the round runs.
+// StartCountdown is the 3, 2, 1 before a round: `left` seconds to the clip's start (useSecondsTo).
 export function StartCountdown({
-  startsAt,
+  left,
   round,
 }: {
-  startsAt: number;
+  left: number;
   round: number;
 }) {
-  const [now, setNow] = useState(serverNow);
-  useEffect(() => {
-    const id = setInterval(() => setNow(serverNow()), GO_TICK_MS);
-    return () => clearInterval(id);
-  }, []);
-  const left = secondsLeft(startsAt, now);
   return (
     <div
       className="go center"
       role="timer"
-      aria-label={left ? `Round ${round} starts in ${left}` : "Go"}
+      aria-label={`Round ${round} starts in ${left}`}
     >
       <div key={left} className="go-num num pop">
-        {left || "Go!"}
+        {left}
       </div>
       <div className="sub">Round {round} · get ready</div>
     </div>
   );
+}
+
+// started is the room as the screens draw it: a countdown whose start passed by the server clock already plays,
+// without waiting for the event that says so (the server's tick, up to 100 ms later, plus the network). A press
+// then is fine: the server starts the round itself when the press arrives (Room.touch).
+export function started(s: RoomState, left: number): RoomState {
+  return s.phase === "countdown" && left === 0 ? { ...s, phase: "playing" } : s;
 }
 
 // DeadlineBar is the pad's bar for a server deadline, read from the server clock each tick (as

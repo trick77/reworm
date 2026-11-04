@@ -49,9 +49,7 @@ func fixed(t time.Time) func() time.Time { return func() time.Time { return t } 
 // testRoom is newRoom without the countdown: the rule tests answer the moment a round starts. TestCountdown
 // covers the countdown itself.
 func testRoom(code, hostProfile string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
-	r := newRoom(code, hostProfile, c, clock, rng, resolve)
-	r.countdown = 0
-	return r
+	return newRoom(code, hostProfile, c, 0, clock, rng, resolve)
 }
 
 // setClock waits for background prefetches and sets the room's clock to now.
@@ -272,6 +270,19 @@ func TestCountdown(t *testing.T) {
 				t.Errorf("pressMs = %d, want 1500 (from the clip's start)", ms)
 			}
 		})
+	}
+}
+
+func TestCountdown_kickingTheLastPlayerEndsTheRound(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	r.countdown = Countdown
+	p := join(t, r, 1)
+	start(t, r, 5)
+	if err := r.Kick(t0.Add(time.Second), host, p[0]); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.State(t0.Add(time.Second)); s.Phase != PhaseResult || s.Round.Result.WinnerID != nil {
+		t.Errorf("after the kick = %s %+v", s.Phase, s.Round)
 	}
 }
 
