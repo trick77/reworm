@@ -1,4 +1,4 @@
--- Profiles, paired devices and pairing codes (plan D3). No passwords: a device holds a signed cookie whose claim is
+-- Profiles, paired devices and pairing codes. No passwords: a device holds a signed cookie whose claim is
 -- its id, and every request checks the id against devices, so removing the row signs that device out. A device
 -- belongs to one profile at a time; "Who's playing?" on a shared device moves it to another. Times are unix ms.
 CREATE TABLE profiles (

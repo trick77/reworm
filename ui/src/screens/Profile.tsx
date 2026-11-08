@@ -1,4 +1,4 @@
-// Profiles and paired devices (plan D3): who's playing, profile & devices with pairing codes, claiming a
+// Profiles and paired devices: who's playing, profile & devices with pairing codes, claiming a
 // code on a new device, and the first device's setup link.
 import { useEffect, useEffectEvent, useState } from "react";
 import { useLocation, useSearchParams } from "wouter";

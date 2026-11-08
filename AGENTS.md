@@ -1,6 +1,6 @@
 # reworm
 
-Self-hosted music party game: Go backend + embedded React SPA. Plan: `docs/plan.md`; UI spec: `docs/mock/index.html`.
+Self-hosted music party game: Go backend + embedded React SPA. UI spec: `docs/mock/index.html`.
 Party mode is the product, training a side feature on the same round engine.
 
 ## Working conventions

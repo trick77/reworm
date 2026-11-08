@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// The import stores sets, categories and genres as slugs; these are their display names and list order (sets per
-// plan D13, categories and genres as the mock lists them, Gen Alpha added since). A slug missing here is shown
+// The import stores sets, categories and genres as slugs; these are their display names and list order
+// (categories and genres as the mock lists them, Gen Alpha added since). A slug missing here is shown
 // title-cased, after these.
 var known = []struct{ id, name string }{
 	{"essentials", "Essentials"},

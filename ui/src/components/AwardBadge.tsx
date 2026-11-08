@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 
-// Training levels are record awards (plan D9), lowest first.
+// Training levels are record awards, lowest first.
 export const AWARD_TIERS = [
   "bronze",
   "silver",

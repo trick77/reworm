@@ -1,4 +1,4 @@
-// Package account is plan D3: no passwords, paired devices. A device holds a kit/auth session cookie whose claim is
+// Package account: no passwords, paired devices. A device holds a kit/auth session cookie whose claim is
 // its device id; every request checks the id against the devices table, so a removed device is signed out at once
 // (a signed cookie cannot be revoked on its own). The first device pairs with a one-time token from the server log;
 // later ones with a short-lived code a paired device shows.

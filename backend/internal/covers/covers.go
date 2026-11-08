@@ -1,4 +1,4 @@
-// Package covers serves song covers from our own disk (plan D4): the stored cover_url (Apple artwork or the Cover
+// Package covers serves song covers from our own disk: the stored cover_url (Apple artwork or the Cover
 // Art Archive) is fetched on first use and kept under the data dir, so a game never loads an outside image. A cover
 // is named by deck.CoverVersion, the hash of the URL it is fetched from: its file, its link's ?v= and its ETag.
 package covers

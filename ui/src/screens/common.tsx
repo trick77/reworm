@@ -242,7 +242,7 @@ export function deckLabel(deck: Deck, decks?: Decks): string {
   return (names.length ? names.join(" + ") : "All songs") + years;
 }
 
-// The proposed-year tiers (plan §2) and each difficulty's base mix, easiest first.
+// The proposed-year tiers and each difficulty's base mix, easiest first.
 export const TIERS = [
   { k: "easy", label: "Easy one", r: "±10–25", col: "var(--sky)" },
   { k: "clear", label: "Clear one", r: "±4–9", col: "var(--jade)" },

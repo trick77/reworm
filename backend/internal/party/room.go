@@ -1,5 +1,5 @@
 // Package party is party mode: rooms in memory, a kit/sse hub per room that pushes the whole RoomState on every
-// change, and the rules of the two modes (plan D11, D14, D15). The server's clock decides every order; every time
+// change, and the rules of the two modes. The server's clock decides every order; every time
 // limit is a deadline the room checks when it is touched or ticked, so a test drives a whole game with a fake clock.
 package party
 

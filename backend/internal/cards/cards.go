@@ -1,6 +1,6 @@
 // Package cards snapshots the community card lists the song database starts from: each source CSV is reduced to
 // artist, title and year and committed as data/cards/<set-slug>.csv. Where the lists come from and which file is
-// which set lives only in the uncommitted local config (plan D10): nothing of the source (URL, file names, video
+// which set lives only in the uncommitted local config: nothing of the source (URL, file names, video
 // links, hashes) is kept.
 package cards
 

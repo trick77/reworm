@@ -4,7 +4,7 @@
 dataset:
 	cp data/songs.jsonl backend/internal/dataset/files/songs.jsonl
 
-# The song database (docs/plan.md, 1): card snapshots from the lists named in .env.local, then the songs. The song
+# The song database: card snapshots from the lists named in .env.local, then the songs. The song
 # step takes about an hour on an empty data/cache (MusicBrainz, 1 req/s); a rerun answers from the cache.
 import-cards:
 	cd backend && go run ./cmd/import -env ../.env.local -data ../data cards

@@ -2,7 +2,7 @@ package importer
 
 import "github.com/trick77/reworm/internal/song"
 
-// categoryRules decide the categories (plan step 7), one rule each, in deck/names.go order. They run on the
+// categoryRules decide the categories, one rule each, in deck/names.go order. They run on the
 // dataset as written, overrides applied, so an override year counts.
 var categoryRules = []struct {
 	slug string

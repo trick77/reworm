@@ -1,6 +1,6 @@
 // Package train is the solo training mode: server-side sessions (a reload resumes at the current card), adaptive
 // year proposals, missed songs asked again a few cards later with a new year, and per-song progress across sessions
-// (spaced repetition: new → learning → mastered), XP, a daily streak and record awards (plan D9).
+// (spaced repetition: new → learning → mastered), XP, a daily streak and record awards.
 package train
 
 import (

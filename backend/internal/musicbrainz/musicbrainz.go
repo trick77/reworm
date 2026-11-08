@@ -1,6 +1,6 @@
 // Package musicbrainz searches MusicBrainz recordings (import only) and picks a card's song among them: the earliest
 // matching recording, its ISRCs and the release groups for the original-album match and the cover. MusicBrainz asks
-// for at most one request per second and a User-Agent naming the app and a contact (plan D8); the caller's transport
+// for at most one request per second and a User-Agent naming the app and a contact; the caller's transport
 // spaces the requests, this client retries the 503 it answers when they come too fast.
 package musicbrainz
 
