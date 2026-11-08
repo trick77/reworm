@@ -68,16 +68,6 @@ func CheckAvatar(avatar string) error {
 	return nil
 }
 
-// Identity is the paired device a request comes from and the profile it plays as.
-type Identity struct {
-	DeviceID    string
-	DeviceLabel string
-	ProfileID   string
-	Name        string
-	Avatar      string
-	Admin       bool
-}
-
 // Options configures New.
 type Options struct {
 	DB *sql.DB

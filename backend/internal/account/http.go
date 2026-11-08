@@ -163,12 +163,6 @@ func (s *Service) handleUpdateMe(w http.ResponseWriter, r *http.Request, id Iden
 	httpx.WriteJSON(w, http.StatusOK, meOf(id))
 }
 
-type profileListJSON struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Avatar string `json:"avatar"`
-}
-
 func (s *Service) handleProfiles(w http.ResponseWriter, r *http.Request, _ Identity) {
 	rows, err := s.db.QueryContext(r.Context(), `SELECT id, name, avatar FROM profiles ORDER BY created_at, rowid`)
 	if err != nil {
@@ -251,13 +245,6 @@ func keepAdmin(ctx context.Context, q querier, deviceID string) error {
 		err = errLastAdmin
 	}
 	return err
-}
-
-type deviceListJSON struct {
-	ID       string `json:"id"`
-	Label    string `json:"label"`
-	LastSeen int64  `json:"lastSeen"`
-	Current  bool   `json:"current"`
 }
 
 func (s *Service) handleDevices(w http.ResponseWriter, r *http.Request, id Identity) {

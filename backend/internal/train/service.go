@@ -90,14 +90,15 @@ type stored struct {
 }
 
 func (s *Service) load(ctx context.Context, id, profile string) (*stored, error) {
-	st := &stored{id: id, profile: profile}
-	err := s.o.DB.QueryRowContext(ctx, `SELECT state FROM train_sessions WHERE id = ? AND profile_id = ?`, id, profile).Scan(&st.old)
+	var old string
+	err := s.o.DB.QueryRowContext(ctx, `SELECT state FROM train_sessions WHERE id = ? AND profile_id = ?`, id, profile).Scan(&old)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errNoSession
 	}
 	if err != nil {
 		return nil, err
 	}
+	st := &stored{id: id, profile: profile, old: old}
 	return st, json.Unmarshal([]byte(st.old), &st.s)
 }
 
@@ -533,17 +534,6 @@ func (s *Service) handleSummary(w http.ResponseWriter, r *http.Request, id accou
 type decadeAccuracy struct {
 	Decade   int     `json:"decade"`
 	Accuracy float64 `json:"accuracy"`
-}
-
-type statsResponse struct {
-	Award      string           `json:"award"`
-	XP         int              `json:"xp"`
-	NextAt     *int             `json:"nextAt"`
-	Mastered   int              `json:"mastered"`
-	Learning   int              `json:"learning"`
-	New        int              `json:"new"`
-	StreakDays int              `json:"streakDays"`
-	Decades    []decadeAccuracy `json:"decades"`
 }
 
 func (s *Service) handleStats(w http.ResponseWriter, r *http.Request, id account.Identity) {

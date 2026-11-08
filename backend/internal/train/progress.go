@@ -42,26 +42,6 @@ func AwardFor(xp int) (string, *int) {
 	return Awards[i].Name, &next
 }
 
-// progress is a song's spaced-repetition row.
-type progress struct {
-	box      int
-	due      time.Time
-	attempts int
-	correct  int
-	found    bool
-}
-
-// state is the song's progress state as the year proposal adapts to it.
-func (p progress) state() string {
-	switch {
-	case !p.found:
-		return "new"
-	case p.box >= masteredBox:
-		return "mastered"
-	}
-	return "learning"
-}
-
 type querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
