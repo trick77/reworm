@@ -16,20 +16,6 @@ import (
 	"time"
 )
 
-// Song is a song as a round needs it. The answer (artist, title, year) never leaves the server before a reveal.
-type Song struct {
-	ID         string
-	Artist     string
-	Title      string
-	Year       int
-	ISRC       string
-	AppleID    string
-	Storefront string
-	// CoverVersion names the cover the import stored (CoverVersion), "" when there is none; the image itself is
-	// served by /api/covers/{id}.
-	CoverVersion string
-}
-
 // coverSize is the edge Apple artwork is fetched at: crisp on a TV stage, ~50 KB.
 const coverSize = "600x600"
 
