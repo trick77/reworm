@@ -248,7 +248,7 @@ erDiagram
     pairing_codes }o--|| profiles : "profile_id"
     played_history }o--|| songs : "song_id"
     played_history }o--|| profiles : "profile_id"
-    train_profiles }o--|| profiles : "profile_id"
+    train_profiles |o--|| profiles : "profile_id"
     train_progress }o--|| songs : "song_id"
     train_progress }o--|| profiles : "profile_id"
     train_sessions }o--|| profiles : "profile_id"
