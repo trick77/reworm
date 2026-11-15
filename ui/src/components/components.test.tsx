@@ -145,9 +145,12 @@ describe("Avatar", () => {
       "src",
       "/avatars/vinyl.svg",
     );
-    expect(container.querySelector(".avatar-pick")).toHaveStyle({
-      boxShadow: "0 0 0 3px var(--ink),0 0 0 6px #e9b44c",
-    });
+    // Inline style, not toHaveStyle: jsdom 31 resolves var() in the computed
+    // style, and --ink is not defined in the test document.
+    const pick = container.querySelector<HTMLElement>(".avatar-pick");
+    expect(pick?.style.boxShadow).toBe(
+      "0 0 0 3px var(--ink),0 0 0 6px #e9b44c",
+    );
   });
 
   it("AvatarPicker offers all 12 and reports the pick", () => {
