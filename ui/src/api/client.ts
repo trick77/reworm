@@ -1,5 +1,6 @@
 // The API client: every endpoint of the contract behind one interface, so screens and tests can swap the
 // network for a fake. HttpApi is the real one: fetch for the calls, EventSource for the live room state.
+import { BASE, withBase } from "../base";
 import { syncServerClock } from "./clock";
 import type {
   Choice,
@@ -122,10 +123,12 @@ export function timeZone(): string {
 
 const room = (code: string) => `/api/rooms/${encodeURIComponent(code)}`;
 
-function browserEnv(): HttpEnv {
+// browserEnv is the real network, every app path under the base path (PUBLIC_PATH).
+export function browserEnv(base: string = BASE): HttpEnv {
   return {
-    fetch: (input, init) => window.fetch(input, init),
-    eventSource: (url) => new EventSource(url, { withCredentials: true }),
+    fetch: (input, init) => window.fetch(withBase(input, base), init),
+    eventSource: (url) =>
+      new EventSource(withBase(url, base), { withCredentials: true }),
   };
 }
 

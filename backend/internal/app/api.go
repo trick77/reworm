@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"log/slog"
@@ -41,6 +42,8 @@ var previewSource = func(cfg Config) (preview.Source, server.Routes, error) {
 type apiParts struct {
 	routes []server.Routes
 	party  *party.Service
+	// setupURL is the first device's one-time link, "" once a profile exists.
+	setupURL string
 }
 
 // newAPI builds the API services on db.
@@ -50,14 +53,17 @@ func newAPI(ctx context.Context, cfg Config, db *sql.DB) (apiParts, error) {
 	if err != nil {
 		return apiParts{}, err
 	}
+	// Pairing links: absolute with the prefix behind PUBLIC_FQDN, else app-relative ("/pair/CODE"), which the client
+	// resolves against its own origin and base path like every other path the API hands out.
 	publicURL := ""
 	if cfg.PublicFQDN != "" {
-		publicURL = "https://" + cfg.PublicFQDN
+		publicURL = "https://" + cfg.PublicFQDN + cfg.PublicPath
 	}
 	// Behind Traefik's TLS (PUBLIC_FQDN set) cookies are Secure; a plain-http local run keeps them usable.
 	secure := cfg.PublicFQDN != ""
 	clientKey := ratelimit.ClientKey(cfg.TrustedProxies)
-	accounts, err := account.New(account.Options{DB: db, Key: key, Secure: secure, PublicURL: publicURL, ClientKey: clientKey})
+	accounts, err := account.New(account.Options{DB: db, Key: key, Secure: secure, PublicURL: publicURL,
+		BasePath: cfg.PublicPath, ClientKey: clientKey})
 	if err != nil {
 		return apiParts{}, err
 	}
@@ -65,9 +71,11 @@ func newAPI(ctx context.Context, cfg Config, db *sql.DB) (apiParts, error) {
 	if err != nil {
 		return apiParts{}, err
 	}
+	setupURL := ""
 	if token != "" {
-		slog.Warn("no profile yet: pair the first device with the one-time setup link",
-			"url", publicURL+"/setup/"+token, "token", token)
+		// A person opens this one from the log: the path as the browser needs it, prefix included.
+		setupURL = cmp.Or(publicURL, cfg.PublicPath) + "/setup/" + token
+		slog.Warn("no profile yet: pair the first device with the one-time setup link", "url", setupURL, "token", token)
 	}
 	songs := deck.New(db)
 	if err := devSongs(ctx, cfg, db); err != nil {
@@ -85,7 +93,7 @@ func newAPI(ctx context.Context, cfg Config, db *sql.DB) (apiParts, error) {
 		slog.Warn("no preview source configured: party rounds and training answer 503")
 	}
 	rooms, err := party.New(party.Options{Accounts: accounts, Songs: songs, Previews: previews, Key: key, Secure: secure,
-		ClientKey: clientKey})
+		BasePath: cfg.PublicPath, ClientKey: clientKey})
 	if err != nil {
 		return apiParts{}, err
 	}
@@ -101,7 +109,7 @@ func newAPI(ctx context.Context, cfg Config, db *sql.DB) (apiParts, error) {
 		slog.Info("cover cache swept", "removed", n)
 	}
 	routes = append(routes, accounts, songs, cov, rooms, training)
-	return apiParts{routes: routes, party: rooms}, nil
+	return apiParts{routes: routes, party: rooms, setupURL: setupURL}, nil
 }
 
 // devSongs is dev mode's guard and its song list: a data dir that holds real songs refuses to start (dev mode

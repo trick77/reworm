@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
+  // Relative: one bundle runs under any PUBLIC_PATH. The chunks load relative to each other; the server rewrites
+  // the shell's "./" refs to its base path (backend/web/embed.go), since the shell is served on deep routes too.
+  base: "./",
   server: { proxy: { "/api": "http://127.0.0.1:8080" } },
   build: {
     outDir: "../backend/web/dist",

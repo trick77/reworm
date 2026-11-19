@@ -1,5 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { Router } from "wouter";
+import { BASE } from "./base";
 import "./styles/tokens.css";
 import "./styles/components.css";
 import "./styles/screens.css";
@@ -28,7 +30,10 @@ async function fakeApi(): Promise<Api | undefined> {
 void fakeApi().then((api) =>
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
-      <App api={api} />
+      {/* every route and go("/…") is app-relative: the router adds the base path */}
+      <Router base={BASE}>
+        <App api={api} />
+      </Router>
     </StrictMode>,
   ),
 );

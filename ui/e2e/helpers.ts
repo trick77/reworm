@@ -83,7 +83,7 @@ export const LABEL: Record<Choice, string> = {
 
 // roomState is the room's snapshot, read with the device's cookies.
 export async function roomState(page: Page, code: string): Promise<RoomState> {
-  const r = await page.request.get(`/api/rooms/${code}`);
+  const r = await page.request.get(`api/rooms/${code}`);
   expect(r.ok()).toBe(true);
   return (await r.json()) as RoomState;
 }
@@ -163,13 +163,13 @@ export async function hostRoom(browser: Browser) {
       return play.call(this);
     };
   });
-  await stage.goto("/host");
+  await stage.goto("host");
   const box = stage.locator('[aria-label="Room code"]');
   await expect(box).toHaveText(/^[A-Z0-9]{4}$/);
   const code = (await box.textContent())!;
   // the QR's address, what a phone's camera opens
   const join = await stage.locator("[data-qr]").getAttribute("data-qr");
-  expect(join).toBe(`${baseURL()}/join/${code}`);
+  expect(join).toBe(`${baseURL()}join/${code}`); // baseURL ends in /reworm/
   return { stage, code, join: join! };
 }
 
@@ -211,7 +211,7 @@ export async function settings(
   patch: Partial<{ toWin: number; mode: RoomState["mode"] }>,
 ) {
   const s = await roomState(stage, code);
-  const r = await stage.request.post(`/api/rooms/${code}/settings`, {
+  const r = await stage.request.post(`api/rooms/${code}/settings`, {
     data: {
       mode: s.mode,
       toWin: s.toWin,

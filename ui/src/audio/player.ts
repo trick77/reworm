@@ -12,6 +12,8 @@
 // tap play again without one, which is what lets the host's rounds run unattended. If iOS refuses the second
 // element, `prefetch: false` (?prefetch=off) is the fallback: one element, no preloading.
 
+import { withBase } from "../base";
+
 export type Engine = "webaudio" | "element";
 
 export const FADE_IN = 1.5;
@@ -206,7 +208,7 @@ export class PreviewPlayer {
     const idle = 1 - this.active;
     if (this.srcs[idle] === url) return;
     const el = this.element(idle);
-    el.src = url;
+    el.src = withBase(url); // a dev clip is an app path (/api/dev/previews/…), Apple's are absolute
     el.load?.();
     this.srcs[idle] = url;
   }
@@ -229,7 +231,7 @@ export class PreviewPlayer {
       this.els[this.active]?.pause();
       this.active = idle;
     } else if (this.srcs[this.active] !== url) {
-      this.element(this.active).src = url;
+      this.element(this.active).src = withBase(url);
       this.srcs[this.active] = url;
     }
     const el = this.element(this.active);

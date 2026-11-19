@@ -28,6 +28,7 @@ services:
       BACKEND_TRUSTED_PROXIES: "0"
       # Plain http: no PUBLIC_FQDN, so cookies are not Secure-only and pairing links are path-only.
       PUBLIC_FQDN: ""
+      PUBLIC_PATH: ""
     healthcheck:
       test: ["CMD", "/reworm", "healthcheck"]
       interval: 60s

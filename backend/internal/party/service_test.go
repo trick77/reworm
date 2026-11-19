@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trick77/ship/kit/auth"
+
 	"github.com/trick77/reworm/internal/account"
 	"github.com/trick77/reworm/internal/deck"
 	"github.com/trick77/reworm/internal/preview"
@@ -502,5 +504,22 @@ func TestEvents_capReached(t *testing.T) {
 	room.close() // a closed hub refuses like a full one
 	if rec := h.do(http.MethodGet, "/api/rooms/"+code+"/events", nil); rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
 		t.Errorf("refused stream = %d %v", rec.Code, rec.Header())
+	}
+}
+
+// Under a path prefix the guest cookie stays scoped to the room API below it.
+func TestNew_guestCookiePath(t *testing.T) {
+	for base, want := range map[string]string{"": "/api/rooms/", "/reworm": "/reworm/api/rooms/"} {
+		s, err := New(Options{Key: make([]byte, 32), BasePath: base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		if err := s.guests.Issue(rec, auth.Claims{Subject: "p", Name: "K7Q4"}); err != nil {
+			t.Fatal(err)
+		}
+		if c := rec.Result().Cookies(); len(c) != 1 || c[0].Path != want {
+			t.Errorf("base %q: cookies = %v, want path %s", base, c, want)
+		}
 	}
 }

@@ -133,6 +133,29 @@ func TestStreamsFlushThroughTheChain(t *testing.T) {
 	}
 }
 
+// Under a base path the app answers only below it; the probes stay at the root, where the container healthcheck
+// asks for them.
+func TestBasePath(t *testing.T) {
+	h := New(Options{Static: static, Base: "/reworm", API: []Routes{pingRoutes{}}})
+	for path, want := range map[string]int{
+		"/reworm/api/version": http.StatusOK, "/reworm/api/ping": http.StatusOK, "/reworm/": http.StatusOK,
+		"/reworm/room/K7Q4": http.StatusOK, "/healthz": http.StatusOK,
+		"/api/version": http.StatusNotFound, "/": http.StatusNotFound, "/room/K7Q4": http.StatusNotFound,
+		"/rewormx": http.StatusNotFound,
+	} {
+		if rec := get(h, path); rec.Code != want {
+			t.Errorf("%s = %d, want %d", path, rec.Code, want)
+		}
+	}
+	rec := get(h, "/reworm")
+	if rec.Code/100 != 3 || rec.Header().Get("Location") != "/reworm/" {
+		t.Errorf("/reworm = %d → %q, want a redirect to /reworm/", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec := get(h, "/reworm/room/K7Q4"); rec.Header().Get("Content-Security-Policy") == "" {
+		t.Error("prefixed routes lost the security headers")
+	}
+}
+
 func TestClientIP(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "172.18.0.2:40000" // Traefik

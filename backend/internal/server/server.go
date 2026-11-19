@@ -21,6 +21,9 @@ type Options struct {
 	Checks []httpx.Check
 	// API are the route groups under /api (accounts, decks, covers, rooms, training).
 	API []Routes
+	// Base is the path prefix the app is served under (PUBLIC_PATH, "/reworm"), "" at the root. The app answers
+	// only below it, with the prefix stripped; the probes stay at the root for the container healthcheck.
+	Base string
 }
 
 // Routes is a group of API routes.
@@ -30,17 +33,23 @@ type Routes interface {
 
 // New returns the handler.
 func New(o Options) http.Handler {
-	mux := http.NewServeMux()
-	httpx.Health(mux, slog.Default(), o.Checks...)
-	mux.HandleFunc("GET /api/version", handleVersion)
+	app := http.NewServeMux()
+	app.HandleFunc("GET /api/version", handleVersion)
 	for _, r := range o.API {
-		r.Mount(mux)
+		r.Mount(app)
 	}
 	// GET (HEAD included) only: a wrong method on an API route is a 405, not the SPA's 404.
-	mux.Handle("GET /", o.Static)
+	app.Handle("GET /", o.Static)
+	root := app
+	if o.Base != "" {
+		// Anything outside the prefix is a 404; the bare prefix redirects to prefix/ (the mux does that itself).
+		root = http.NewServeMux()
+		root.Handle(o.Base+"/", http.StripPrefix(o.Base, app))
+	}
+	httpx.Health(root, slog.Default(), o.Checks...)
 	// Access log outermost, so a panic's line and its 500 carry the request id; the security headers outside
 	// Recover, so the 500 keeps them.
-	return httpx.Chain(mux,
+	return httpx.Chain(root,
 		httpx.AccessLog(nil, httpx.AccessLogOptions{ClientIP: ClientIP(o.TrustedProxies), RoutineLevel: slog.LevelInfo}),
 		httpx.SecurityHeaders(csp),
 		httpx.Recover(nil),

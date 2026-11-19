@@ -6,6 +6,7 @@ import type { ApiError } from "../api/client";
 import { toApiError, useApi, useAsync, useMe } from "../api/context";
 import type { PairCode, PairKind } from "../api/types";
 import { avatarInfo } from "../avatars";
+import { appUrl } from "../base";
 import { Avatar, AvatarPicker } from "../components/Avatar";
 import { Button, Card } from "../components/Controls";
 import { Icon } from "../components/Icon";
@@ -135,8 +136,8 @@ function PairPanel({
 }) {
   useNow(1000); // ticks the expiry; the time itself is the server's (expiresAt)
   const left = secondsLeft(code.expiresAt);
-  // the server may hand a path (/pair/CODE): the QR needs the full address
-  const url = new URL(code.url, window.location.origin).href;
+  // the server may hand an app path (/pair/CODE): the QR needs the full address
+  const url = appUrl(code.url);
   return (
     <Card
       className="pair-panel fade-in"
