@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/trick77/ship/kit/auth"
+
 	"github.com/trick77/reworm/internal/store"
 )
 
@@ -460,5 +462,22 @@ func TestIdentify_dbError(t *testing.T) {
 	}
 	if _, err := e.svc.SetupToken(context.Background()); err == nil {
 		t.Error("SetupToken on a closed db succeeded")
+	}
+}
+
+// Under a path prefix the device cookie is scoped to it: another app on the host never receives it.
+func TestNew_cookiePath(t *testing.T) {
+	for base, want := range map[string]string{"": "/", "/reworm": "/reworm/"} {
+		s, err := New(Options{Key: make([]byte, 32), BasePath: base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := httptest.NewRecorder()
+		if err := s.sessions.Issue(rec, auth.Claims{Subject: "d"}); err != nil {
+			t.Fatal(err)
+		}
+		if c := rec.Result().Cookies(); len(c) != 1 || c[0].Path != want {
+			t.Errorf("base %q: cookies = %v, want path %s", base, c, want)
+		}
 	}
 }

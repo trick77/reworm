@@ -15,10 +15,38 @@ test("first device: the setup link from the server log makes the admin", async (
   await page.getByRole("radio", { name: /Vinyl Vince/ }).click();
   await shot(page, "setup");
   await page.getByRole("button", { name: "Create my profile" }).click();
-  await expect(page).toHaveURL(/\/$/);
+  await expect(page).toHaveURL(/\/reworm\/$/);
   await expect(page.getByText("Solo training")).toBeVisible();
   await shot(page, "home-admin");
   await page.context().storageState({ path: adminState() });
+
+  // under PUBLIC_PATH: the device cookie is scoped to the prefix, and a hard reload on a deep route loads the
+  // bundle, icon and manifest from below the prefix (not the shell posing as each)
+  const cookies = await page.context().cookies();
+  expect(cookies.find((c) => c.name === "reworm_device")?.path).toBe("/reworm/");
+  const assets: { url: string; type: string }[] = [];
+  page.on("response", (r) => {
+    if (r.url().includes("/assets/"))
+      assets.push({ url: r.url(), type: r.headers()["content-type"] ?? "" });
+  });
+  await page.goto("train");
+  await page.reload();
+  await expect(page.getByText("New session")).toBeVisible();
+  expect(assets.length).toBeGreaterThan(0);
+  for (const a of assets) {
+    expect(a.url).toContain("/reworm/assets/");
+    expect(a.type).not.toContain("text/html");
+  }
+  for (const [sel, type] of [
+    ['link[rel="manifest"]', "application/manifest+json"],
+    ['link[rel="icon"]', "image/svg+xml"],
+  ]) {
+    const href = await page.locator(sel).getAttribute("href");
+    expect(href).toMatch(/^\/reworm\//);
+    const r = await page.request.get(href!);
+    expect(r.status()).toBe(200);
+    expect(r.headers()["content-type"]).toContain(type);
+  }
 
   // the link works once
   const again = await device(browser, "laptop");

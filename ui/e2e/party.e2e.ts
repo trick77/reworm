@@ -87,7 +87,7 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   const button = luca.page.getByRole("button", { name: LABEL[r.right] });
   await expect(button).toBeEnabled();
   await button.dispatchEvent("click");
-  const press = await sarah.page.request.post(`/api/rooms/${code}/answer`, {
+  const press = await sarah.page.request.post(`api/rooms/${code}/answer`, {
     data: { round: 1, choice: r.right },
   });
   expect(press.ok()).toBe(true);

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { ApiError, type Api } from "../../api/client";
+import { appUrl, BASE } from "../../base";
 import { toApiError, useApi, useAsync, useMe } from "../../api/context";
 import type {
   Decks,
@@ -30,8 +31,8 @@ import {
 import { DeckPicker } from "../DeckPicker";
 import { Stage } from "./Stage";
 
-export const joinUrl = (code: string) =>
-  `${window.location.origin}/join/${code}`;
+export const joinUrl = (code: string, base: string = BASE) =>
+  appUrl(`/join/${code}`, base);
 
 export function Party() {
   const [, go] = useLocation();
@@ -233,7 +234,8 @@ function Lobby({ state, host }: { state: RoomState; host: boolean }) {
           <div className="label center">Join on your phone</div>
           <QrCode value={joinUrl(state.code)} />
           <div className="sub" style={{ marginTop: 12 }}>
-            or open <b className="paper">{window.location.host}</b> and type
+            or open <b className="paper">{window.location.host + BASE}</b> and
+            type
           </div>
           <div className="num room-code" aria-label="Room code">
             {state.code}

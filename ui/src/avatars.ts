@@ -1,5 +1,6 @@
 // The avatar set: 12 comic music objects, our own drawings (the mock's AVATARS), shipped as static SVGs
 // under public/avatars/<key>.svg. bg is each drawing's circle colour, used for the selection ring.
+import { BASE, withBase } from "./base";
 
 export const AVATARS = [
   { key: "vinyl", name: "Vinyl Vince", bg: "#e9b44c" },
@@ -26,6 +27,6 @@ export function avatarInfo(key: string): AvatarInfo {
   return AVATARS.find((a) => a.key === key) ?? AVATARS[0];
 }
 
-export function avatarUrl(key: string): string {
-  return `/avatars/${avatarInfo(key).key}.svg`;
+export function avatarUrl(key: string, base: string = BASE): string {
+  return withBase(`/avatars/${avatarInfo(key).key}.svg`, base);
 }

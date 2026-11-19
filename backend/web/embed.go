@@ -5,6 +5,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/trick77/ship/kit/spa"
 )
@@ -29,10 +30,25 @@ func dist() fs.FS {
 	return sub
 }
 
-// SPAHandler serves the embedded frontend (kit's spa): files as they are, /assets/ cached forever, the shell on
-// every other path outside /api; the placeholder there when the UI was not built.
-func SPAHandler() http.Handler { return handler(dist()) }
+// SPAHandler serves the embedded frontend (kit's spa) for an app under base ("" at the root, else PUBLIC_PATH;
+// mounted with the prefix stripped): files as they are, /assets/ cached forever, the shell on every other path
+// outside /api; the placeholder there when the UI was not built.
+func SPAHandler(base string) http.Handler { return handlerAt(dist(), base) }
 
-func handler(d fs.FS) http.Handler {
-	return spa.Handler(d, spa.Options{Placeholder: placeholder})
+func handler(d fs.FS) http.Handler { return handlerAt(d, "") }
+
+// handlerAt serves d with its shell rewritten for base. Vite builds with base "./" so one bundle runs under any
+// prefix: the chunks load relative to each other, but the shell is served on deep routes (/room/K7Q4), where
+// "./assets/…" would resolve to /room/assets/… and come back as the shell. So every "./" ref in the shell becomes
+// base + "/", and the base-path meta tells the UI its prefix (router, API, links). A <base href> would do it in one
+// tag, but kit's CSP sets base-uri 'none'.
+func handlerAt(d fs.FS, base string) http.Handler {
+	o := spa.Options{Placeholder: placeholder}
+	if shell, err := fs.ReadFile(d, "index.html"); err == nil {
+		s := strings.ReplaceAll(string(shell), `="./`, `="`+base+`/`)
+		s = strings.Replace(s, `<meta name="base-path" content=""`, `<meta name="base-path" content="`+base+`"`, 1)
+		rewritten := []byte(s)
+		o.Index = func([]byte, *http.Request) []byte { return rewritten }
+	}
+	return spa.Handler(d, o)
 }

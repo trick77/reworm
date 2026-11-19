@@ -75,8 +75,11 @@ type Options struct {
 	Key []byte
 	// Secure marks cookies Secure: true behind TLS (PUBLIC_FQDN set).
 	Secure bool
-	// PublicURL is "https://<PUBLIC_FQDN>" for pairing links; "" builds them from the request's host.
+	// PublicURL is the app's root for pairing links, "https://<PUBLIC_FQDN><PUBLIC_PATH>"; "" hands out the
+	// app-relative path, which the client resolves against its own origin and base path.
 	PublicURL string
+	// BasePath is the path prefix the app is served under ("" at the root): the device cookie is scoped to it.
+	BasePath string
 	// ClientKey is the rate-limit key of a request (the client IP behind the configured proxies).
 	ClientKey func(*http.Request) string
 	// Now is the clock; nil is time.Now.
@@ -99,7 +102,7 @@ type Service struct {
 func New(o Options) (*Service, error) {
 	s, err := auth.NewSessions(auth.SessionConfig{
 		Name: "reworm_device", Key: auth.DeriveKey(hex.EncodeToString(o.Key), "device"), TTL: DeviceTTL,
-		Secure: o.Secure, KeepGroup: adminGroup,
+		Path: o.BasePath + "/", Secure: o.Secure, KeepGroup: adminGroup,
 	})
 	if err != nil {
 		return nil, err

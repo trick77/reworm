@@ -29,13 +29,15 @@ pairs its first device through the setup link from the log. Dev mode is for loca
 
 `compose.yaml` runs a released image behind Traefik, from its own directory on the server holding just
 `compose.yaml` and `.env` (not a checkout: the checkout's `data/` holds the tracked dataset). It expects the host's
-Traefik on the external `traefik` network with a `websecure` entrypoint, an ACME resolver named `letsencrypt` and
-the http → https redirect on `web`. There:
-`cp .env.example .env` and set `PUBLIC_FQDN`, `mkdir -p data && sudo chown -R 65532:65532 data`, then
+Traefik on the external `traefik` network with a `websecure` entrypoint, a certificate for the host (the router
+names no resolver) and the http → https redirect on `web`. There:
+`cp .env.example .env` and set `PUBLIC_FQDN` and `PUBLIC_PATH` (`games.trick77.com`, `/reworm`; empty path = the
+host's root), `mkdir -p data && sudo chown -R 65532:65532 data`, then
 `docker compose up -d`. The first device pairs with the one-time setup link from `docker compose logs`. The image is
 `:latest`, which every release moves: update with `docker compose pull && docker compose up -d` (`up` alone keeps
 the cached image); roll back by naming a release tag (`ghcr.io/trick77/reworm:0.1.4`) in place of `latest`. Settings
-are `BACKEND_*` variables (`BACKEND_ADDR`, `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN`.
+are `BACKEND_*` variables (`BACKEND_ADDR`, `BACKEND_DATA_DIR`, `BACKEND_LOG_LEVEL`) plus `PUBLIC_FQDN` and
+`PUBLIC_PATH`.
 
 `compose.dev.yaml` builds the image from the checkout and serves it on port 8081 (beside `make run` on 8080; phones
 on the LAN reach it at `http://<this machine>:8081`) without Traefik and without `.env`:

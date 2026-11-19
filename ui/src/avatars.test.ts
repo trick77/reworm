@@ -46,5 +46,6 @@ describe("avatars", () => {
     expect(avatarInfo("kazoo").key).toBe("vinyl");
     expect(avatarUrl("keys")).toBe("/avatars/keys.svg");
     expect(avatarUrl("kazoo")).toBe("/avatars/vinyl.svg");
+    expect(avatarUrl("keys", "/reworm")).toBe("/reworm/avatars/keys.svg");
   });
 });

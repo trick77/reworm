@@ -16,6 +16,7 @@ services:
       BACKEND_DATA_DIR: "/data"
       BACKEND_LOG_LEVEL: "${BACKEND_LOG_LEVEL:-info}"
       PUBLIC_FQDN: "${PUBLIC_FQDN:-}"
+      PUBLIC_PATH: "${PUBLIC_PATH:-}"
       # Traefik is the one proxy in front: its X-Forwarded-For entry is the client.
       BACKEND_TRUSTED_PROXIES: "1"
     healthcheck:
@@ -33,12 +34,13 @@ services:
       # One image serves the API and the embedded SPA on :8080; Traefik terminates TLS in front of it.
       traefik.enable: "true"
       traefik.docker.network: traefik
-      traefik.http.routers.reworm.rule: Host(`${PUBLIC_FQDN:?set PUBLIC_FQDN in .env, the hostname Traefik routes reworm on}`)
+      # Host plus path prefix: reworm may share its host with other apps. The app reads the same two variables
+      # and serves itself below PUBLIC_PATH (no strip middleware here: cookies and links need the prefix).
+      traefik.http.routers.reworm.rule: Host(`${PUBLIC_FQDN:?set PUBLIC_FQDN in .env, the hostname Traefik routes reworm on}`) && PathPrefix(`${PUBLIC_PATH:-/}`)
       traefik.http.routers.reworm.entrypoints: websecure
+      # No certresolver: the server's Traefik picks the certificate (a wildcard for its own subdomains) and
+      # redirects its `web` entrypoint to `websecure` for every host, so no http router here.
       traefik.http.routers.reworm.tls: "true"
-      traefik.http.routers.reworm.tls.certresolver: letsencrypt
-      # The server's Traefik provides the `letsencrypt` resolver and redirects its `web` entrypoint to
-      # `websecure` for every host, so no http router here.
       traefik.http.services.reworm.loadbalancer.server.port: "8080"
 
 networks:

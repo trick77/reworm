@@ -1,8 +1,12 @@
 # Reworm HTTP API (v1) — shared by backend and UI
 
-JSON over HTTP. Live party state over SSE (kit/sse). Cookies: device session `reworm_device` (kit/auth Sessions,
-1 year, claim = device id, checked against `devices` on every request, so a removed device is signed out at once) and
-room guest session `reworm_guest` (12 h, path `/api/rooms/`, claim = player id + room code). All times are server
+JSON over HTTP. Live party state over SSE (kit/sse). Every path here is app-relative: under `PUBLIC_PATH`
+(`/reworm`) the server answers `/reworm/api/…`, and a root-relative path in a response (`coverUrl`, a dev
+`previewUrl`, a path-only pair `url`) gets the same prefix from the client; absolute URLs are final. Only the probes
+(`/healthz`, `/readyz`) stay at the host's root. Cookies: device session `reworm_device` (kit/auth Sessions, path
+`<PUBLIC_PATH>/`, 1 year, claim = device id, checked against `devices` on every request, so a removed device is
+signed out at once) and room guest session `reworm_guest` (12 h, path `<PUBLIC_PATH>/api/rooms/`, claim = player id +
+room code). All times are server
 unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a proper status; kit's own refusals carry
 `error` only: 400 `malformed request` (body does not parse), 413 `request body too large`, 429 `rate limited` (with
 `Retry-After`).
@@ -20,9 +24,9 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - `GET  /api/devices` → `[{id,label,lastSeen,current}]` (this profile's devices, last seen first; `lastSeen` is
   refreshed at most every 5 min); `DELETE /api/devices/{id}` → 204 (own profile's devices; the admin: any). Removing
   the current device clears its cookie.
-- `POST /api/pair` `{kind: "device"|"invite"}` → 201 `{code: "H4K9QZ", url: "https://<host>/pair/H4K9QZ", expiresAt}`
+- `POST /api/pair` `{kind: "device"|"invite"}` → 201 `{code: "H4K9QZ", url: "https://<host><path>/pair/H4K9QZ", expiresAt}`
   (5 min, single use; alphabet without 0/O/1/I; rate-limited per client address). `url` is absolute only when the
-  server has `PUBLIC_FQDN`; otherwise it is the path `/pair/<code>` and the client prefixes its own origin (never
+  server has `PUBLIC_FQDN`; otherwise it is the path `/pair/<code>` and the client prefixes its origin and base (never
   built from the request's Host header).
 - The admin profile's only device cannot leave it: switching away, deleting it or claiming a code over it → 409
   `last_admin` (pair a second device first).

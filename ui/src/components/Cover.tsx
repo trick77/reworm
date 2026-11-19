@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { withBase } from "../base";
 import { artGradient } from "../lib/art";
 import { cx } from "../lib/cx";
 
@@ -30,7 +31,7 @@ export function Cover({
     return (
       <div className={cx(cls, "img")} style={dims}>
         <img
-          src={src}
+          src={withBase(src)}
           alt={`${albumName} by ${artist}`}
           onError={() => setFailed(src)}
         />

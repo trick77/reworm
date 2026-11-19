@@ -15,8 +15,15 @@ Party mode is the product, training a side feature on the same round engine.
 
 ## Config and secrets
 - Env prefix is `BACKEND_`, never `REWORM_` (as loom): `BACKEND_ADDR` (`:8080`), `BACKEND_DATA_DIR`
-  (`/data`), `BACKEND_LOG_LEVEL`, via kit/env (empty = unset). The host is plain `PUBLIC_FQDN` only: the Traefik
-  rule reads it too, one name so app and router never disagree.
+  (`/data`), `BACKEND_LOG_LEVEL`, via kit/env (empty = unset). Where it lives is plain `PUBLIC_FQDN` +
+  `PUBLIC_PATH` only (prod: `games.trick77.com` + `/reworm`, a host shared with other games): the Traefik rule reads
+  them too, so app and router never disagree. No strip middleware: the app mounts itself below the prefix, cookies
+  and links need it. Probes stay at the root (container healthcheck).
+- One bundle for any prefix: Vite `base: "./"`, the server rewrites the shell's `./` refs + `base-path` meta
+  (`web/embed.go`); `<base href>` is out, kit's CSP has `base-uri 'none'`. UI paths stay app-relative (`go("/x")`,
+  `/api/…`); `src/base.ts` adds the prefix at the router, API client, player, cover, avatars and links.
+- Prod is on the `*.trick77.com` wildcard cert: the router never sets a `certresolver` (that gives a self-signed
+  cert there, see ../traefik).
 - Secrets only via env / `.env.local` (import: `BACKEND_LASTFM_API_KEY`, `BACKEND_CARDS_BASE_URL`,
   `BACKEND_CARDS_FILES` = `file=Set Name;…`), never committed.
 - Dev mode (`BACKEND_DEV=1` + `BACKEND_DEV_PREVIEWS`/`_SONGS`, e2e): clip URLs name the song and every non-fixture

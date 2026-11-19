@@ -9,7 +9,7 @@ test.afterEach(closeDevices);
 
 // card is the session's current card: its song (from the dev clip URL) and the right answer.
 async function card(page: Page, id: string) {
-  const r = await page.request.get(`/api/train/sessions/${id}`);
+  const r = await page.request.get(`api/train/sessions/${id}`);
   expect(r.ok()).toBe(true);
   const s = (await r.json()) as TrainSession;
   const c = s.card!;
@@ -53,9 +53,9 @@ test("training: swipe, keys and buttons, the reveal, the summary, drilling the m
   browser,
 }) => {
   const page = await device(browser, "laptop", { admin: true });
-  await page.goto("/train");
+  await page.goto("train");
   await page.getByRole("button", { name: "Start · 10 songs" }).click();
-  await expect(page).toHaveURL(/\/train\/[^/]+$/);
+  await expect(page).toHaveURL(/\/reworm\/train\/[^/]+$/);
   const id = decodeURIComponent(page.url().split("/").pop()!);
   await expect(page.getByLabel("Song 1 of 10")).toBeVisible();
 

@@ -2,6 +2,7 @@ import {
   ApiError,
   backoff,
   BACKOFF_MS,
+  browserEnv,
   HttpApi,
   transient,
   type EventSourceLike,
@@ -429,5 +430,28 @@ describe("HttpApi.subscribeRoom", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(seen).toEqual(["playing"]);
     stop();
+  });
+});
+
+describe("browserEnv", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  test("puts every call and the room stream under the base path", async () => {
+    const fetch = vi.fn(async () => new Response("{}"));
+    const sources: string[] = [];
+    vi.stubGlobal("fetch", fetch);
+    vi.stubGlobal(
+      "EventSource",
+      class {
+        constructor(url: string) {
+          sources.push(url);
+        }
+      },
+    );
+    const env = browserEnv("/reworm");
+    await env.fetch("/api/me");
+    env.eventSource("/api/rooms/K7Q4/events");
+    expect(fetch).toHaveBeenCalledWith("/reworm/api/me", undefined);
+    expect(sources).toEqual(["/reworm/api/rooms/K7Q4/events"]);
   });
 });

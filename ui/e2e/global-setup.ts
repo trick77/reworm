@@ -51,6 +51,9 @@ function freePort(): Promise<number> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// PUBLIC_PATH of the e2e server: the production shape, a prefix on a shared host.
+const PUBLIC_PATH = "/reworm";
+
 export default async function globalSetup() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "reworm-e2e-"));
   const cleanup: (() => Promise<void> | void)[] = [];
@@ -121,9 +124,13 @@ async function launch(
   port: number,
   cleanup: (() => Promise<void> | void)[],
 ): Promise<{ base: string; setup: string }> {
-  const base = `http://127.0.0.1:${port}`;
+  // The app under a path prefix, as in production (PUBLIC_PATH): the base URL ends in "/reworm/", so the tests'
+  // relative paths ("me", "api/…") resolve below it; a leading "/" would drop the prefix.
+  const origin = `http://127.0.0.1:${port}`;
+  const base = `${origin}${PUBLIC_PATH}/`;
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    PUBLIC_PATH,
     BACKEND_ADDR: `127.0.0.1:${port}`,
     BACKEND_DATA_DIR: path.join(dir, "data"),
     BACKEND_DEV: "1",
@@ -157,7 +164,7 @@ async function launch(
     readline.createInterface({ input: out }).on("line", (line) => {
       log.write(line + "\n");
       seen.tail = [...seen.tail.slice(-19), line];
-      // the first device's one-time link, as the log prints it: url=/setup/<token>
+      // the first device's one-time link, as the log prints it: url=/reworm/setup/<token> (absolute, prefixed)
       const m = /url=(\S*\/setup\/[A-Za-z0-9_-]+)/.exec(line);
       if (m) seen.setup = m[1];
     });
@@ -173,7 +180,8 @@ async function launch(
   for (;;) {
     if (seen.exited != null) throw fail(`exited (${seen.exited})`);
     if (Date.now() > deadline) throw fail("did not come up in 30 s");
-    const up = await fetch(`${base}/healthz`).then(
+    // the probes stay at the root, outside the prefix
+    const up = await fetch(`${origin}/healthz`).then(
       (r) => r.ok,
       () => false,
     );

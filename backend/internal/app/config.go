@@ -2,19 +2,25 @@ package app
 
 import (
 	"net"
+	"path"
+	"strings"
+	"unicode"
 
 	"github.com/trick77/ship/kit/env"
 )
 
-// Config is the runtime configuration: BACKEND_* variables, plus PUBLIC_FQDN, which the Traefik rule reads too (one
-// name, so the app and the router never disagree on the host).
+// Config is the runtime configuration: BACKEND_* variables, plus PUBLIC_FQDN and PUBLIC_PATH, which the Traefik rule
+// reads too (one name each, so the app and the router never disagree on where it lives).
 type Config struct {
 	// Addr is the listen address.
 	Addr string
 	// DataDir holds the database (and later the cover cache): the container's volume.
 	DataDir string
-	// PublicFQDN is the hostname the app is reached on (join and pairing links); empty for local use.
+	// PublicFQDN is the hostname the app is reached on (pairing and setup links); empty for local use.
 	PublicFQDN string
+	// PublicPath is the path prefix the app is reached under ("/reworm"), "" at the host's root. Normalized: a
+	// leading slash, no trailing one.
+	PublicPath string
 	// LogLevel is debug, info, warn or error; empty is info.
 	LogLevel string
 	// TrustedProxies is the number of proxies in front of the app whose X-Forwarded-For entries are believed: 1
@@ -36,6 +42,7 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 		Addr:           r.String("BACKEND_ADDR", ":8080"),
 		DataDir:        r.String("BACKEND_DATA_DIR", "/data"),
 		PublicFQDN:     r.String("PUBLIC_FQDN", ""),
+		PublicPath:     strings.TrimRight(r.String("PUBLIC_PATH", ""), "/"),
 		LogLevel:       r.String("BACKEND_LOG_LEVEL", ""),
 		TrustedProxies: r.Int("BACKEND_TRUSTED_PROXIES", 0),
 		Dev:            r.Bool("BACKEND_DEV", false),
@@ -44,6 +51,9 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 	}
 	if cfg.TrustedProxies < 0 {
 		r.Fail("BACKEND_TRUSTED_PROXIES: %d is negative", cfg.TrustedProxies)
+	}
+	if !validPath(cfg.PublicPath) {
+		r.Fail("PUBLIC_PATH: %q is not a plain path like /reworm", cfg.PublicPath)
 	}
 	// A dev clip URL names its song: a public server would hand every phone the answer.
 	switch {
@@ -55,6 +65,23 @@ func LoadConfig(lookup func(string) string) (Config, error) {
 		r.Fail("BACKEND_DEV_PREVIEWS and BACKEND_DEV_SONGS need BACKEND_DEV=1 (local tests only)")
 	}
 	return cfg, r.Err()
+}
+
+// validPath reports whether p (trailing slash already trimmed) is "" or a clean absolute path of plain segments: it
+// lands verbatim in the Traefik rule, cookie paths and the shell's asset URLs.
+func validPath(p string) bool {
+	if p == "" {
+		return true
+	}
+	if !strings.HasPrefix(p, "/") || path.Clean(p) != p {
+		return false
+	}
+	for _, c := range p {
+		if !strings.ContainsRune("/-_.", c) && (c > unicode.MaxASCII || !unicode.IsLetter(c) && !unicode.IsDigit(c)) {
+			return false
+		}
+	}
+	return true
 }
 
 // loopback reports whether addr listens on this machine only (":8080" listens everywhere).

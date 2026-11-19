@@ -52,6 +52,8 @@ type Options struct {
 	// Key signs the guest cookies.
 	Key    []byte
 	Secure bool
+	// BasePath is the path prefix the app is served under ("" at the root): the guest cookie is scoped below it.
+	BasePath string
 	// ClientKey is the rate-limit key of a request.
 	ClientKey func(*http.Request) string
 	// Now is the clock; nil is time.Now.
@@ -81,7 +83,7 @@ type Service struct {
 func New(o Options) (*Service, error) {
 	g, err := auth.NewSessions(auth.SessionConfig{
 		Name: "reworm_guest", Key: auth.DeriveKey(hex.EncodeToString(o.Key), "guest"), TTL: GuestTTL,
-		Path: "/api/rooms/", Secure: o.Secure,
+		Path: o.BasePath + "/api/rooms/", Secure: o.Secure,
 	})
 	if err != nil {
 		return nil, err

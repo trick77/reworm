@@ -42,6 +42,26 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_publicPath(t *testing.T) {
+	for in, want := range map[string]string{"": "", "/": "", "/reworm": "/reworm", "/reworm/": "/reworm",
+		"/games/reworm": "/games/reworm"} {
+		cfg, err := LoadConfig(lookup(map[string]string{"PUBLIC_PATH": in}))
+		if err != nil || cfg.PublicPath != want {
+			t.Errorf("PUBLIC_PATH=%q = %q, %v; want %q", in, cfg.PublicPath, err, want)
+		}
+	}
+	for _, in := range []string{"reworm", "//reworm", "/re worm", "/reworm?x", "/a/../b", "/a//b"} {
+		if _, err := LoadConfig(lookup(map[string]string{"PUBLIC_PATH": in})); err == nil {
+			t.Errorf("PUBLIC_PATH=%q accepted", in)
+		}
+	}
+	// e2e runs the prefixed form in dev mode.
+	if _, err := LoadConfig(lookup(map[string]string{"BACKEND_DEV": "1", "BACKEND_ADDR": "127.0.0.1:9000",
+		"PUBLIC_PATH": "/reworm"})); err != nil {
+		t.Errorf("dev with PUBLIC_PATH: %v", err)
+	}
+}
+
 func TestLoadConfig_badTrustedProxies(t *testing.T) {
 	for _, v := range []string{"-1", "one"} {
 		if _, err := LoadConfig(lookup(map[string]string{"BACKEND_TRUSTED_PROXIES": v})); err == nil {
@@ -233,6 +253,9 @@ func TestNewAPI(t *testing.T) {
 		}
 	}
 	parts.party.Close()
+	if parts.setupURL == "" || !strings.HasPrefix(parts.setupURL, "https://reworm.example/setup/") {
+		t.Errorf("setup link = %q", parts.setupURL)
+	}
 	if _, err := os.Stat(filepath.Join(dir, "session.key")); err != nil {
 		t.Errorf("session key not kept: %v", err)
 	}
@@ -243,6 +266,31 @@ func TestNewAPI(t *testing.T) {
 	}
 	if _, err := newAPI(ctx, cfg, db); err == nil {
 		t.Error("short session key accepted")
+	}
+}
+
+// Under PUBLIC_PATH every link and cookie carries the prefix: the browser sees only the prefixed URLs.
+func TestNewAPI_publicPath(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := store.Open(ctx, filepath.Join(dir, "reworm.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	for cfg, want := range map[Config]string{
+		{DataDir: dir, PublicFQDN: "games.example", PublicPath: "/reworm"}: "https://games.example/reworm/setup/",
+		{DataDir: dir, PublicPath: "/reworm"}:                              "/reworm/setup/",
+		{DataDir: dir}:                                                     "/setup/",
+	} {
+		parts, err := newAPI(ctx, cfg, db)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parts.party.Close()
+		if !strings.HasPrefix(parts.setupURL, want) {
+			t.Errorf("%+v: setup link = %q, want %s…", cfg, parts.setupURL, want)
+		}
 	}
 }
 
