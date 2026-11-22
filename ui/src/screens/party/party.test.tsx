@@ -35,6 +35,16 @@ async function joinPad(world: FakeWorld, name: string, avatar = "Woofer") {
   return { padApi, pad, p, id: (padApi as FakeApi).playerId("K7Q4")! };
 }
 
+// stage and pad render each state on their own, after the world changed it: a button can be
+// on screen and still disabled, and a click on it is lost. Wait for it enabled.
+function enabled(c: ReturnType<typeof within>, name: string | RegExp) {
+  return waitFor(() => {
+    const b = c.getByRole("button", { name });
+    expect(b).toBeEnabled();
+    return b;
+  });
+}
+
 describe("party: lobby and join", () => {
   it("hosts a room, a phone joins with name and avatar, the lobby lists it", async () => {
     const world = new FakeWorld();
@@ -445,21 +455,20 @@ describe("party: years mode", () => {
     const { s } = await hostRoom(world);
     const { p, id: mia } = await joinPad(world, "Mia");
     const luca = world.addPlayer("K7Q4", "Luca", "guitar");
-    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    fireEvent.click(await enabled(s, "Start game · 2 players"));
     await p.findByRole("button", { name: "Earlier" });
     const label = {
       later: "Later",
       earlier: "Earlier",
       exact: "Spot on",
     } as const;
-    const yes = p.getByRole("button", { name: label[world.correct("K7Q4")] });
     // pause and resume from the stage
-    fireEvent.click(s.getByRole("button", { name: "Pause" }));
+    fireEvent.click(await enabled(s, "Pause"));
     expect(await s.findByText("Paused")).toBeInTheDocument();
     expect(await p.findByText("Paused by the host")).toBeInTheDocument();
     fireEvent.click(s.getAllByRole("button", { name: "Resume" })[0]);
     await waitFor(() => expect(world.room("K7Q4").state.phase).toBe("playing"));
-    fireEvent.click(yes);
+    fireEvent.click(await enabled(p, label[world.correct("K7Q4")]));
     expect(await p.findByText("You got it!")).toBeInTheDocument();
     world.set("K7Q4", {
       round: {
@@ -512,8 +521,7 @@ describe("party: years mode", () => {
       true,
     );
     // the rematch's round 1 is a new round: this pad answered a round 1 before, its buttons are live
-    expect(await p.findByRole("button", { name: "Earlier" })).toBeEnabled();
-    fireEvent.click(p.getByRole("button", { name: "Earlier" }));
+    fireEvent.click(await enabled(p, "Earlier"));
     await waitFor(() =>
       expect(
         world.room("K7Q4").state.players.find((x) => x.id === mia)!.state,
@@ -527,7 +535,7 @@ describe("party: late join", () => {
     const world = new FakeWorld();
     const { s } = await hostRoom(world);
     world.addPlayer("K7Q4", "Luca", "guitar");
-    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    fireEvent.click(await enabled(s, /Start game/));
     await s.findByText("0 locked out");
     const padApi = world.device();
     const pad = renderApp("/join/K7Q4", padApi);
@@ -553,7 +561,7 @@ describe("party: buzzer mode", () => {
     await waitFor(() => expect(world.room("K7Q4").state.mode).toBe("buzzer"));
     const { p } = await joinPad(world, "Mia");
     const luca = world.addPlayer("K7Q4", "Luca", "guitar");
-    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    fireEvent.click(await enabled(s, /Start game/));
     expect(await s.findByText("Know it? Buzz!")).toBeInTheDocument();
 
     fireEvent.click(await p.findByRole("button", { name: "BUZZ" }));
@@ -597,7 +605,7 @@ describe("party: buzzer mode", () => {
     await waitFor(() => expect(world.room("K7Q4").state.mode).toBe("buzzer"));
     const { p } = await joinPad(world, "Mia");
     const luca = world.addPlayer("K7Q4", "Luca", "guitar");
-    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    fireEvent.click(await enabled(s, /Start game/));
     await p.findByRole("button", { name: "BUZZ" });
     await world.buzzAs("K7Q4", luca, 1);
     expect(await p.findByText("Luca buzzed")).toBeInTheDocument();
@@ -618,7 +626,7 @@ describe("party: buzzer mode", () => {
     await waitFor(() => expect(world.room("K7Q4").state.mode).toBe("buzzer"));
     const { p } = await joinPad(world, "Mia");
     const luca = world.addPlayer("K7Q4", "Luca", "guitar");
-    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    fireEvent.click(await enabled(s, /Start game/));
     await p.findByRole("button", { name: "BUZZ" });
     await world.buzzAs("K7Q4", luca, 1);
     await world.revealAs("K7Q4", luca, 1);
@@ -637,7 +645,7 @@ describe("party: requests that fail", () => {
     const world = new FakeWorld();
     const { s } = await hostRoom(world);
     const { p, padApi } = await joinPad(world, "Mia");
-    fireEvent.click(await s.findByRole("button", { name: /Start game/ }));
+    fireEvent.click(await enabled(s, /Start game/));
     const real = padApi.answer;
     let fail: ApiError | null = new ApiError(0, "network", "offline");
     padApi.answer = (...a) => (fail ? Promise.reject(fail) : real(...a));
