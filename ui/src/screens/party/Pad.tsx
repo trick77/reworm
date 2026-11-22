@@ -13,7 +13,7 @@ import type {
 import { useRoom } from "../../api/useRoom";
 import { AnswerPad } from "../../components/AnswerPad";
 import { Avatar } from "../../components/Avatar";
-import { Button, Card, Pill } from "../../components/Controls";
+import { Button, Card, IconButton, Pill } from "../../components/Controls";
 import {
   DeadlineBar,
   DeadlineRing,
@@ -49,17 +49,75 @@ const rankOf = (s: RoomState, id: string) => {
   return 1 + s.players.filter((p) => p.score > mine).length;
 };
 
-function PadTop({ s, me }: { s: RoomState; me: RoomPlayer }) {
+function PadTop({
+  s,
+  me,
+  onLeave,
+}: {
+  s: RoomState;
+  me: RoomPlayer;
+  onLeave: () => void;
+}) {
   return (
     <div className="row between" style={{ marginTop: 2 }}>
       <div className="row">
         <Avatar avatar={me.avatar} size={34} />
         <b>{me.name}</b>
       </div>
-      <Pill className="num">
-        {me.score} pt · #{rankOf(s, me.id)}
-      </Pill>
+      <div className="row" style={{ gap: 8 }}>
+        <Pill className="num">
+          {me.score} pt · #{rankOf(s, me.id)}
+        </Pill>
+        <IconButton icon="x" label="Leave game" onClick={onLeave} />
+      </div>
     </div>
+  );
+}
+
+// LeaveAsk asks before this phone leaves the game (Room.Leave). It stays until the server took it: a failed
+// call says so instead of leaving the player to think they are out while the game still counts them.
+function LeaveAsk({
+  onStay,
+  leave,
+}: {
+  onStay: () => void;
+  leave: () => Promise<void>;
+}) {
+  const [failed, setFailed] = useState(false);
+  // busy: one leave call at a time (a double tap's second call would answer not_in_room)
+  const [busy, setBusy] = useState(false);
+  return (
+    <Center>
+      <div role="dialog" aria-label="Leave this game?">
+        <div style={{ fontSize: 26, fontWeight: 800 }}>Leave this game?</div>
+        <div className="sub" style={{ margin: "6px 0 16px" }}>
+          Your points are lost. You can join again with the room code.
+        </div>
+        <div className="row" style={{ justifyContent: "center", gap: 8 }}>
+          <Button
+            disabled={busy}
+            onClick={() => {
+              setFailed(false);
+              setBusy(true);
+              leave().catch(() => {
+                setBusy(false);
+                setFailed(true);
+              });
+            }}
+          >
+            Leave
+          </Button>
+          <Button variant="ghost" onClick={onStay}>
+            Stay
+          </Button>
+        </div>
+        {failed && (
+          <div className="sub" role="alert" style={{ marginTop: 12 }}>
+            Leaving didn't work. Try again.
+          </div>
+        )}
+      </div>
+    </Center>
   );
 }
 
@@ -411,19 +469,40 @@ export function Pad({
   code,
   playerId,
   onGone,
+  onLeft,
 }: {
   code: string;
   playerId: string;
   onGone: () => void;
+  // onLeft: this phone left the game on purpose (not gone: no "join again?")
+  onLeft: () => void;
 }) {
+  const api = useApi();
   const { state: raw, error, live } = useRoom(code);
   const { s, left } = useStartedRoom(raw);
   const [sent, setSent] = useState<Sent>(null);
+  const [asking, setAsking] = useState(false);
+  // leaving: the leave call is out, so the room dropping this player is no surprise to report. A state, not a
+  // ref: a call that fails after the room dropped the player (its answer lost) must still report it gone.
+  const [leaving, setLeaving] = useState(false);
   const me = s?.players.find((p) => p.id === playerId);
   const gone = (!!s && !me) || error?.status === 404;
   useEffect(() => {
-    if (gone) onGone();
-  }, [gone, onGone]);
+    if (gone && !leaving) onGone();
+  }, [gone, leaving, onGone]);
+  const leave = async () => {
+    setLeaving(true);
+    try {
+      await api.leaveRoom(code);
+    } catch (e) {
+      // not in the room (any more), or the room is gone: out is out
+      if (!(e instanceof ApiError && (e.status === 401 || e.status === 404))) {
+        setLeaving(false);
+        throw e;
+      }
+    }
+    onLeft();
+  };
 
   if (error && !s)
     return (
@@ -455,7 +534,8 @@ export function Pad({
   const view = roundView(s);
 
   let body: ReactNode;
-  if (s.phase === "lobby")
+  if (asking) body = <LeaveAsk onStay={() => setAsking(false)} leave={leave} />;
+  else if (s.phase === "lobby")
     body = (
       <Center>
         <div className="pop" style={{ display: "inline-block" }}>
@@ -500,7 +580,7 @@ export function Pad({
 
   return (
     <Screen className="column">
-      <PadTop s={s} me={me} />
+      <PadTop s={s} me={me} onLeave={() => setAsking(true)} />
       {!live && (
         <div
           className="sub center"

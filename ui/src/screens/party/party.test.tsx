@@ -674,6 +674,105 @@ describe("party: ending a game", () => {
   });
 });
 
+describe("party: leaving a game", () => {
+  it("lets a player leave at any time after confirming, and join again as a new player", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    const { pad, padApi, p } = await joinPad(world, "Mia");
+    world.addPlayer("K7Q4", "Luca", "guitar");
+    act(() => {
+      world.hostAction("K7Q4", "start");
+    });
+    await p.findByRole("button", { name: "Earlier" });
+
+    // Stay keeps the pad in the round
+    fireEvent.click(p.getByRole("button", { name: "Leave game" }));
+    fireEvent.click(await p.findByRole("button", { name: "Stay" }));
+    expect(await p.findByRole("button", { name: "Earlier" })).toBeEnabled();
+
+    // a failed call says so, the player is still in
+    vi.spyOn(padApi, "leaveRoom").mockRejectedValueOnce(
+      new ApiError(503, "x", "down"),
+    );
+    fireEvent.click(p.getByRole("button", { name: "Leave game" }));
+    fireEvent.click(await p.findByRole("button", { name: "Leave" }));
+    expect(await p.findByRole("alert")).toHaveTextContent(
+      "Leaving didn't work. Try again.",
+    );
+    expect(world.room("K7Q4").state.players.map((x) => x.name)).toContain(
+      "Mia",
+    );
+
+    // leaving: out of the room, home, no "join again?" note
+    fireEvent.click(p.getByRole("button", { name: "Leave" }));
+    await waitFor(() => expect(pad.path()).toBe("/"));
+    expect(world.room("K7Q4").state.players.map((x) => x.name)).toEqual([
+      "Luca",
+    ]);
+    expect(localStorage.getItem("reworm.player.K7Q4")).toBeNull();
+    expect(
+      screen.queryByText("You're not in this game any more. Join again?"),
+    ).toBeNull();
+
+    // the same phone may join again (not a kick)
+    const again = within(renderApp("/join/K7Q4", padApi).container);
+    fireEvent.change(await again.findByLabelText("Your name"), {
+      target: { value: "Mia" },
+    });
+    fireEvent.click(again.getByRole("radio", { name: "Woofer" }));
+    fireEvent.click(again.getByRole("button", { name: "Join game" }));
+    await waitFor(() =>
+      expect(world.room("K7Q4").state.players.map((x) => x.name)).toContain(
+        "Mia",
+      ),
+    );
+  });
+});
+
+describe("party: leaving after the game", () => {
+  it("keeps the leaver on the podium; the last one leaving takes the room back to the lobby", async () => {
+    const world = new FakeWorld();
+    const { s } = await hostRoom(world);
+    const { pad, p } = await joinPad(world, "Mia");
+    world.room("K7Q4").state.players[0].score = 10;
+    world.set("K7Q4", { phase: "over" });
+    expect(await s.findByText("Mia wins!")).toBeInTheDocument();
+    fireEvent.click(await p.findByRole("button", { name: "Leave game" }));
+    fireEvent.click(await p.findByRole("button", { name: "Leave" }));
+    await waitFor(() => expect(pad.path()).toBe("/"));
+    expect(s.getByText("Mia wins!")).toBeInTheDocument();
+  });
+
+  it("sends an emptied room back to the lobby", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    const { pad, p } = await joinPad(world, "Mia");
+    act(() => {
+      world.hostAction("K7Q4", "start");
+    });
+    fireEvent.click(await p.findByRole("button", { name: "Leave game" }));
+    fireEvent.click(await p.findByRole("button", { name: "Leave" }));
+    await waitFor(() => expect(pad.path()).toBe("/"));
+    expect(world.room("K7Q4").state.phase).toBe("lobby");
+  });
+});
+
+describe("party: leaving whose answer got lost", () => {
+  it("takes not_in_room as left: the server dropped the player already", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    const { pad, padApi, p } = await joinPad(world, "Mia");
+    // the room dropped the player, the answer to the first call never came: the retry hears not_in_room
+    vi.spyOn(padApi, "leaveRoom").mockRejectedValueOnce(
+      new ApiError(401, "not_in_room", "x"),
+    );
+    fireEvent.click(await p.findByRole("button", { name: "Leave game" }));
+    fireEvent.click(await p.findByRole("button", { name: "Leave" }));
+    await waitFor(() => expect(pad.path()).toBe("/"));
+    expect(localStorage.getItem("reworm.player.K7Q4")).toBeNull();
+  });
+});
+
 describe("party: late join", () => {
   it("a phone joining mid-round sits it out, then plays the next one", async () => {
     const world = new FakeWorld();

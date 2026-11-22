@@ -1065,6 +1065,38 @@ export class FakeApi implements Api {
         r && id && r.state.players.some((p) => p.id === id) ? id : null,
       );
     });
+  // as Room.Leave: out in any phase, not banned. After the game the standings keep them (this device just has no
+  // player there any more); otherwise an empty room goes to the lobby, and the round ends when years mode has
+  // nobody left thinking or the buzzer left.
+  leaveRoom = (code: string) =>
+    this.log("leave", () => {
+      const r = this.world.rooms.get(code);
+      if (!r) return fail(404, "unknown_room");
+      const id = this.dev.players[code];
+      if (id && r.kicked.has(id)) return fail(403, "kicked");
+      if (!id || !r.state.players.some((p) => p.id === id))
+        return fail(401, "not_in_room");
+      delete this.dev.players[code];
+      const st = r.state;
+      if (st.phase === "over") return Promise.resolve();
+      st.players = st.players.filter((p) => p.id !== id);
+      if (!st.players.length && st.phase !== "lobby") {
+        clearTimeout(r.timer);
+        st.phase = "lobby";
+        st.round = null;
+        st.nextClip = null;
+        delete st.pausedFrom;
+      } else if (
+        st.phase === "playing" &&
+        st.mode === "years" &&
+        !st.players.some((p) => p.state === "thinking")
+      )
+        this.world.endRound(code, null, 0);
+      else if (st.round?.buzz?.playerId === id && st.phase !== "paused")
+        this.world.endRound(code, null, 0);
+      this.world.emit(code);
+      return Promise.resolve();
+    });
   roomHost = (code: string) =>
     this.log("roomHost", () => {
       const r = this.world.rooms.get(code);

@@ -232,6 +232,7 @@ describe("HttpApi calls", () => {
     await api.buzz("K7Q4", r3);
     await api.reveal("K7Q4", r3);
     await api.judge("K7Q4", r3, 2);
+    await api.leaveRoom("K7Q4");
     await api.startTraining({} as never);
     await api.trainSession("t1");
     await api.trainAnswer("t1", { cardId: "c1", year: 1984 });
@@ -253,6 +254,7 @@ describe("HttpApi calls", () => {
       "POST /api/rooms/K7Q4/buzz",
       "POST /api/rooms/K7Q4/reveal",
       "POST /api/rooms/K7Q4/judge",
+      "POST /api/rooms/K7Q4/leave",
       "POST /api/train/sessions",
       "GET /api/train/sessions/t1",
       "POST /api/train/sessions/t1/answer",
@@ -270,7 +272,7 @@ describe("HttpApi calls", () => {
     expect(calls[14].body).toEqual({ round: 3, startedAt: 1700, points: 2 });
     // training calls carry the time zone, the others don't
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    for (const c of calls.slice(15)) expect(c.headers?.["X-Timezone"]).toBe(tz);
+    for (const c of calls.slice(16)) expect(c.headers?.["X-Timezone"]).toBe(tz);
     expect(calls[3].headers).toBeUndefined();
   });
 });

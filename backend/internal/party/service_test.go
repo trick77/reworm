@@ -301,6 +301,16 @@ func TestHTTP_hostWithoutProfile(t *testing.T) {
 	if err := e.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM played_history`).Scan(&n); err != nil || n != 0 {
 		t.Errorf("played history rows = %d, %v; want none", n, err)
 	}
+	// A player leaves mid-game by their own guest cookie; a stranger has nothing to leave.
+	if rec := e.browser().do(http.MethodPost, base+"/leave", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("stranger leave = %d, want 401 not_in_room", rec.Code)
+	}
+	if rec := guest.do(http.MethodPost, base+"/leave", nil); rec.Code != http.StatusOK || !decodeBody[acceptedResponse](t, rec).Accepted {
+		t.Errorf("leave = %d %s", rec.Code, rec.Body)
+	}
+	if s := room.State(e.clock()); len(s.Players) != 0 {
+		t.Errorf("players after leave = %+v", s.Players)
+	}
 	// The same browser hosting again keeps its host id: the earlier room ends.
 	again := e.createRoom(h, Config{})
 	if _, err := e.svc.room(code); err == nil {

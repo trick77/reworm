@@ -81,6 +81,8 @@ type player struct {
 	avatar string
 	score  int
 	state  string
+	// left: the player left after the game was over; they stay in the final standings until the lobby.
+	left bool
 }
 
 // pick is a song with its clip, ready to play.
@@ -136,9 +138,12 @@ type Room struct {
 	players        []*player
 	// banned are the player and profile ids the host kicked, for the room's lifetime.
 	banned map[string]bool
-	round  *round
-	queue  []deck.Song
-	next   *pick
+	// gone are the ids of players who left: one joining again gets a new id, so a buzz, a win or a photo of the
+	// round they left never turns into theirs.
+	gone  map[string]bool
+	round *round
+	queue []deck.Song
+	next  *pick
 	// gen changes whenever the queue is replaced: a lookup started on the old one is stale.
 	gen        int
 	seq        int64
@@ -208,7 +213,7 @@ func (c *Config) Normalize(thisYear int) error {
 
 func newRoom(code, hostID string, c Config, countdown time.Duration, clock func() time.Time, rng *rand.Rand,
 	resolve Resolver) *Room {
-	r := &Room{code: code, hostID: hostID, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{},
+	r := &Room{code: code, hostID: hostID, phase: PhaseLobby, banned: map[string]bool{}, gone: map[string]bool{}, streams: map[string]int{},
 		cuts: map[string]cut{}, polled: map[string]time.Time{}, pollGrace: PollHold + pollSlack, clock: clock,
 		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey}),
 		countdown: countdown}
@@ -468,16 +473,29 @@ func (r *Room) close() { r.hub.Close() }
 
 // --- players ---------------------------------------------------------------------------------------------------
 
+// A player who left after the game is no player any more (not in the room, nobody to rejoin as); only the final
+// standings keep them.
 func (r *Room) player(id string) *player {
 	if id == "" {
 		return nil
 	}
 	for _, p := range r.players {
-		if p.id == id {
+		if p.id == id && !p.left {
 			return p
 		}
 	}
 	return nil
+}
+
+// active is the number of players still in the room (not left).
+func (r *Room) active() int {
+	n := 0
+	for _, p := range r.players {
+		if !p.left {
+			n++
+		}
+	}
+	return n
 }
 
 // PlayerOf is the player a paired profile plays as, "" when it has not joined.
@@ -485,7 +503,7 @@ func (r *Room) PlayerOf(profileID string) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, p := range r.players {
-		if p.profileID != "" && p.profileID == profileID {
+		if p.profileID != "" && p.profileID == profileID && !p.left {
 			return p.id
 		}
 	}
@@ -538,6 +556,9 @@ func (r *Room) Join(now time.Time, j Joiner) (string, error) {
 		return "", errKicked
 	}
 	for _, p := range r.players {
+		if p.left {
+			continue // gone: joining again makes a new player
+		}
 		if (j.ProfileID != "" && p.profileID == j.ProfileID) || (j.ProfileID == "" && j.Session != "" && p.id == j.Session) {
 			p.name, p.avatar = j.Name, j.Avatar
 			if j.DeviceID != "" {
@@ -547,11 +568,11 @@ func (r *Room) Join(now time.Time, j Joiner) (string, error) {
 			return p.id, nil
 		}
 	}
-	if len(r.players) >= MaxPlayers {
+	if r.active() >= MaxPlayers {
 		return "", errFull
 	}
 	id := j.Session
-	if id == "" || j.ProfileID != "" || r.player(id) != nil {
+	if id == "" || j.ProfileID != "" || r.player(id) != nil || r.gone[id] {
 		id = api.ID()
 	}
 	p := &player{id: id, profileID: j.ProfileID, device: j.DeviceID, name: j.Name, avatar: j.Avatar, state: StateThinking}
@@ -623,16 +644,49 @@ func (r *Room) Kick(now time.Time, hostID, playerID string) error {
 	if pid := r.players[i].profileID; pid != "" {
 		r.banned[pid] = true
 	}
+	r.remove(now, i)
+	return nil
+}
+
+// Leave takes a player out of the room at their own wish, in any phase. Unlike a kick they may join again, as a
+// new player with no points. A running round is settled at once; a paused one when it resumes.
+func (r *Room) Leave(now time.Time, playerID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now = r.touch(now)
+	if err := r.member(playerID); err != nil {
+		return err
+	}
+	r.gone[playerID] = true
+	if r.phase == PhaseOver {
+		// the final standings keep them (the winner leaving must not rewrite the podium); the lobby drops them
+		r.player(playerID).left = true
+		if r.active() == 0 {
+			r.toLobby()
+		}
+		return nil
+	}
+	r.remove(now, slices.IndexFunc(r.players, func(p *player) bool { return p.id == playerID }))
+	return nil
+}
+
+// remove drops players[i] with their votes and settles the round they leave. A game nobody is left in goes back
+// to the lobby: rounds for an empty room would play out one timer after another.
+func (r *Room) remove(now time.Time, i int) {
+	id := r.players[i].id
 	r.players = slices.Delete(r.players, i, i+1)
+	if r.active() == 0 && r.phase != PhaseLobby {
+		r.toLobby()
+		return
+	}
 	if rd := r.round; rd != nil {
-		rd.reveal = slices.DeleteFunc(rd.reveal, func(id string) bool { return id == playerID })
-		delete(rd.judge, playerID)
+		rd.reveal = slices.DeleteFunc(rd.reveal, func(v string) bool { return v == id })
+		delete(rd.judge, id)
 		if r.phase != PhasePaused {
 			r.settle(now)
 		}
 	}
 	r.publish()
-	return nil
 }
 
 // settle re-runs the round's end conditions after the players changed: years with nobody left thinking ends; a
@@ -914,6 +968,7 @@ func (r *Room) Abort(now time.Time, hostID string) error {
 func (r *Room) toLobby() {
 	r.gen++
 	r.phase, r.pausedFrom, r.round, r.next, r.queue = PhaseLobby, "", nil, nil, nil
+	r.players = slices.DeleteFunc(r.players, func(p *player) bool { return p.left })
 	for _, p := range r.players {
 		p.score, p.state = 0, StateThinking
 	}
