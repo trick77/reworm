@@ -31,7 +31,8 @@ export class ApiError extends Error {
   }
 }
 
-export type HostAction = "start" | "next" | "pause" | "resume" | "rematch";
+export type HostAction =
+  "start" | "next" | "pause" | "resume" | "rematch" | "abort";
 
 export type RoomHandlers = {
   onState: (s: RoomState) => void;
@@ -42,6 +43,10 @@ export type RoomHandlers = {
 };
 
 export type Leaving = { leave?: boolean };
+
+// RoundRef names the round a press is for: numbers restart with every game, the start tells a late press from an
+// ended game apart from the next game's round of the same number.
+export type RoundRef = { n: number; startedAt: number };
 
 export interface Api {
   version(): Promise<string>;
@@ -77,10 +82,10 @@ export interface Api {
   host(code: string, action: HostAction): Promise<void>;
   kick(code: string, playerId: string): Promise<void>;
   roomSettings(code: string, settings: RoomSettings): Promise<void>;
-  answer(code: string, round: number, choice: Choice): Promise<void>;
-  buzz(code: string, round: number): Promise<void>;
-  reveal(code: string, round: number): Promise<void>;
-  judge(code: string, round: number, points: Points): Promise<void>;
+  answer(code: string, round: RoundRef, choice: Choice): Promise<void>;
+  buzz(code: string, round: RoundRef): Promise<void>;
+  reveal(code: string, round: RoundRef): Promise<void>;
+  judge(code: string, round: RoundRef, points: Points): Promise<void>;
 
   startTraining(s: TrainSettings): Promise<TrainStarted>;
   trainSession(id: string): Promise<TrainSession>;
@@ -125,6 +130,8 @@ export function timeZone(): string {
 }
 
 const room = (code: string) => `/api/rooms/${encodeURIComponent(code)}`;
+// press is a press body's round: its number and start (the server refuses another game's round of that number)
+const press = (r: RoundRef) => ({ round: r.n, startedAt: r.startedAt });
 
 // browserEnv is the real network, every app path under the base path (PUBLIC_PATH).
 export function browserEnv(base: string = BASE): HttpEnv {
@@ -240,15 +247,15 @@ export class HttpApi implements Api {
     this.post(`${room(code)}/kick`, { playerId });
   roomSettings = (code: string, s: RoomSettings) =>
     this.post(`${room(code)}/settings`, s);
-  answer = async (code: string, round: number, choice: Choice) => {
-    await this.post(`${room(code)}/answer`, { round, choice });
+  answer = async (code: string, r: RoundRef, choice: Choice) => {
+    await this.post(`${room(code)}/answer`, { ...press(r), choice });
   };
-  buzz = (code: string, round: number) =>
-    this.post(`${room(code)}/buzz`, { round });
-  reveal = (code: string, round: number) =>
-    this.post(`${room(code)}/reveal`, { round });
-  judge = (code: string, round: number, points: Points) =>
-    this.post(`${room(code)}/judge`, { round, points });
+  buzz = (code: string, r: RoundRef) =>
+    this.post(`${room(code)}/buzz`, press(r));
+  reveal = (code: string, r: RoundRef) =>
+    this.post(`${room(code)}/reveal`, press(r));
+  judge = (code: string, r: RoundRef, points: Points) =>
+    this.post(`${room(code)}/judge`, { ...press(r), points });
 
   // training calls carry the device's time zone: the server counts streak days in it
   private train = <T>(method: string, path: string, body?: unknown) =>

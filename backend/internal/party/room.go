@@ -890,13 +890,34 @@ func (r *Room) Rematch(now time.Time, hostID string) error {
 	if r.phase != PhaseOver {
 		return errPhase
 	}
+	r.toLobby()
+	return nil
+}
+
+// Abort ends a game in any phase but the lobby and takes it back there with the same players.
+func (r *Room) Abort(now time.Time, hostID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.touch(now)
+	if err := r.host(hostID); err != nil {
+		return err
+	}
+	if r.phase == PhaseLobby {
+		return errPhase
+	}
+	r.toLobby()
+	return nil
+}
+
+// toLobby drops the game (round, queue, scores) and publishes the lobby. gen++ makes a background prefetch drop
+// the clip it resolved for the ended game (a Next still resolving refuses on its own phase check).
+func (r *Room) toLobby() {
 	r.gen++
-	r.phase, r.round, r.next, r.queue = PhaseLobby, nil, nil, nil
+	r.phase, r.pausedFrom, r.round, r.next, r.queue = PhaseLobby, "", nil, nil, nil
 	for _, p := range r.players {
 		p.score, p.state = 0, StateThinking
 	}
 	r.publish()
-	return nil
 }
 
 // --- rounds ----------------------------------------------------------------------------------------------------
@@ -993,9 +1014,21 @@ func (r *Room) photo(p *player, now time.Time) {
 	}
 }
 
+// Round names the round a press is for: its number and its start (unix ms, 0 from a client that sends none).
+// Numbers count from 1 again in every game, so a press sent in an ended game's round 1 that arrives late would
+// take the next game's round 1; the start tells them apart.
+type Round struct {
+	N         int
+	StartedAt int64
+}
+
+func (rd *round) is(at Round) bool {
+	return rd.n == at.N && (at.StartedAt == 0 || at.StartedAt == rd.startedAt.UnixMilli())
+}
+
 // press is the checks every player action shares: the player, the round, the room not paused. It returns the
 // player and the time the press counts at (touch).
-func (r *Room) press(now time.Time, playerID string, n int, mode string) (*player, time.Time, error) {
+func (r *Room) press(now time.Time, playerID string, at Round, mode string) (*player, time.Time, error) {
 	now = r.touch(now)
 	if err := r.member(playerID); err != nil {
 		return nil, now, err
@@ -1004,7 +1037,7 @@ func (r *Room) press(now time.Time, playerID string, n int, mode string) (*playe
 	switch {
 	case r.mode != mode:
 		return nil, now, errMode
-	case r.round == nil || r.round.n != n:
+	case r.round == nil || !r.round.is(at):
 		return nil, now, errRound
 	case r.phase == PhasePaused, r.phase == PhaseCountdown:
 		return nil, now, errPhase
@@ -1015,10 +1048,10 @@ func (r *Room) press(now time.Time, playerID string, n int, mode string) (*playe
 // Answer is a years-mode answer: "earlier", "exact" or "later" than the proposed year. The first correct one takes
 // the round (+1 for a right "exact"); a wrong one puts that player out. Correct answers within the photo window
 // after the winner are recorded, nothing else.
-func (r *Room) Answer(now time.Time, playerID string, n int, choice string) error {
+func (r *Room) Answer(now time.Time, playerID string, at Round, choice string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	p, now, err := r.press(now, playerID, n, ModeYears)
+	p, now, err := r.press(now, playerID, at, ModeYears)
 	if err != nil {
 		return err
 	}
@@ -1069,10 +1102,10 @@ func (r *Room) Answer(now time.Time, playerID string, n int, choice string) erro
 
 // Buzz is a buzzer-mode buzz: the first pauses the round and gives that player AnswerTime to say it; later buzzes
 // within the photo window are recorded, one buzz a round.
-func (r *Room) Buzz(now time.Time, playerID string, n int) error {
+func (r *Room) Buzz(now time.Time, playerID string, at Round) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	p, now, err := r.press(now, playerID, n, ModeBuzzer)
+	p, now, err := r.press(now, playerID, at, ModeBuzzer)
 	if err != nil {
 		return err
 	}
@@ -1101,10 +1134,10 @@ func (r *Room) Buzz(now time.Time, playerID string, n int) error {
 }
 
 // Reveal is a vote to show the song: the buzzer and one other (or the buzzer alone in a room of one).
-func (r *Room) Reveal(now time.Time, playerID string, n int) error {
+func (r *Room) Reveal(now time.Time, playerID string, at Round) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	p, now, err := r.press(now, playerID, n, ModeBuzzer)
+	p, now, err := r.press(now, playerID, at, ModeBuzzer)
 	if err != nil {
 		return err
 	}
@@ -1139,10 +1172,10 @@ func (r *Room) revealNow(now time.Time) {
 }
 
 // Judge is a vote on the buzzer's answer: 2 artist and title, 1 one of them, 0 neither.
-func (r *Room) Judge(now time.Time, playerID string, n, points int) error {
+func (r *Room) Judge(now time.Time, playerID string, at Round, points int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	p, now, err := r.press(now, playerID, n, ModeBuzzer)
+	p, now, err := r.press(now, playerID, at, ModeBuzzer)
 	if err != nil {
 		return err
 	}

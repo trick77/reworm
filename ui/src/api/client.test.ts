@@ -227,10 +227,11 @@ describe("HttpApi calls", () => {
     await api.host("K7Q4", "next");
     await api.kick("K7Q4", "pl1");
     await api.roomSettings("K7Q4", {} as never);
-    await api.answer("K7Q4", 3, "later");
-    await api.buzz("K7Q4", 3);
-    await api.reveal("K7Q4", 3);
-    await api.judge("K7Q4", 3, 2);
+    const r3 = { n: 3, startedAt: 1700 };
+    await api.answer("K7Q4", r3, "later");
+    await api.buzz("K7Q4", r3);
+    await api.reveal("K7Q4", r3);
+    await api.judge("K7Q4", r3, 2);
     await api.startTraining({} as never);
     await api.trainSession("t1");
     await api.trainAnswer("t1", { cardId: "c1", year: 1984 });
@@ -260,8 +261,13 @@ describe("HttpApi calls", () => {
     ]);
     expect(calls[1].body).toEqual({ name: "Mia", avatar: "mic" });
     expect(calls[5].body).toEqual({ kind: "device" });
-    expect(calls[11].body).toEqual({ round: 3, choice: "later" });
-    expect(calls[14].body).toEqual({ round: 3, points: 2 });
+    expect(calls[11].body).toEqual({
+      round: 3,
+      startedAt: 1700,
+      choice: "later",
+    });
+    expect(calls[12].body).toEqual({ round: 3, startedAt: 1700 });
+    expect(calls[14].body).toEqual({ round: 3, startedAt: 1700, points: 2 });
     // training calls carry the time zone, the others don't
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     for (const c of calls.slice(15)) expect(c.headers?.["X-Timezone"]).toBe(tz);

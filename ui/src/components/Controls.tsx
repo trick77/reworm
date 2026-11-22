@@ -1,5 +1,10 @@
 // Basic controls from the mock: Card, Button, IconButton, Chip, Segmented, Pill.
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import type {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  ReactNode,
+  Ref,
+} from "react";
 import { cx } from "../lib/cx";
 import { Icon, type IconName } from "./Icon";
 
@@ -12,6 +17,7 @@ export function Pill({ className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
 }
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  ref?: Ref<HTMLButtonElement>;
   variant?: "primary" | "ghost" | "sky";
   small?: boolean;
   icon?: IconName;

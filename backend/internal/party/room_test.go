@@ -149,19 +149,19 @@ func TestYears_firstCorrectWinsWithPhotoFinish(t *testing.T) {
 		t.Fatalf("the song leaked before the result: %s", b)
 	}
 
-	if err := r.Answer(t0.Add(time.Second), p[0], 1, wrong(r)); err != nil {
+	if err := r.Answer(t0.Add(time.Second), p[0], Round{N: 1}, wrong(r)); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Answer(t0.Add(time.Second), p[0], 1, right(r)); err == nil {
+	if err := r.Answer(t0.Add(time.Second), p[0], Round{N: 1}, right(r)); err == nil {
 		t.Error("a player out answered again")
 	}
-	if err := r.Answer(t0.Add(2*time.Second), p[1], 1, right(r)); err != nil {
+	if err := r.Answer(t0.Add(2*time.Second), p[1], Round{N: 1}, right(r)); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Answer(t0.Add(2*time.Second+30*time.Millisecond), p[2], 1, right(r)); err != nil {
+	if err := r.Answer(t0.Add(2*time.Second+30*time.Millisecond), p[2], Round{N: 1}, right(r)); err != nil {
 		t.Errorf("photo finish answer = %v", err)
 	}
-	if err := r.Answer(t0.Add(2*time.Second+40*time.Millisecond), p[3], 1, wrong(r)); err != nil {
+	if err := r.Answer(t0.Add(2*time.Second+40*time.Millisecond), p[3], Round{N: 1}, wrong(r)); err != nil {
 		t.Errorf("wrong answer in the window = %v", err)
 	}
 	s = r.State(t0.Add(3 * time.Second))
@@ -181,8 +181,8 @@ func TestYears_firstCorrectWinsWithPhotoFinish(t *testing.T) {
 	}
 	// After the window nothing more counts.
 	other, _ := joinAs(r, t0, "", "", "Late", "worm")
-	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), other, 1, right(r)), "late")
-	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), p[2], 1, right(r)), "already_answered")
+	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), other, Round{N: 1}, right(r)), "late")
+	wantProblem(t, r.Answer(t0.Add(3100*time.Millisecond), p[2], Round{N: 1}, right(r)), "already_answered")
 }
 
 func TestYears_exactScoresTwoAndTheWindowCloses(t *testing.T) {
@@ -190,10 +190,10 @@ func TestYears_exactScoresTwoAndTheWindowCloses(t *testing.T) {
 	p := join(t, r, 2)
 	start(t, r, 5)
 	r.round.proposed = r.round.pick.song.Year
-	if err := r.Answer(t0.Add(time.Second), p[0], 1, "exact"); err != nil {
+	if err := r.Answer(t0.Add(time.Second), p[0], Round{N: 1}, "exact"); err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, r.Answer(t0.Add(2001*time.Millisecond), p[1], 1, "exact"), "wrong_round")
+	wantProblem(t, r.Answer(t0.Add(2001*time.Millisecond), p[1], Round{N: 1}, "exact"), "wrong_round")
 	s := r.State(t0.Add(3 * time.Second))
 	if s.Round.Result.Points != 2 || playerOf(s, p[0]).Score != 2 {
 		t.Errorf("exact = %+v", s.Round.Result)
@@ -205,7 +205,7 @@ func TestYears_allOutAndTimer(t *testing.T) {
 	p := join(t, r, 2)
 	start(t, r, 5)
 	for _, id := range p {
-		if err := r.Answer(t0.Add(time.Second), id, 1, wrong(r)); err != nil {
+		if err := r.Answer(t0.Add(time.Second), id, Round{N: 1}, wrong(r)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -241,9 +241,9 @@ func TestCountdown(t *testing.T) {
 			// Nothing counts before the clip: no answer, no buzz, no pause.
 			before := t0.Add(Countdown - time.Millisecond)
 			if mode == ModeYears {
-				wantProblem(t, r.Answer(before, p[0], 1, right(r)), "wrong_phase")
+				wantProblem(t, r.Answer(before, p[0], Round{N: 1}, right(r)), "wrong_phase")
 			} else {
-				wantProblem(t, r.Buzz(before, p[0], 1), "wrong_phase")
+				wantProblem(t, r.Buzz(before, p[0], Round{N: 1}), "wrong_phase")
 			}
 			wantProblem(t, r.Pause(before, host), "wrong_phase")
 			// Who joins during the countdown plays this round.
@@ -262,9 +262,9 @@ func TestCountdown(t *testing.T) {
 			at := go1.Add(1500 * time.Millisecond)
 			if mode == ModeYears {
 				r.round.proposed = r.round.pick.song.Year + 4
-				err = r.Answer(at, p[0], 1, right(r))
+				err = r.Answer(at, p[0], Round{N: 1}, right(r))
 			} else {
-				err = r.Buzz(at, p[0], 1)
+				err = r.Buzz(at, p[0], Round{N: 1})
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -296,7 +296,7 @@ func TestCountdown_endedByARefusedPressStillPublishes(t *testing.T) {
 	start(t, r, 5)
 	seq := r.State(t0).Seq
 	// A stale press after startedAt starts the round in touch, then fails: nothing published yet.
-	wantProblem(t, r.Answer(t0.Add(Countdown), p[0], 7, "later"), "wrong_round")
+	wantProblem(t, r.Answer(t0.Add(Countdown), p[0], Round{N: 7}, "later"), "wrong_round")
 	if r.phase != PhasePlaying || r.seq != seq {
 		t.Fatalf("after the refused press = %s, seq %d (was %d)", r.phase, r.seq, seq)
 	}
@@ -313,7 +313,7 @@ func TestCountdown_everyRound(t *testing.T) {
 	start(t, r, 5)
 	r.Tick(t0.Add(Countdown))
 	r.round.proposed = r.round.pick.song.Year + 4
-	if err := r.Answer(t0.Add(Countdown+time.Second), p[0], 1, right(r)); err != nil {
+	if err := r.Answer(t0.Add(Countdown+time.Second), p[0], Round{N: 1}, right(r)); err != nil {
 		t.Fatal(err)
 	}
 	at := t0.Add(10 * time.Second)
@@ -328,13 +328,13 @@ func TestCountdown_everyRound(t *testing.T) {
 func TestYears_inputChecks(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	p := join(t, r, 1)
-	wantProblem(t, r.Answer(t0, p[0], 1, "later"), "wrong_round")
+	wantProblem(t, r.Answer(t0, p[0], Round{N: 1}, "later"), "wrong_round")
 	start(t, r, 3)
-	wantProblem(t, r.Answer(t0, "stranger", 1, "later"), "not_in_room")
-	wantProblem(t, r.Answer(t0, "", 1, "later"), "not_in_room")
-	wantProblem(t, r.Answer(t0, p[0], 2, "later"), "wrong_round")
-	wantProblem(t, r.Answer(t0, p[0], 1, "sideways"), "invalid_choice")
-	wantProblem(t, r.Buzz(t0, p[0], 1), "wrong_mode")
+	wantProblem(t, r.Answer(t0, "stranger", Round{N: 1}, "later"), "not_in_room")
+	wantProblem(t, r.Answer(t0, "", Round{N: 1}, "later"), "not_in_room")
+	wantProblem(t, r.Answer(t0, p[0], Round{N: 2}, "later"), "wrong_round")
+	wantProblem(t, r.Answer(t0, p[0], Round{N: 1}, "sideways"), "invalid_choice")
+	wantProblem(t, r.Buzz(t0, p[0], Round{N: 1}), "wrong_mode")
 }
 
 func TestGame_toWinPauseNextRematch(t *testing.T) {
@@ -350,7 +350,7 @@ func TestGame_toWinPauseNextRematch(t *testing.T) {
 	if err := r.Pause(now, host); err != nil {
 		t.Fatal(err)
 	}
-	wantProblem(t, r.Answer(now, p[0], 1, right(r)), "wrong_phase")
+	wantProblem(t, r.Answer(now, p[0], Round{N: 1}, right(r)), "wrong_phase")
 	r.Tick(now.Add(time.Hour))
 	if r.phase != PhasePaused {
 		t.Fatal("a paused round timed out")
@@ -374,7 +374,7 @@ func TestGame_toWinPauseNextRematch(t *testing.T) {
 	// Three wins of p[0] end the game (toWin 3).
 	for n := 1; ; n++ {
 		r.round.proposed = r.round.pick.song.Year + 5
-		if err := r.Answer(now, p[0], n, right(r)); err != nil {
+		if err := r.Answer(now, p[0], Round{N: n}, right(r)); err != nil {
 			t.Fatal(err)
 		}
 		if r.phase == PhaseOver {
@@ -414,7 +414,7 @@ func TestNext_deckRunsOutAndSkipsMissingPreviews(t *testing.T) {
 	if r.next == nil || r.next.song.ID != "s2" {
 		t.Fatalf("next = %+v, want s2 (s1 has no preview)", r.next)
 	}
-	_ = r.Answer(t0, p[0], 1, wrong(r))
+	_ = r.Answer(t0, p[0], Round{N: 1}, wrong(r))
 	id, err := next(r, t0)
 	if err != nil || id != "s2" || r.next != nil {
 		t.Fatalf("Next = %q, %v; next %+v", id, err, r.next)
@@ -422,7 +422,7 @@ func TestNext_deckRunsOutAndSkipsMissingPreviews(t *testing.T) {
 	if s := r.State(t0); s.NextClip != nil {
 		t.Error("nextClip with nothing left")
 	}
-	_ = r.Answer(t0, p[0], 2, wrong(r))
+	_ = r.Answer(t0, p[0], Round{N: 2}, wrong(r))
 	id, err = next(r, t0)
 	if err != nil || id != "" || r.phase != PhaseOver {
 		t.Errorf("deck done: %q, %v, phase %s", id, err, r.phase)
@@ -474,7 +474,7 @@ func TestPrefetch_onlyNoPreviewDropsASong(t *testing.T) {
 	if r.next != nil || r.queue[0].ID != "s1" {
 		t.Fatalf("next = %+v, queue head %s", r.next, r.queue[0].ID)
 	}
-	_ = r.Answer(t0, p[0], 1, wrong(r))
+	_ = r.Answer(t0, p[0], Round{N: 1}, wrong(r))
 	_, err = next(r, t0)
 	wantProblem(t, err, "previews_unavailable")
 	if r.phase != PhaseResult {
@@ -616,14 +616,14 @@ func TestState_snapshotsDoNotRace(t *testing.T) {
 			}
 		})
 	}
-	_ = r.Buzz(t0, p[0], 1)
+	_ = r.Buzz(t0, p[0], Round{N: 1})
 	for _, id := range p[1:] {
-		_ = r.Buzz(t0.Add(10*time.Millisecond), id, 1)
+		_ = r.Buzz(t0.Add(10*time.Millisecond), id, Round{N: 1})
 	}
-	_ = r.Reveal(t0, p[0], 1)
-	_ = r.Reveal(t0, p[1], 1)
+	_ = r.Reveal(t0, p[0], Round{N: 1})
+	_ = r.Reveal(t0, p[1], Round{N: 1})
 	for _, id := range p {
-		_ = r.Judge(t0, id, 1, 1)
+		_ = r.Judge(t0, id, Round{N: 1}, 1)
 	}
 	r.Tick(t0.Add(time.Hour))
 	close(stop)
@@ -702,12 +702,12 @@ func TestJoin(t *testing.T) {
 	if s := r2.State(t0); playerOf(s, late).State != StateLate {
 		t.Errorf("late joiner state = %q", playerOf(s, late).State)
 	}
-	wantProblem(t, r2.Answer(t0, late, 1, right(r2)), "late")
-	_ = r2.Answer(t0, q[0], 1, wrong(r2))
+	wantProblem(t, r2.Answer(t0, late, Round{N: 1}, right(r2)), "late")
+	_ = r2.Answer(t0, q[0], Round{N: 1}, wrong(r2))
 	if _, err := next(r2, t0); err != nil {
 		t.Fatal(err)
 	}
-	if err := r2.Answer(t0, late, 2, right(r2)); err != nil {
+	if err := r2.Answer(t0, late, Round{N: 2}, right(r2)); err != nil {
 		t.Errorf("late joiner in the next round = %v", err)
 	}
 }
@@ -729,14 +729,14 @@ func TestKick_bansForTheRoomsLife(t *testing.T) {
 	wantProblem(t, r.Member("never"), "not_in_room")
 	_, _ = joinAs(r, t0, "", "", "Mia", "mic")
 	start(t, r, 3)
-	wantProblem(t, r.Answer(t0, guest, 1, right(r)), "kicked")
+	wantProblem(t, r.Answer(t0, guest, Round{N: 1}, right(r)), "kicked")
 }
 
 func TestKick_whilePausedSettlesOnResume(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	p := join(t, r, 2)
 	start(t, r, 3)
-	_ = r.Answer(t0, p[0], 1, wrong(r))
+	_ = r.Answer(t0, p[0], Round{N: 1}, wrong(r))
 	_ = r.Pause(t0, host)
 	if err := r.Kick(t0, host, p[1]); err != nil {
 		t.Fatal(err)
@@ -755,7 +755,7 @@ func TestKick_whilePausedSettlesOnResume(t *testing.T) {
 	b := newTestRoom(t, ModeBuzzer)
 	q := join(t, b, 2)
 	start(t, b, 3)
-	_ = b.Buzz(t0, q[0], 1)
+	_ = b.Buzz(t0, q[0], Round{N: 1})
 	_ = b.Pause(t0, host)
 	_ = b.Kick(t0, host, q[0])
 	if b.phase != PhasePaused {
@@ -779,7 +779,7 @@ func TestState_seqWinnerMsAndJudgeEndsAt(t *testing.T) {
 	r.round.proposed = r.round.pick.song.Year + 5
 	_ = r.Pause(t0.Add(time.Second), host)
 	_ = r.Resume(t0.Add(time.Minute), host)
-	_ = r.Answer(t0.Add(time.Minute+2*time.Second), p[0], 1, right(r))
+	_ = r.Answer(t0.Add(time.Minute+2*time.Second), p[0], Round{N: 1}, right(r))
 	s := r.State(t0.Add(2 * time.Minute))
 	// 1 s before the pause, 2 s after it: 3000 ms of round time.
 	if s.Seq <= s1 || s.Round.Result.WinnerMs == nil || *s.Round.Result.WinnerMs != 3000 {
@@ -792,15 +792,15 @@ func TestState_seqWinnerMsAndJudgeEndsAt(t *testing.T) {
 	b := newTestRoom(t, ModeBuzzer)
 	q := join(t, b, 2)
 	start(t, b, 3)
-	_ = b.Buzz(t0.Add(4*time.Second), q[0], 1)
-	_ = b.Reveal(t0.Add(5*time.Second), q[0], 1)
-	_ = b.Reveal(t0.Add(5*time.Second), q[1], 1)
+	_ = b.Buzz(t0.Add(4*time.Second), q[0], Round{N: 1})
+	_ = b.Reveal(t0.Add(5*time.Second), q[0], Round{N: 1})
+	_ = b.Reveal(t0.Add(5*time.Second), q[1], Round{N: 1})
 	st := b.State(t0.Add(5 * time.Second))
 	if st.Round.JudgeEndsAt == nil || *st.Round.JudgeEndsAt != t0.Add(5*time.Second+JudgeTime).UnixMilli() {
 		t.Errorf("judgeEndsAt = %v", st.Round.JudgeEndsAt)
 	}
-	_ = b.Judge(t0.Add(6*time.Second), q[0], 1, 1)
-	_ = b.Judge(t0.Add(6*time.Second), q[1], 1, 1)
+	_ = b.Judge(t0.Add(6*time.Second), q[0], Round{N: 1}, 1)
+	_ = b.Judge(t0.Add(6*time.Second), q[1], Round{N: 1}, 1)
 	if ms := b.State(t0.Add(6 * time.Second)).Round.Result.WinnerMs; ms == nil || *ms != 4000 {
 		t.Errorf("buzzer winnerMs = %v", ms)
 	}
@@ -824,7 +824,7 @@ func TestKickAndSettings(t *testing.T) {
 	wantProblem(t, r.Configure(t0, host, c), "wrong_phase")
 	wantProblem(t, r.Kick(t0, "x", p[0]), "not_host")
 	wantProblem(t, r.Kick(t0, host, "nobody"), "unknown_player")
-	_ = r.Answer(t0, p[0], 1, wrong(r))
+	_ = r.Answer(t0, p[0], Round{N: 1}, wrong(r))
 	// The only player still thinking leaves: the round ends.
 	if err := r.Kick(t0, host, p[1]); err != nil {
 		t.Fatal(err)
@@ -855,35 +855,35 @@ func TestBuzzer_buzzRevealJudge(t *testing.T) {
 	if s := r.State(t0); s.Round.ProposedYear != nil {
 		t.Error("buzzer mode shows a year")
 	}
-	wantProblem(t, r.Answer(t0, p[0], 1, "later"), "wrong_mode")
-	wantProblem(t, r.Reveal(t0, p[0], 1), "wrong_phase")
+	wantProblem(t, r.Answer(t0, p[0], Round{N: 1}, "later"), "wrong_mode")
+	wantProblem(t, r.Reveal(t0, p[0], Round{N: 1}), "wrong_phase")
 	at := t0.Add(4 * time.Second)
-	if err := r.Buzz(at, p[0], 1); err != nil {
+	if err := r.Buzz(at, p[0], Round{N: 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Buzz(at.Add(45*time.Millisecond), p[1], 1); err != nil {
+	if err := r.Buzz(at.Add(45*time.Millisecond), p[1], Round{N: 1}); err != nil {
 		t.Errorf("photo-finish buzz = %v", err)
 	}
-	wantProblem(t, r.Buzz(at.Add(50*time.Millisecond), p[1], 1), "already_answered")
-	wantProblem(t, r.Buzz(at.Add(50*time.Millisecond), p[0], 1), "already_answered")
-	wantProblem(t, r.Buzz(at.Add(PhotoWindow), p[2], 1), "already_buzzed")
+	wantProblem(t, r.Buzz(at.Add(50*time.Millisecond), p[1], Round{N: 1}), "already_answered")
+	wantProblem(t, r.Buzz(at.Add(50*time.Millisecond), p[0], Round{N: 1}), "already_answered")
+	wantProblem(t, r.Buzz(at.Add(PhotoWindow), p[2], Round{N: 1}), "already_buzzed")
 	s := r.State(at)
 	if s.Phase != PhaseBuzzed || s.Round.Buzz == nil || s.Round.Buzz.PlayerID != p[0] ||
 		s.Round.Buzz.AnswerEndsAt != at.Add(AnswerTime).UnixMilli() || s.Round.Result != nil ||
 		playerOf(s, p[0]).State != StateBuzzed {
 		t.Fatalf("buzzed = %+v", s.Round)
 	}
-	wantProblem(t, r.Judge(at, p[0], 1, 2), "wrong_phase")
+	wantProblem(t, r.Judge(at, p[0], Round{N: 1}, 2), "wrong_phase")
 
 	// Another player alone cannot reveal; the buzzer plus one other does.
-	if err := r.Reveal(at.Add(time.Second), p[1], 1); err != nil {
+	if err := r.Reveal(at.Add(time.Second), p[1], Round{N: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if r.phase != PhaseBuzzed {
 		t.Fatal("revealed without the buzzer")
 	}
-	_ = r.Reveal(at.Add(time.Second), p[1], 1) // a second press is the same vote
-	if err := r.Reveal(at.Add(2*time.Second), p[0], 1); err != nil {
+	_ = r.Reveal(at.Add(time.Second), p[1], Round{N: 1}) // a second press is the same vote
+	if err := r.Reveal(at.Add(2*time.Second), p[0], Round{N: 1}); err != nil {
 		t.Fatal(err)
 	}
 	s = r.State(at.Add(2 * time.Second))
@@ -894,13 +894,13 @@ func TestBuzzer_buzzRevealJudge(t *testing.T) {
 		t.Errorf("photo finish = %+v", pf)
 	}
 
-	wantProblem(t, r.Judge(at, p[1], 1, 3), "invalid_points")
-	_ = r.Judge(at.Add(3*time.Second), p[0], 1, 2)
-	_ = r.Judge(at.Add(3*time.Second), p[1], 1, 1) // disagrees: wait for the rest
+	wantProblem(t, r.Judge(at, p[1], Round{N: 1}, 3), "invalid_points")
+	_ = r.Judge(at.Add(3*time.Second), p[0], Round{N: 1}, 2)
+	_ = r.Judge(at.Add(3*time.Second), p[1], Round{N: 1}, 1) // disagrees: wait for the rest
 	if r.phase != PhaseJudging {
 		t.Fatal("decided on a disagreement")
 	}
-	_ = r.Judge(at.Add(4*time.Second), p[2], 1, 2) // agrees with the buzzer
+	_ = r.Judge(at.Add(4*time.Second), p[2], Round{N: 1}, 2) // agrees with the buzzer
 	s = r.State(at.Add(4 * time.Second))
 	if s.Phase != PhaseResult || *s.Round.Result.WinnerID != p[0] || s.Round.Result.Points != 2 || playerOf(s, p[0]).Score != 2 {
 		t.Errorf("judged = %+v", s.Round.Result)
@@ -924,13 +924,13 @@ func TestBuzzer_tieBrokenByTheRoom(t *testing.T) {
 			r := newTestRoom(t, ModeBuzzer)
 			p := join(t, r, c.n)
 			start(t, r, 3)
-			_ = r.Buzz(t0, p[0], 1)
-			_ = r.Reveal(t0, p[0], 1)
+			_ = r.Buzz(t0, p[0], Round{N: 1})
+			_ = r.Reveal(t0, p[0], Round{N: 1})
 			if c.n > 1 {
-				_ = r.Reveal(t0, p[1], 1)
+				_ = r.Reveal(t0, p[1], Round{N: 1})
 			}
 			for i, v := range c.votes {
-				if err := r.Judge(t0, p[i], 1, v); err != nil {
+				if err := r.Judge(t0, p[i], Round{N: 1}, v); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -953,19 +953,19 @@ func TestBuzzer_deadlines(t *testing.T) {
 	if r.phase != PhaseResult || r.round.result.WinnerID != nil {
 		t.Fatalf("no buzz = %s %+v", r.phase, r.round.result)
 	}
-	wantProblem(t, r.Buzz(t0.Add(RoundTime), p[0], 1), "wrong_round")
+	wantProblem(t, r.Buzz(t0.Add(RoundTime), p[0], Round{N: 1}), "wrong_round")
 
 	// The answer window ends: the stage reveals; judging time ends: the votes so far decide.
 	if _, err := next(r, t0.Add(RoundTime)); err != nil {
 		t.Fatal(err)
 	}
 	at := t0.Add(RoundTime + time.Second)
-	_ = r.Buzz(at, p[0], 2)
+	_ = r.Buzz(at, p[0], Round{N: 2})
 	r.Tick(at.Add(AnswerTime))
 	if r.phase != PhaseJudging {
 		t.Fatalf("after the answer window: %s", r.phase)
 	}
-	_ = r.Judge(at.Add(AnswerTime), p[1], 2, 1)
+	_ = r.Judge(at.Add(AnswerTime), p[1], Round{N: 2}, 1)
 	r.Tick(at.Add(AnswerTime + JudgeTime))
 	if r.phase != PhaseResult || r.round.result.Points != 1 {
 		t.Errorf("judging timeout: %s %+v", r.phase, r.round.result)
@@ -974,7 +974,7 @@ func TestBuzzer_deadlines(t *testing.T) {
 	// No vote at all in time: nothing.
 	_, _ = next(r, at.Add(time.Minute))
 	at = at.Add(time.Minute)
-	_ = r.Buzz(at, p[0], 3)
+	_ = r.Buzz(at, p[0], Round{N: 3})
 	r.Tick(at.Add(AnswerTime + JudgeTime))
 	if r.phase != PhaseResult || r.round.result.Points != 0 {
 		t.Errorf("no votes: %s %+v", r.phase, r.round.result)
@@ -985,8 +985,8 @@ func TestBuzzer_kickAndPause(t *testing.T) {
 	r := newTestRoom(t, ModeBuzzer)
 	p := join(t, r, 3)
 	start(t, r, 4)
-	_ = r.Buzz(t0, p[0], 1)
-	_ = r.Reveal(t0, p[0], 1)
+	_ = r.Buzz(t0, p[0], Round{N: 1})
+	_ = r.Reveal(t0, p[0], Round{N: 1})
 	// The one other who would have revealed leaves; another one does.
 	if err := r.Kick(t0, host, p[2]); err != nil {
 		t.Fatal(err)
@@ -1000,11 +1000,11 @@ func TestBuzzer_kickAndPause(t *testing.T) {
 	if got := r.round.buzz.answerEndsAt; !got.Equal(t0.Add(AnswerTime + time.Minute)) {
 		t.Errorf("answerEndsAt after pause = %v", got)
 	}
-	_ = r.Reveal(t0.Add(time.Minute), p[1], 1)
+	_ = r.Reveal(t0.Add(time.Minute), p[1], Round{N: 1})
 	if r.phase != PhaseJudging {
 		t.Fatalf("phase %s", r.phase)
 	}
-	_ = r.Judge(t0.Add(time.Minute), p[0], 1, 2)
+	_ = r.Judge(t0.Add(time.Minute), p[0], Round{N: 1}, 2)
 	// p[1] is the only other; kicking them leaves the buzzer alone, whose vote stands.
 	if err := r.Kick(t0.Add(time.Minute), host, p[1]); err != nil {
 		t.Fatal(err)
@@ -1017,7 +1017,7 @@ func TestBuzzer_kickAndPause(t *testing.T) {
 	r2 := newTestRoom(t, ModeBuzzer)
 	q := join(t, r2, 2)
 	start(t, r2, 3)
-	_ = r2.Buzz(t0, q[0], 1)
+	_ = r2.Buzz(t0, q[0], Round{N: 1})
 	if err := r2.Kick(t0, host, q[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -1213,7 +1213,7 @@ func TestRoom_concurrentAnswers(t *testing.T) {
 	var wg sync.WaitGroup
 	for i, id := range p {
 		wg.Go(func() {
-			_ = r.Answer(t0.Add(time.Duration(i)*time.Millisecond), id, 1, choice)
+			_ = r.Answer(t0.Add(time.Duration(i)*time.Millisecond), id, Round{N: 1}, choice)
 			r.Tick(t0.Add(time.Second))
 			_ = r.State(t0)
 		})
@@ -1229,5 +1229,118 @@ func TestRoom_concurrentAnswers(t *testing.T) {
 	}
 	if total != 1 || len(s.Round.Result.PhotoFinish) > MaxPlayers-1 {
 		t.Errorf("total score %d, photo %d", total, len(s.Round.Result.PhotoFinish))
+	}
+}
+
+// Abort takes a game back to the lobby from any phase but the lobby: same players, scores 0.
+func TestAbort_backToTheLobby(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		to   func(t *testing.T, r *Room, p []string)
+	}{
+		{"playing", func(*testing.T, *Room, []string) {}},
+		{"paused", func(t *testing.T, r *Room, _ []string) {
+			if err := r.Pause(t0, host); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"result", func(t *testing.T, r *Room, p []string) {
+			if err := r.Answer(t0, p[0], Round{N: 1}, wrong(r)); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Answer(t0, p[1], Round{N: 1}, wrong(r)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"over", func(t *testing.T, r *Room, p []string) {
+			r.toWin = 1
+			if err := r.Answer(t0, p[1], Round{N: 1}, right(r)); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestRoom(t, ModeYears)
+			p := join(t, r, 2)
+			start(t, r, 4)
+			r.players[1].score = 2
+			late, err := joinAs(r, t0, "", "", "Late", "mic")
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.to(t, r, p)
+			if r.phase != tc.name {
+				t.Fatalf("set up %s, got %s", tc.name, r.phase)
+			}
+			wantProblem(t, r.Abort(t0, "not-host"), "not_host")
+			if err := r.Abort(t0, host); err != nil {
+				t.Fatal(err)
+			}
+			s := r.State(t0)
+			if s.Phase != PhaseLobby || s.Round != nil || s.PausedFrom != "" || s.NextClip != nil || len(s.Players) != 3 {
+				t.Fatalf("aborted = %+v", s)
+			}
+			for _, pl := range s.Players {
+				if pl.Score != 0 || pl.State != StateThinking {
+					t.Errorf("player after abort = %+v", pl)
+				}
+			}
+			if st := playerOf(s, late).State; st != StateThinking {
+				t.Errorf("late player = %s", st)
+			}
+			wantProblem(t, r.Abort(t0, host), "wrong_phase")
+			start(t, r, 4)
+			if r.phase != PhasePlaying || r.round.n != 1 {
+				t.Errorf("restart = %s round %d", r.phase, r.round.n)
+			}
+		})
+	}
+}
+
+// A press sent in the ended game's round 1 that arrives after the next game started its own round 1 is refused by
+// the round's start.
+func TestAbort_lateAnswerFromTheEndedGame(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 1)
+	start(t, r, 4)
+	old := Round{N: 1, StartedAt: r.round.startedAt.UnixMilli()}
+	if err := r.Abort(t0, host); err != nil {
+		t.Fatal(err)
+	}
+	later := t0.Add(time.Minute)
+	setClock(r, later)
+	start(t, r, 4)
+	wantProblem(t, r.Answer(later, p[0], old, right(r)), "wrong_round")
+	if st := r.State(later); st.Phase != PhasePlaying || playerOf(st, p[0]).State != StateThinking {
+		t.Fatalf("late answer counted: %+v", st)
+	}
+	if err := r.Answer(later, p[0], Round{N: 1, StartedAt: later.UnixMilli()}, right(r)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A Next still resolving its clip when the host aborts must not start a round in the lobby.
+func TestAbort_whileNextResolves(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 1)
+	start(t, r, 4)
+	if err := r.Answer(t0, p[0], Round{N: 1}, wrong(r)); err != nil {
+		t.Fatal(err)
+	}
+	slow := &blocking{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	r.mu.Lock()
+	r.next, r.resolve = nil, slow.PreviewURL
+	r.mu.Unlock()
+	done := make(chan error, 1)
+	go func() { _, err := r.Next(context.Background(), host); done <- err }()
+	<-slow.entered
+	if err := r.Abort(t0, host); err != nil {
+		t.Fatal(err)
+	}
+	close(slow.release)
+	wantProblem(t, <-done, "wrong_phase")
+	r.bg.Wait()
+	if s := r.State(t0); s.Phase != PhaseLobby || s.Round != nil || s.NextClip != nil {
+		t.Errorf("after the late Next = %+v", s)
 	}
 }

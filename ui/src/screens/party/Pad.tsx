@@ -254,7 +254,7 @@ function YearsLive({
       <AnswerPad
         variant="pad"
         disabled={done || s.phase !== "playing"}
-        onAnswer={(c) => send(c, () => api.answer(s.code, r.n, c))}
+        onAnswer={(c) => send(c, () => api.answer(s.code, r, c))}
       />
       <div
         className="sub center"
@@ -309,7 +309,7 @@ function BuzzerLive({
                 type="button"
                 className={`p${j.points}`}
                 onClick={() =>
-                  send("judge", () => api.judge(s.code, r.n, j.points))
+                  send("judge", () => api.judge(s.code, r, j.points))
                 }
               >
                 <b>{j.points}</b>
@@ -363,7 +363,7 @@ function BuzzerLive({
         <Button
           variant={pressed ? "ghost" : "primary"}
           disabled={pressed || s.phase !== "buzzed"}
-          onClick={() => send("reveal", () => api.reveal(s.code, r.n))}
+          onClick={() => send("reveal", () => api.reveal(s.code, r))}
           style={{ marginBottom: 6 }}
         >
           {pressed ? "Waiting for one more Reveal…" : "Reveal the song"}
@@ -393,7 +393,7 @@ function BuzzerLive({
         type="button"
         className="buzz"
         disabled={done || s.phase !== "playing"}
-        onClick={() => send("buzz", () => api.buzz(s.code, r.n))}
+        onClick={() => send("buzz", () => api.buzz(s.code, r))}
       >
         BUZZ
       </button>

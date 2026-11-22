@@ -7,6 +7,7 @@ import {
   type HostAction,
   type Leaving,
   type RoomHandlers,
+  type RoundRef,
 } from "../api/client";
 import { AVATAR_KEYS } from "../avatars";
 import type {
@@ -701,6 +702,17 @@ export class FakeWorld {
         st.round = null;
         this.newRound(code);
         break;
+      case "abort":
+        // as Room.Abort: any phase but the lobby, back there with the same players
+        if (st.phase === "lobby") return fail(409, "wrong_phase");
+        clearTimeout(r.timer);
+        st.players.forEach((p) => ((p.score = 0), (p.state = "thinking")));
+        st.round = null;
+        st.nextClip = null;
+        delete st.pausedFrom;
+        r.pausedFrom = null;
+        st.phase = "lobby";
+        break;
     }
     this.emit(code);
     return Promise.resolve();
@@ -1095,17 +1107,27 @@ export class FakeApi implements Api {
   private me_(code: string) {
     return this.dev.players[code] ?? "";
   }
-  answer = (code: string, round: number, choice: Choice) =>
+  // n_ is the round number a press names, -1 (wrong_round) when its start is another game's, as Room.press
+  private n_(code: string, r: RoundRef) {
+    return this.world.rooms.get(code)?.state.round?.startedAt === r.startedAt
+      ? r.n
+      : -1;
+  }
+  answer = (code: string, r: RoundRef, choice: Choice) =>
     this.log("answer", () =>
-      this.world.answerAs(code, this.me_(code), round, choice),
+      this.world.answerAs(code, this.me_(code), this.n_(code, r), choice),
     );
-  buzz = (code: string, round: number) =>
-    this.log("buzz", () => this.world.buzzAs(code, this.me_(code), round));
-  reveal = (code: string, round: number) =>
-    this.log("reveal", () => this.world.revealAs(code, this.me_(code), round));
-  judge = (code: string, round: number, points: Points) =>
+  buzz = (code: string, r: RoundRef) =>
+    this.log("buzz", () =>
+      this.world.buzzAs(code, this.me_(code), this.n_(code, r)),
+    );
+  reveal = (code: string, r: RoundRef) =>
+    this.log("reveal", () =>
+      this.world.revealAs(code, this.me_(code), this.n_(code, r)),
+    );
+  judge = (code: string, r: RoundRef, points: Points) =>
     this.log("judge", () =>
-      this.world.judgeAs(code, this.me_(code), round, points),
+      this.world.judgeAs(code, this.me_(code), this.n_(code, r), points),
     );
 
   startTraining = (s: TrainSettings) =>
