@@ -561,6 +561,21 @@
   color: var(--muted);
   margin-top: 2px;
 }
+/* a whole row as the toggle (the lobby's More options) */
+.set-row.more {
+  width: 100%;
+  text-align: left;
+}
+.set-row.more .m {
+  display: block;
+}
+.set-row .link {
+  padding: 0;
+}
+/* a row's options stay one line each ("20 s", not "20" over "s") at phone width */
+.set-row .segbar button {
+  white-space: nowrap;
+}
 .toggle {
   width: 46px;
   height: 28px;

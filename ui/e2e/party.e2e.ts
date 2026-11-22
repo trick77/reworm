@@ -37,6 +37,9 @@ test("years: locked out, fastest right answer, photo finish, standings, podium, 
   await settings(stage, code, { toWin: 3 });
   for (const p of pads)
     await expect(p.page.getByText(/· first to 3$/)).toBeVisible();
+  // the stage keeps the rest behind More options, summed up in one line
+  await expect(stage.getByText(/^First to 3 · \d+ s · /)).toBeVisible();
+  await expect(stage.getByText(/^This screen plays the music\./)).toBeVisible();
   await shot(stage, "years-lobby");
   await shot(mia.page, "pad-lobby");
 
