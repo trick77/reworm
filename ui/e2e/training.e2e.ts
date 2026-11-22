@@ -54,6 +54,8 @@ test("training: swipe, keys and buttons, the reveal, the summary, drilling the m
 }) => {
   const page = await device(browser, "laptop", { admin: true });
   await page.goto("train");
+  // progress sits on top of the Train tab, no longer on home
+  await expect(page.getByText("Your progress")).toBeVisible();
   await page.getByRole("button", { name: "Start · 10 songs" }).click();
   await expect(page).toHaveURL(/\/reworm\/train\/[^/]+$/);
   const id = decodeURIComponent(page.url().split("/").pop()!);

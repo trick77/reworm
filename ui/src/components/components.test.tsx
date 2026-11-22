@@ -405,7 +405,7 @@ describe("AppShell", () => {
   it("shows the tabs and reports a tab change", () => {
     const onTab = vi.fn();
     render(
-      <AppShell tab="party" onTab={onTab} footer={<button>Go</button>}>
+      <AppShell tab="settings" onTab={onTab} footer={<button>Go</button>}>
         <p>content</p>
       </AppShell>,
     );
@@ -416,11 +416,10 @@ describe("AppShell", () => {
     const tabs = screen.getAllByRole("button").filter((b) => b.closest("nav"));
     expect(tabs.map((b) => b.textContent)).toEqual([
       "Home",
-      "Party",
       "Train",
       "Settings",
     ]);
-    expect(screen.getByRole("button", { name: "Party" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute(
       "aria-current",
       "page",
     );

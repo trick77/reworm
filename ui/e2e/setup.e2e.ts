@@ -27,6 +27,10 @@ test("first device: the setup link from the server log makes the admin", async (
   await expect(page.getByText("Solo training")).toBeVisible();
   await shot(page, "home-admin");
   await page.context().storageState({ path: adminState() });
+  // the old Host / Join chooser: a hard load of /party lands on home
+  await page.goto("party");
+  await expect(page).toHaveURL(/\/reworm\/$/);
+  await expect(page.getByText("Play with friends")).toBeVisible();
 
   // under PUBLIC_PATH: the device cookie is scoped to the prefix, and a hard reload on a deep route loads the
   // bundle, icon and manifest from below the prefix (not the shell posing as each)

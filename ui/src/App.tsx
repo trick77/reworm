@@ -1,12 +1,12 @@
 import { lazy, Suspense } from "react";
-import { Route, Switch, useLocation } from "wouter";
+import { Redirect, Route, Switch, useLocation } from "wouter";
 import type { Api } from "./api/client";
 import { ApiProvider, useApi } from "./api/context";
 import { Button } from "./components/Controls";
 import { Screen } from "./screens/common";
 import { Home } from "./screens/Home";
 import { Join } from "./screens/party/Join";
-import { Host, Party, Room } from "./screens/party/Party";
+import { Host, Room } from "./screens/party/Party";
 import { MePage, Pair, Setup, Who } from "./screens/Profile";
 import { Settings } from "./screens/Settings";
 import { Training } from "./screens/train/Training";
@@ -38,7 +38,10 @@ function Routes({ dev }: { dev: boolean }) {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/party" component={Party} />
+      {/* the old Host / Join chooser: home has both now; kept for links and bookmarks */}
+      <Route path="/party">
+        <Redirect to="/" replace />
+      </Route>
       <Route path="/host" component={Host} />
       <Route path="/room/:code">
         {(p) => <Room key={p.code} code={p.code.toUpperCase()} />}

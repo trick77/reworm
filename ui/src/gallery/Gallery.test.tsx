@@ -49,8 +49,8 @@ describe("Gallery", () => {
 
   it("drives the demos: tabs, chips, avatar, answers, timers", () => {
     render(<Gallery />);
-    fireEvent.click(screen.getByRole("button", { name: "Party" }));
-    expect(screen.getByRole("button", { name: "Party" })).toHaveAttribute(
+    fireEvent.click(screen.getByRole("button", { name: "Train" }));
+    expect(screen.getByRole("button", { name: "Train" })).toHaveAttribute(
       "aria-current",
       "page",
     );

@@ -82,7 +82,7 @@ function JoinForm({
         </Button>
       }
     >
-      <ScreenHead back="/party" title="Join a game" />
+      <ScreenHead back="/" title="Join a game" />
       <div style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
         <div className="sub" style={{ margin: "34px 0 8px" }}>
           Code on the host screen

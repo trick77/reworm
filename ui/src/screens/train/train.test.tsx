@@ -4,6 +4,7 @@ import { audio } from "../../test/audio";
 import { FAKE_SONGS, FakeWorld } from "../../test/fakeApi";
 import { renderApp } from "../../test/render";
 import { FLY } from "../../components/YearCard";
+import { YEAR_MAX, YEAR_MIN } from "../../lib/prefs";
 
 const fly = () => act(() => new Promise((r) => setTimeout(r, FLY + 20)));
 
@@ -277,26 +278,131 @@ describe("training", () => {
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
   });
 
-  it("starts today's round from home, and a decade, and takes a code on a device without a profile", async () => {
+  it("shows progress, streak and decades on top of the Train tab; a decade, the weakest and all are one-offs", async () => {
+    const world = new FakeWorld();
+    const start = async (name: string, from: number, to: number) => {
+      const r = renderApp("/train", world.device("p-jan"));
+      expect(await screen.findByText("Your progress")).toBeInTheDocument();
+      expect(screen.getByText("Gold record")).toBeInTheDocument();
+      expect(screen.getByText("1,380 / 1,500 XP")).toBeInTheDocument();
+      expect(screen.getByText("12")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name }));
+      await waitFor(() => expect(r.path()).toMatch(/^\/train\/t-/));
+      const ses = [...world.sessions.values()].at(-1)!;
+      expect(ses.settings.deck).toMatchObject({ from, to });
+      r.unmount();
+    };
+    await start("Train the 1970s", 1970, 1979);
+    await start("Train weakest →", 1970, 1979);
+    await start("Train all decades", YEAR_MIN, YEAR_MAX);
+    // a decade is a one-off: no training defaults saved
+    expect(localStorage.getItem("reworm.train")).toBeNull();
+  });
+
+  it("starts a decade with the settings in the form, not the saved ones", async () => {
+    const world = new FakeWorld();
+    const r = renderApp("/train", world.device("p-jan"));
+    expect(await screen.findByText("Your progress")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Genres" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Rock/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Pin the year/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Hard" }));
+    fireEvent.click(screen.getByRole("button", { name: "40 songs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Train the 1970s" }));
+    await waitFor(() => expect(r.path()).toMatch(/^\/train\/t-/));
+    const ses = [...world.sessions.values()].at(-1)!;
+    expect(ses.settings).toMatchObject({
+      mode: "pin",
+      difficulty: "hard",
+      length: 40,
+      deck: { genres: ["rockg"], from: 1970, to: 1979 },
+    });
+    expect(localStorage.getItem("reworm.train")).toBeNull();
+  });
+
+  it("shows the Train tab only once progress is in, so nothing pushes the form down", async () => {
+    const api = new FakeWorld().device("p-jan");
+    const real = api.trainStats;
+    let answer = () => {};
+    api.trainStats = () =>
+      new Promise((resolve) => {
+        answer = () => void real().then(resolve);
+      });
+    renderApp("/train", api);
+    await waitFor(() => expect(api.calls).toContain("decks"));
+    await act(() => new Promise((r) => setTimeout(r, 20)));
+    expect(screen.queryByRole("button", { name: /Mega Mix/ })).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading…");
+    answer();
+    expect(await screen.findByText("Your progress")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Mega Mix/ }),
+    ).toBeInTheDocument();
+  });
+
+  it("starts one session at a time: tiles and Start wait while one starts", async () => {
+    const api = new FakeWorld().device("p-jan");
+    const real = api.startTraining;
+    let starts = 0;
+    let fail = () => {};
+    api.startTraining = (s) => {
+      starts++;
+      if (starts > 1) return real(s);
+      return new Promise((_, reject) => {
+        fail = () => reject(new ApiError(503, "down", "start down"));
+      });
+    };
+    const r = renderApp("/train", api);
+    expect(await screen.findByText("Your progress")).toBeInTheDocument();
+    const buttons = [
+      "Train the 1970s",
+      "Train all decades",
+      "Train weakest →",
+      "Start · 10 songs",
+    ];
+    fireEvent.click(screen.getByRole("button", { name: "Train the 1970s" }));
+    for (const name of buttons)
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Start · 10 songs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Train all decades" }));
+    expect(starts).toBe(1);
+    // a failed start says so once and frees them all again
+    await act(async () => fail());
+    expect(await screen.findByRole("alert")).toHaveTextContent("start down");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    for (const name of buttons)
+      expect(screen.getByRole("button", { name })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Start · 10 songs" }));
+    await waitFor(() => expect(r.path()).toMatch(/^\/train\/t-/));
+  });
+
+  it("shows a stats failure on the Train tab with a retry, the setup still usable", async () => {
+    const api = new FakeWorld().device("p-jan");
+    const real = api.trainStats;
+    let down = true;
+    api.trainStats = () =>
+      down ? Promise.reject(new ApiError(503, "down", "stats down")) : real();
+    renderApp("/train", api);
+    expect(await screen.findByText("stats down")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "20 songs" }));
+    down = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Your progress")).toBeInTheDocument();
+    // the form kept its edits through the retry
+    expect(
+      screen.getByRole("button", { name: "Start · 20 songs" }),
+    ).toBeInTheDocument();
+  });
+
+  it("starts today's round from home, and takes a code on a device without a profile", async () => {
     const world = new FakeWorld();
     const r = renderApp("/", world.device("p-jan"));
     fireEvent.click(
       await screen.findByRole("button", { name: "Start training" }),
     );
     await waitFor(() => expect(r.path()).toMatch(/^\/train\/t-/));
-    r.unmount();
-    const r2 = renderApp("/", world.device("p-jan"));
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Train the 1970s" }),
-    );
-    await waitFor(() => expect(r2.path()).toMatch(/^\/train\/t-/));
     const ses = [...world.sessions.values()].at(-1)!;
-    expect(ses.settings.deck).toMatchObject({ from: 1970, to: 1979 });
-    // a decade is a one-off: the saved defaults are still today's round
-    expect(
-      JSON.parse(localStorage.getItem("reworm.train")!).deck.from,
-    ).not.toBe(1970);
-    r2.unmount();
+    r.unmount();
     const r3 = renderApp("/train", world.device());
     expect(
       await screen.findByText("Training needs a profile"),

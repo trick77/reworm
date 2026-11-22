@@ -85,6 +85,12 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .hero::after{content:"";position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;
   background:repeating-radial-gradient(circle,#0000 0 5px,rgba(255,255,255,.035) 5px 6px),radial-gradient(circle,#e5482f 0 18%,#14110f 19% 100%);opacity:.9}
 .hero > *{position:relative;z-index:1}
+/* home: one column, centered on a wide screen; game night in three numbered lines */
+.home{max-width:560px;margin:0 auto}
+.round-steps{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:7px;font-size:14px;line-height:1.4;color:var(--muted)}
+.round-steps li{display:flex;align-items:flex-start;gap:10px}
+.round-steps .n{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--gold);color:var(--ink);font:800 11.5px var(--num)}
+.round-steps b{color:var(--paper);font-weight:650}
 .kata{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--gold);font-weight:700}
 
 /* bucket bar (quizlet-style) */
@@ -114,7 +120,6 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .deck .meta{flex:1;min-width:0}
 .deck .t{font-weight:620;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .deck .s{font-size:12.5px;color:var(--muted);margin-top:2px}
-.mini-ring{width:34px;height:34px;flex:none}
 
 /* belt */
 .belt{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
@@ -266,6 +271,7 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-bottom:1px solid #2a2520;font-size:14.5px}
 .set-row:last-child{border:0}
 .set-row .m{font-size:12.5px;color:var(--muted);margin-top:2px}
+.set-row .segbar button{padding:7px 12px;font-size:13px}
 .ok-dot{width:9px;height:9px;border-radius:50%;background:var(--jade);box-shadow:0 0 0 4px #3dbb8c25;display:inline-block}
 .warn-dot{background:var(--gold);box-shadow:0 0 0 4px #e9b44c25}
 .toggle{width:46px;height:28px;border-radius:99px;background:var(--panel2);position:relative;flex:none;border:1px solid var(--line)}
@@ -388,13 +394,6 @@ const SONGS = [
   {t:"Non, je ne regrette rien",a:"Édith Piaf",al:"Non, je ne regrette rien",y:1960,g:"French chanson"},
   {t:"Les Champs-Élysées",a:"Joe Dassin",al:"Les Champs-Élysées",y:1969,g:"French chanson"},
 ];
-const DECKS = [
-  {id:"orig",t:"Essentials (DE)",s:"Card set · 1908–2021 · 308 cards",src:"hit",c:["#e5482f","#7a1f14"],m:.46},
-  {id:"smash",t:"Smash Hits",s:"Category · 1950–2025 · ~500 #1s & mega hits",src:"cat",c:["#e9b44c","#c0662b"],m:.31},
-  {id:"plat",t:"Mega Mix (DE)",s:"Card set · 1950–2024 · 500 cards",src:"hit",c:["#cfd3d8","#5d636b"],m:.18},
-  {id:"rock",t:"Rock",s:"Genre · 1954–2024 · well-known only",src:"cat",c:["#69aee8","#3a4f9a"],m:.35},
-  {id:"road",t:"Road Trip 2024",s:"Your playlist · 84 songs",src:"lib",c:["#3dbb8c","#1f6a6a"],m:.58},
-];
 // community game-night card lists (German editions): cards, year span
 const CARDSETS = [
   ["Essentials","308","1908–2021"],["Mega Mix","500","1950–2024"],["Rock Anthems","308","1954–2024"],["Schlager Fest","308","1961–2022"],
@@ -428,7 +427,7 @@ const hash = s => [...s].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7);
 function artGrad(s){const h=hash(s)%360,h2=(h+40+hash(s+"x")%80)%360;return `linear-gradient(135deg,hsl(${h} 62% 52%),hsl(${h2} 55% 28%))`}
 function initials(s){return s.split(/[\s,]+/).filter(w=>/^[A-Za-z0-9(]/.test(w)).slice(0,2).map(w=>w.replace(/[^A-Za-z0-9]/g,"")[0]||"").join("").toUpperCase()}
 const art = (song,cls="") => `<div class="art ${cls}" style="background:${artGrad(song.t+song.a)}">${initials(song.a)}</div>`;
-// deck tiles: a picture per theme, never letters (the app keys them by slug: ui/src/components/DeckArt.tsx)
+// deck tiles (library playlists): a picture per theme, never letters
 const DECK_GLYPH = {
   vinyl:`<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5" opacity=".45"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/>`,
   star:`<path d="m12 2.5 2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5-4.8-4.6 6.6-.9z" fill="currentColor"/>`,
@@ -464,7 +463,7 @@ const AWARDS={bronze:["#c98a52","#7a4a22"],silver:["#e2e6ea","#8d96a3"],gold:["#
 const award = (tier,label) => { const [a,b]=AWARDS[tier]; return `<span class="belt"><svg viewBox="0 0 24 24" style="width:24px;height:24px"><defs><linearGradient id="aw-${tier}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><circle cx="12" cy="12" r="11" fill="url(#aw-${tier})" stroke="#0006"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="#0003"/><circle cx="12" cy="12" r="5" fill="none" stroke="#0003"/><circle cx="12" cy="12" r="2.6" fill="#13110f"/><path d="M6 7.5a8 8 0 0 1 4-3" stroke="#fff" stroke-width="1.4" stroke-linecap="round" opacity=".7"/></svg>${label}</span>`; };
 function ring(p,size=150,stroke=12,col="var(--jade)"){const r=(size-stroke)/2,c=2*Math.PI*r;return `<svg width="${size}" height="${size}" style="transform:rotate(-90deg)"><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="var(--panel2)" stroke-width="${stroke}" fill="none"/><circle cx="${size/2}" cy="${size/2}" r="${r}" stroke="${col}" stroke-width="${stroke}" fill="none" stroke-linecap="round" stroke-dasharray="${c*p} ${c}"/></svg>`}
 const statusBar = () => `<div class="status"><span class="num">9:41</span><span>●●● ᯤ ▮</span></div>`;
-const tabs = on => `<div class="tabs">${[["home","Home","home"],["party","Party","party"],["train","Train","setup"],["gear","Settings","settings"]].map(([k,l,to])=>`<button data-go="${to}" class="${on===k?"on":""}">${ICON[k]}${l}</button>`).join("")}</div>`;
+const tabs = on => `<div class="tabs">${[["home","Home","home"],["train","Train","setup"],["gear","Settings","settings"]].map(([k,l,to])=>`<button data-go="${to}" class="${on===k?"on":""}">${ICON[k]}${l}</button>`).join("")}</div>`;
 // fake QR: finder squares + hash noise, enough to read as "scan me"
 function fakeQR(seed,size=168){
   const n=25, c=size/n; let r="";
@@ -553,6 +552,7 @@ const S = {
   cfg:{src:"hit", pick:"Essentials", sets:["Essentials"], genres:["General"], from:1900, to:2025, mode:"ab", diff:"medium", clipStart:"intro", clipLen:20, len:10},
   ses:null, toast:null,
   me:{name:"Jan",av:"vinyl"}, pair:null, joinAv:"mic",   // pair: null | "device" | "invite"
+  lobby:{mode:"years",more:false},                        // the host lobby: mode, "More options" open
 };
 
 // Song memory across sessions (mock seed): mastered songs get harder cards, learning ones easier.
@@ -619,20 +619,36 @@ function next(){
 function go(screen){ const prev=S.screen; S.screen=screen; if(screen==="play") ensureProposal(); if(S.view==="proto") audioOnScreen(prev,screen); render(); }
 
 /* ======================= screens ======================= */
-function scrHome(){
+// progressTop: the top of the Train tab: streak, record award with mastered / learning / new, the decade tiles
+function progressTop(){
   const dec=[[1960,.81],[1970,.52],[1980,.74],[1990,.68],[2000,.61],[2010,.79],[2020,.88],["all",.69]];
   const col=p=>p>.78?"#3dbb8c":p>.65?"#9bc36b":p>.55?"#e9b44c":"#e0675d";
-  return `${statusBar()}<div class="scroll fade-in">
+  return `<div class="cols"><div class="col">
+  <div class="label row between" style="display:flex"><span>Your progress</span><span class="row" style="gap:4px;text-transform:none;letter-spacing:0;color:var(--paper)">${ICON.flame}<b class="num">12</b> days</span></div>
+  <div class="card">
+    <div class="row between" style="margin-bottom:12px">${award("gold","Gold record")}<span class="sub num">1,380 / 1,500 XP</span></div>
+    <div class="buckets"><i style="width:31%;background:var(--jade)"></i><i style="width:19%;background:var(--gold)"></i><i style="flex:1;background:#3a332c"></i></div>
+    <div class="legend"><span><i class="dot" style="background:var(--jade)"></i><b>124</b> mastered</span><span><i class="dot" style="background:var(--gold)"></i><b>76</b> learning</span><span><i class="dot" style="background:#5a5047"></i><b>200</b> new</span></div>
+  </div>
+  </div><div class="col">
+  <div class="label row between" style="display:flex"><span>Decades</span><span style="text-transform:none;letter-spacing:0;color:var(--hanko2);font-weight:600">Train weakest →</span></div>
+  <div class="decades">${dec.map(([d,p])=>`<button class="dec" data-act="start" style="background:color-mix(in srgb,${col(p)} 16%,var(--panel));color:${col(p)}">
+     <div class="d" style="color:var(--paper)">${d==="all"?"All":"’"+String(d).slice(2)+"s"}</div><div class="p num">${Math.round(p*100)}%</div><div class="bar"><i style="width:${p*100}%"></i></div></button>`).join("")}</div>
+  </div></div>`;
+}
+const STEPS=["One screen plays a song clip and shows a year.",
+  `Everyone taps <b>Earlier</b>, <b>Spot on</b> or <b>Later</b> on their phone.`,
+  "Fastest right answer takes the round."];
+function scrHome(){
+  return `${statusBar()}<div class="scroll fade-in"><div class="home">
   <div class="row between" style="margin-top:4px">
     <div class="row"><div class="seal">${WORM}</div><div class="brand">Re<span>worm</span></div></div>
-    <div class="row"><span class="pill">${ICON.flame}<b class="num">12</b> days</span><button data-go="me" title="Profile & devices" style="padding:0;border-radius:50%;box-shadow:0 0 0 2px var(--ink),0 0 0 3.5px ${AVATARS[S.me.av].bg}">${av(S.me.av,36)}</button></div>
+    <button data-go="me" title="Profile & devices" style="padding:0;border-radius:50%;box-shadow:0 0 0 2px var(--ink),0 0 0 3.5px ${AVATARS[S.me.av].bg}">${av(S.me.av,36)}</button>
   </div>
-  <div class="cols"><div class="col">
   <div class="card hero" style="margin-top:18px;padding:18px">
     <div class="kata">Game night</div>
     <div style="font-size:24px;font-weight:750;margin:6px 0 2px;letter-spacing:-.3px">Play with friends</div>
-    <div class="sub">One screen plays, phones are buzzers. Fastest right answer wins.</div>
-    <div style="display:flex;margin-top:12px">${PLAYERS.slice(0,3).map(([n,c],i)=>`<span style="margin-left:${i?-10:0}px;box-shadow:0 0 0 2px #231b16;border-radius:50%">${avatar(n,c,30)}</span>`).join("")}</div>
+    <ol class="round-steps">${STEPS.map((s,i)=>`<li><span class="n">${i+1}</span><span>${s}</span></li>`).join("")}</ol>
     <div class="row" style="margin-top:16px;gap:8px">
       <button class="btn primary" style="flex:2" data-go="host">${ICON.party} Host a game</button>
       <button class="btn ghost" style="flex:1" data-go="join">${ICON.qr} Join</button></div>
@@ -647,21 +663,7 @@ function scrHome(){
         <button class="btn small" style="background:var(--sky);color:#13110f" data-act="start">${ICON.play} Start training</button></div>
     </div>
   </div>
-  <div class="label">Your progress</div>
-  <div class="card">
-    <div class="row between" style="margin-bottom:12px">${award("gold","Gold record")}<span class="sub num">1,380 / 1,500 XP</span></div>
-    <div class="buckets"><i style="width:31%;background:var(--jade)"></i><i style="width:19%;background:var(--gold)"></i><i style="flex:1;background:#3a332c"></i></div>
-    <div class="legend"><span><i class="dot" style="background:var(--jade)"></i><b>124</b> mastered</span><span><i class="dot" style="background:var(--gold)"></i><b>76</b> learning</span><span><i class="dot" style="background:#5a5047"></i><b>200</b> new</span></div>
-  </div>
-  </div><div class="col">
-  <div class="label row between" style="display:flex"><span>Decades</span><span style="text-transform:none;letter-spacing:0;color:var(--hanko2);font-weight:600">Train weakest →</span></div>
-  <div class="decades">${dec.map(([d,p])=>`<button class="dec" data-act="start" style="background:color-mix(in srgb,${col(p)} 16%,var(--panel));color:${col(p)}">
-     <div class="d" style="color:var(--paper)">${d==="all"?"All":"’"+String(d).slice(2)+"s"}</div><div class="p num">${Math.round(p*100)}%</div><div class="bar"><i style="width:${p*100}%"></i></div></button>`).join("")}</div>
-  <div class="label">Decks</div>
-  ${DECKS.map(d=>`<div class="deck" data-go="setup">${deckArt(d)}<div class="meta"><div class="t">${d.t}</div><div class="s">${d.s}</div></div>
-     <div class="mini-ring">${ring(d.m,34,4,d.src==="lib"?"var(--jade)":"var(--gold)")}</div></div>`).join("")}
-  </div></div>
-  </div>${tabs("home")}`;
+  </div></div>${tabs("home")}`;
 }
 
 function scrSetup(){
@@ -679,6 +681,7 @@ function scrSetup(){
   const pct=v=>(v-1900)/(2025-1900)*100;
   return `${statusBar()}<div class="scroll fade-in">
    <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">New session</div><div style="width:40px"></div></div>
+   ${progressTop()}
    <div class="cols"><div class="col">
    <div class="label">What to listen to</div>
    <div class="segbar">${srcTabs.map(([k,l])=>`<button class="${c.src===k?"on":""}" data-src="${k}">${l}</button>`).join("")}</div>
@@ -863,42 +866,36 @@ function scrSettings(){
   </div>${tabs("gear")}`;
 }
 
-/* ---------- party mode (main feature): entry points + lobby; in-game screens are the next mock step ---------- */
+/* ---------- party mode (main feature): home's Game night card leads to the lobby and to Join ---------- */
 const soonTag="";
-function scrParty(){
-  return `${statusBar()}<div class="scroll fade-in">
-   <div class="h-title" style="font-size:26px">Game night${soonTag}</div>
-   <div class="sub">One screen plays the song and shows the year. Everyone else answers on their phone. Fastest right answer takes the round.</div>
-   <div class="cols"><div class="col">
-   <button class="opt" data-go="host" style="margin-top:18px"><div class="ic" style="background:var(--sky);color:#13110f">${ICON.party}</div><div><div class="t">Host a game</div><div class="s">On the iPad, laptop or TV. It plays the music, shows the year and the scoreboard.</div></div></button>
-   <button class="opt" data-go="join"><div class="ic">${ICON.qr}</div><div><div class="t">Join a game</div><div class="s">Scan the QR on the host screen or type the 4-letter code. Your phone becomes the buzzer, no app, no account.</div></div></button>
-   </div><div class="col">
-   <div class="label">How a round works</div>
-   <div class="card sub" style="font-size:13px;line-height:1.6">
-     1. The host screen plays a clip and shows a year.<br>
-     2. Everyone taps <b style="color:var(--paper)">Earlier</b>, <b style="color:var(--paper)">Spot on</b> or <b style="color:var(--paper)">Later</b>.<br>
-     3. Fastest right answer scores; a wrong one is locked out for the round.<br>
-     4. Same year for everyone, no adapting: fair, not personal.</div>
-   </div></div>
-  </div>${tabs("party")}`;
-}
+// the lobby: Mode and Songs up front, the rest behind "More options" with a one-line summary
+const seg=(opts,on,act)=>`<div class="segbar">${opts.map(([k,l])=>`<button class="${on===k?"on":""}"${act?` data-act="${act}${k}"`:""}>${l}</button>`).join("")}</div>`;
 function scrHost(){
+  const L=S.lobby, years=L.mode==="years";
+  const summary=`First to 10 · 20 s · Chorus${years?" · Medium":""}`;
   return `${statusBar()}<div class="scroll fade-in">
-   <div class="row between"><button class="icon-btn" data-go="party">${ICON.back}</button><div style="font-weight:650">Host a game${soonTag}</div><div style="width:40px"></div></div>
+   <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">Host a game${soonTag}</div><div style="width:40px"></div></div>
    <div class="cols"><div class="col" style="text-align:center">
      <div class="label" style="text-align:center">Join on your phone</div>
      <div style="display:flex;justify-content:center">${fakeQR("room-K7Q4")}</div>
      <div class="sub" style="margin-top:12px">or open <b style="color:var(--paper)">reworm.your-domain</b> and type</div>
      <div class="num" style="font-size:56px;font-weight:800;letter-spacing:10px;margin:2px 0 0">K7Q4</div>
+     <div class="sub" style="font-size:13px;margin-top:6px">This screen plays the music. Everyone answers on their phone, you too.</div>
    </div><div class="col">
      <div class="label">Players · ${PLAYERS.length}</div>
      <div class="card" style="padding:6px 14px">${PLAYERS.map(([n,c],i)=>`<div class="set-row">${`<div class="row">${avatar(n,c)}<b>${n}</b>${i===0?`<span class="sub" style="font-size:12px">host</span>`:""}</div>`}<span class="row sub" style="gap:6px;font-size:12px"><i class="ok-dot"></i>ready</span></div>`).join("")}
        <div class="set-row sub" style="font-size:13px">Waiting for more… <span>up to 8</span></div></div>
+     <div class="label">Mode</div>
+     ${seg([["years","Earlier / Later"],["buzzer","Buzzer"]],L.mode,"lobby")}
+     <div class="sub" style="font-size:12.5px;margin-top:8px">${years?"A year is shown; the fastest right Earlier, Spot on or Later takes the round.":"First buzz stops the clip; say artist + title, the room judges 2 / 1 / 0."}</div>
      <div class="label">Game</div>
      <div class="card" style="padding:4px 16px">
-       <div class="set-row"><div><div>Songs</div><div class="m">Essentials + Smash Hits</div></div><span class="sub">Change</span></div>
-       <div class="set-row"><div><div>Rounds</div><div class="m">First to 10 points</div></div><span class="sub">Change</span></div>
-       <div class="set-row"><div><div>Clip</div><div class="m">20 s · before the chorus</div></div><span class="sub">Change</span></div>
+       <div class="set-row"><div><div>Songs</div><div class="m">Essentials + Smash Hits</div></div><span style="color:var(--hanko2);font-weight:600;font-size:13px">Change</span></div>
+       <button class="set-row" data-act="lobbymore" style="width:100%;text-align:left"><div style="min-width:0"><div>More options</div>${L.more?"":`<div class="m">${summary}</div>`}</div><span style="color:var(--hanko2);font-weight:600;font-size:13px">${L.more?"Done":"Change"}</span></button>
+       ${L.more?`<div class="set-row"><div>First to</div>${seg([["5","5"],["10","10"],["15","15"]],"10")}</div>
+       <div class="set-row"><div>Clip</div>${seg([["10","10 s"],["20","20 s"],["30","30 s"]],"20")}</div>
+       <div class="set-row"><div>Clip start</div>${seg([["chorus","Chorus"],["random","Random"]],"chorus")}</div>
+       ${years?`<div class="set-row"><div>Difficulty</div>${seg([["easy","Easy"],["medium","Medium"],["hard","Hard"]],"medium")}</div>`:""}`:""}
      </div>
    </div></div>
    <div style="height:8px"></div>
@@ -907,7 +904,7 @@ function scrHost(){
 }
 function scrJoin(){
   return `${statusBar()}<div class="scroll fade-in">
-   <div class="row between"><button class="icon-btn" data-go="party">${ICON.back}</button><div style="font-weight:650">Join a game${soonTag}</div><div style="width:40px"></div></div>
+   <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">Join a game${soonTag}</div><div style="width:40px"></div></div>
    <div style="max-width:420px;margin:0 auto;text-align:center">
    <div style="margin:34px 0 8px;color:var(--muted);font-size:14px">Code on the host screen</div>
    <div style="display:flex;gap:10px;justify-content:center">${"K7Q4".split("").map(ch=>`<div class="num" style="width:62px;height:76px;border-radius:16px;background:var(--panel);border:1.5px solid var(--line);display:grid;place-items:center;font-size:36px;font-weight:800">${ch}</div>`).join("")}</div>
@@ -1099,14 +1096,14 @@ function scrMe(){
      <button class="btn small" style="flex:1;background:var(--sky);color:#13110f" data-act="pairdev">${ICON.qr} Add a device</button>
      <button class="btn ghost small" style="flex:1" data-act="invite">${ICON.plus} Invite someone</button></div>`}
    <div class="sub" style="font-size:12px;margin-top:10px">No passwords: each device keeps a login cookie for a year. Remove a lost phone here.</div>
-   <div class="label">Profiles on this server</div>
+   <div class="label">Profiles on this Reworm</div>
    <div class="card" style="padding:6px 14px">${PLAYERS.map(([n,,k])=>`<div class="set-row"><div class="row">${av(k,34)}<b>${n}</b></div><span class="sub" style="font-size:12px">${n===me.name?"you":"1 device"}</span></div>`).join("")}</div>
    <button class="btn ghost small" style="margin-top:12px" data-go="who">Switch profile on this device</button>
    </div></div>
    <div style="height:10px"></div>
   </div>${tabs("gear")}`;
 }
-const SCREENS={home:scrHome,setup:scrSetup,play:scrPlay,reveal:scrReveal,summary:scrSummary,settings:scrSettings,party:scrParty,host:scrHost,join:scrJoin,who:scrWho,me:scrMe,
+const SCREENS={home:scrHome,setup:scrSetup,play:scrPlay,reveal:scrReveal,summary:scrSummary,settings:scrSettings,host:scrHost,join:scrJoin,who:scrWho,me:scrMe,
   stage:scrStage,stageResult:scrStageResult,stageOver:scrStageOver,padLive:scrPadLive,padOut:scrPadOut,padWon:scrPadWon,padLost:scrPadLost};
 
 /* ======================= board (static states) ======================= */
@@ -1119,8 +1116,8 @@ function demoSession(i,answer,mode){
 function renderBoard(){
   const save={...S,cfg:{...S.cfg}}, items=[];
   const shot=(cap,desc,fn)=>items.push(`<figure><div class="phone"><div class="app">${fn()}</div></div><figcaption><b>${cap}</b>${desc}</figcaption></figure>`);
-  shot("1 · Home","Daily round up front, one tap to train. Quizlet-style mastered / learning / new, record-award progress, decade heat map (tap a weak decade to drill it).",scrHome);
-  S.cfg={...save.cfg,src:"hit",sets:["Essentials","Mega Mix"]}; shot("2 · New session — card sets","The real card lists (German editions), multi-select to mix. Year = the card's year. Then year range, mode, difficulty with the distribution shown, clip.",scrSetup);
+  shot("1 · Home","Game night leads: what a round is in three steps, then Host (Join first on a phone without a profile). Below it only the compact solo training card; progress and decades are the Train tab's.",scrHome);
+  S.cfg={...save.cfg,src:"hit",sets:["Essentials","Mega Mix"]}; shot("2 · Train tab: new session — card sets","On top the streak, record-award progress (quizlet-style mastered / learning / new) and the decade heat map (tap a weak decade to drill it). Then the real card lists (German editions), multi-select to mix. Year = the card's year. Then year range, mode, difficulty with the distribution shown, clip.",scrSetup);
   S.cfg={...save.cfg,src:"cat",pick:"Smash Hits"}; shot("2b · New session — categories","Smash Hits and other categories, filtered from the well-known pool (songs on most \"best of the 80s\"-style playlists of their decade).",scrSetup);
   S.cfg={...save.cfg,src:"genre",genres:["Rock","Schlager & Deutschpop"],from:1960,to:1989,mode:"pin",diff:"hard"}; shot("2c · New session — genres","General (widest span) or one or more genres, combined with a year range. Hard + Pin the year selected.",scrSetup);
   S.cfg={...save.cfg,mode:"ab"}; S.ses=demoSession(7,null); shot("3 · Listen & guess","The clip spins, no title, no cover. Big year card: tap a button, swipe the card or use ← space →. +10 s more clip costs half the XP.",scrPlay);
@@ -1131,7 +1128,9 @@ function renderBoard(){
   shot("4c · Reveal — card set","Card sets score the year printed on the card (Guantanamera 1929), even when Apple only has a 2004 compilation.",scrReveal);
   S.ses=demoSession(9,null); S.ses.i=9; shot("5 · Session summary","Score ring, XP, streak, record-award progress, accuracy by decade, misses with the right year and a one-tap drill.",scrSummary);
   shot("6 · Settings — Apple Music","Same token model as loom: dev token scraped + renewed, media-user-token pasted. Release year is always the initial one, no option.",scrSettings);
-  shot("7 · Party","Entry from the Party tab or the Game night card on Home: host or join.",scrParty);
+  S.lobby={mode:"years",more:false}; shot("7 · Host lobby","From Host a game on Home. Mode and Songs up front; First to, clip, clip start and difficulty behind More options, summed up in one line.",scrHost);
+  S.lobby={mode:"years",more:true}; shot("7a · Host lobby — more options","More options open: the four settings, Done folds them back into the summary.",scrHost);
+  S.lobby={mode:"years",more:false};
   shot("7b · Join on the phone","Scan the QR or type the 4-letter code, pick a name and avatar. No app, no account.",scrJoin);
   shot("8 · Who's playing?","Profile picker on a shared device (the family iPad). Only paired devices get here.",scrWho);
   resetRound();
@@ -1144,12 +1143,12 @@ function renderBoard(){
   // iPad: same screens, two-column layout from 760px
   const tItems=[], shotT=(cap,desc,fn,portrait)=>tItems.push(`<figure><div class="tablet ${portrait?"portrait":""}" style="zoom:${portrait?.42:.5}"><div class="app">${fn()}</div></div><figcaption><b>${cap}</b>${desc}</figcaption></figure>`);
   S.cfg={...save.cfg,mode:"ab"};
-  shotT("iPad · Home","Hero and progress left, decades and decks right.",scrHome);
+  shotT("iPad · Home","One centered column: game night, then solo training. No second column of training content.",scrHome);
   S.ses=demoSession(7,null); shotT("iPad · Listen & guess","Stage left (record, clip), year card and big answer buttons right — the split party mode reuses.",scrPlay);
   S.ses=demoSession(7,{choice:"later",ok:true,diff:4}); S.ses.queue[7].tier=1; shotT("iPad · Reveal","Cover, year and ruler left; year source and actions right.",scrReveal);
   S.ses=demoSession(9,null); S.ses.i=9; shotT("iPad · Summary","Score left, decades and misses right.",scrSummary);
   S.cfg={...save.cfg,src:"hit",sets:["Essentials","Mega Mix"]}; shotT("iPad · New session","What to listen to left, how to play right.",scrSetup);
-  shotT("iPad · Host lobby","QR + room code left, players and game settings right. The iPad / TV is the stage.",scrHost);
+  shotT("iPad · Host lobby","QR + room code left with the line that this screen plays the music, players, mode and songs right; the rest behind More options. The iPad / TV is the stage.",scrHost);
   shotT("Stage · Get ready","3 s of 3, 2, 1 before every round, the first one too; the clip starts at 0 on the server's clock.",scrStageCountdown);
   shotT("Stage · Round live","Clip plays here; the year, a 15 s countdown, all players — locked-out ones greyed with ✕.",scrStage);
   shotT("Stage · Round result","Song, cover, real year and ruler left; who took the round, in how many seconds, and the standings right.",scrStageResult);
@@ -1163,7 +1162,7 @@ function renderBoard(){
 function renderNotes(){
   return `<div class="notes">
   <h2>Party mode (the main feature)</h2>
-  <p>The stage (iPad, laptop on the TV) plays the clip and shows a year; everyone answers on their phone. First correct answer = 1 point, +1 if it's a correct "Spot on"; a wrong answer locks you out for the round (the stage shows the ✕, never the answer); 15 s per round; first to 10 wins; max 8 players. Join by QR or 4-letter code, no account. Screens: Party tab → Host a game → Start game (stage, iPad frame) and Join (pad, iPhone frame).</p>
+  <p>The stage (iPad, laptop on the TV) plays the clip and shows a year; everyone answers on their phone. First correct answer = 1 point, +1 if it's a correct "Spot on"; a wrong answer locks you out for the round (the stage shows the ✕, never the answer); 15 s per round; first to 10 wins; max 8 players. Join by QR or 4-letter code, no account. Screens: Home's Game night card (the rules in three steps) → Host a game → lobby → Start game (stage, iPad frame) and Join (pad, iPhone frame). No Party tab: tabs are Home, Train, Settings.</p>
   <h2>Training (side feature)</h2>
   <p>Clip plays (Apple Music 90 s preview) → a year is shown → <b>Earlier</b> / <b>Spot on</b> / <b>Later</b> → reveal with stamp, real year and a ruler → next. Missed songs re-enter the queue ~3 cards later with a <i>different</i> proposed year, so you learn the year itself, not the button (Quizlet "learn" style). Across sessions: spaced repetition per song (new → learning → mastered), decade accuracy, XP, record awards (bronze → diamond), daily streak.</p>
   <h2>Proposed year (training mode)</h2>
@@ -1313,6 +1312,8 @@ document.addEventListener("click",e=>{
       case "more": if(ses.clip.extra<10){ const ended=!ses.clip.playing||AUD.fading; ses.clip.extra+=10; ses.clip.playing=true; if(AUD.live&&ended){ ensureCtx(); fadeIn(null); } } break;
       case "pin": answer(+($("#dialIn")?.value||1990)); return;
       case "flag": toast("Thanks — year flagged for review"); return;
+      case "lobbyyears": case "lobbybuzzer": S.lobby.mode=d.act.slice(5); break;
+      case "lobbymore": S.lobby.more=!S.lobby.more; break;
       case "partystart": resetRound(); if(S.frame==="phone") S.frame="ipad"; go("stage"); return;
       case "partyjoin": resetRound(); S.frame="phone"; go("padLive"); return;
       case "stagewin": go("stageResult"); return;

@@ -1,5 +1,5 @@
-// Party entry: the Host / Join chooser, /host (creates or resumes this device's room) and /room/:code
-// (the lobby, then the stage, on the host device).
+// Hosting: /host (creates or resumes this device's room) and /room/:code (the lobby, then the stage, on the host
+// device). Home's Game night card leads here.
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { ApiError, type Api } from "../../api/client";
@@ -17,7 +17,6 @@ import { unlockAudio } from "../../audio/unlock";
 import { StageScale } from "../../components/AppShell";
 import { Avatar } from "../../components/Avatar";
 import { Button, Card, IconButton, Segmented } from "../../components/Controls";
-import { Icon } from "../../components/Icon";
 import { allYears, defaultRoom, load, save } from "../../lib/prefs";
 import {
   deckLabel,
@@ -33,70 +32,6 @@ import { Stage } from "./Stage";
 
 export const joinUrl = (code: string, base: string = BASE) =>
   appUrl(`/join/${code}`, base);
-
-export function Party() {
-  const [, go] = useLocation();
-  return (
-    <Screen tab="party">
-      <div className="h-title" style={{ fontSize: 26 }}>
-        Game night
-      </div>
-      <div className="sub">
-        One screen plays the song and shows the year. Everyone else answers on
-        their phone. Fastest right answer takes the round.
-      </div>
-      <div className="cols">
-        <div className="col">
-          <button
-            type="button"
-            className="opt"
-            style={{ marginTop: 18 }}
-            onClick={() => go("/host")}
-          >
-            <div
-              className="ic"
-              style={{ background: "var(--sky)", color: "#13110f" }}
-            >
-              <Icon name="party" />
-            </div>
-            <div>
-              <div className="t">Host a game</div>
-              <div className="s">
-                On the iPad, laptop or TV. It plays the music, shows the year
-                and the scoreboard.
-              </div>
-            </div>
-          </button>
-          <button type="button" className="opt" onClick={() => go("/join")}>
-            <div className="ic">
-              <Icon name="qr" />
-            </div>
-            <div>
-              <div className="t">Join a game</div>
-              <div className="s">
-                Scan the QR on the host screen or type the 4-letter code. Your
-                phone becomes the buzzer, no app, no account.
-              </div>
-            </div>
-          </button>
-        </div>
-        <div className="col">
-          <div className="label">How a round works</div>
-          <Card className="sub" style={{ fontSize: 13, lineHeight: 1.6 }}>
-            <b className="paper">Earlier / Later</b>: the host screen plays a
-            clip and shows a year. Everyone taps Earlier, Spot on or Later; the
-            fastest right answer scores, a wrong one is locked out for the
-            round. Same year for everyone: fair, not personal.
-            <br />
-            <br />
-            <b className="paper">Buzzer</b>: first to buzz stops the music and
-            says artist + title. The room judges: 2 for both, 1 for one of them.
-          </Card>
-        </div>
-      </div>
-    </Screen>
-  );
-}
 
 // One room creation at a time: StrictMode's double effect and a double tap must not open two rooms.
 let creating: Promise<{ code: string }> | null = null;
@@ -155,7 +90,7 @@ export function Host() {
   };
   return (
     <Screen>
-      <ScreenHead back="/party" title="Host a game" />
+      <ScreenHead back="/" title="Host a game" />
       {/* a code claimed here reloads the profile: the effect above then opens the room */}
       {unpaired && <Unpaired title="Hosting is invite-only here" />}
       {error && <Problem error={error} retry={retry} />}
@@ -229,7 +164,7 @@ function Lobby({ state, host }: { state: RoomState; host: boolean }) {
         )
       }
     >
-      <ScreenHead back="/party" title="Host a game" />
+      <ScreenHead back="/" title="Host a game" />
       <div className="cols">
         <div className="col center">
           <div className="label center">Join on your phone</div>
@@ -401,7 +336,7 @@ export function Room({ code }: { code: string }) {
   if (error && (error.status === 404 || !state))
     return (
       <Screen>
-        <ScreenHead back="/party" title="Host a game" />
+        <ScreenHead back="/" title="Host a game" />
         {error.status === 404 ? (
           <Card style={{ marginTop: 18 }} role="alert">
             <div style={{ fontWeight: 700 }}>Room {code} is gone</div>
