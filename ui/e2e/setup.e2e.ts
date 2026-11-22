@@ -9,6 +9,14 @@ test("first device: the setup link from the server log makes the admin", async (
   browser,
 }) => {
   const page = await device(browser, "laptop");
+  // before setup the app points to the link in the log, and offers no game
+  await page.goto("./");
+  await expect(page.getByText("Reworm isn't set up yet")).toBeVisible();
+  await expect(page.getByText(/docker logs/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Host/ })).toHaveCount(0);
+  await shot(page, "home-fresh");
+  await page.goto("host");
+  await expect(page.getByText("Reworm isn't set up yet")).toBeVisible();
   await page.goto(process.env.E2E_SETUP_PATH!);
   await expect(page.getByText("Welcome to Reworm")).toBeVisible();
   await page.getByLabel("Your name").fill("Jan");

@@ -339,13 +339,35 @@ describe("party: lobby and join", () => {
     expect(world.rooms.size).toBe(1);
   });
 
-  it("asks an unpaired device to pair before hosting, and reports a gone room", async () => {
+  it("takes an invite code right on /host into the lobby, and reports a gone room", async () => {
     const world = new FakeWorld();
     const r = renderApp("/host", world.device());
     expect(
-      await screen.findByText("This device isn't paired"),
+      await screen.findByText("Hosting is invite-only here"),
     ).toBeInTheDocument();
+    expect(screen.getByText(/A profile is your invite/)).toBeInTheDocument();
+    const { code } = await world.device("p-jan").pair("invite");
+    fireEvent.change(screen.getByLabelText("Your code"), {
+      target: { value: code },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
+    expect(await screen.findByText("You're invited!")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Lea" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create my profile" }));
+    expect(await screen.findByLabelText("Room code")).toBeInTheDocument();
+    expect(r.path()).toMatch(/^\/room\/[A-Z0-9]{4}$/);
+    const room = [...world.rooms.values()].at(-1)!;
+    expect(world.profiles.get(room.state.hostId)?.name).toBe("Lea");
     r.unmount();
+    // a fresh install: no code to get yet, the setup link instead
+    const f = renderApp("/host", new FakeWorld({ seed: false }).device());
+    expect(
+      await screen.findByText("Reworm isn't set up yet"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Your code")).toBeNull();
+    f.unmount();
     const g = renderApp("/room/GONE", world.device("p-jan"));
     expect(await screen.findByText("Room GONE is gone")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Host a new game" }));

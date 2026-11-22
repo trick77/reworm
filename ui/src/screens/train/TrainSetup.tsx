@@ -51,7 +51,7 @@ export function TrainSetup() {
     return (
       <Screen tab="train">
         <ScreenHead back="/" title="New session" />
-        <Unpaired what="Training" />
+        <Unpaired title="Training needs a profile" />
       </Screen>
     );
   if (meError || decks.error)

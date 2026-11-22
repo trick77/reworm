@@ -62,14 +62,17 @@ describe("App", () => {
       host.compareDocumentPosition(join) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: "Pair this device" }),
+      screen.queryByRole("button", { name: "Got an invite code?" }),
     ).toBeNull();
   });
 
-  it("leads with Join on an unpaired device, pairing an optional link", async () => {
+  it("leads with Join on an unpaired device, an invite code an optional link", async () => {
     const r = renderApp("/", new FakeWorld().device());
-    await screen.findByRole("button", { name: "Pair this device" });
-    expect(screen.queryByText("This device isn't paired")).toBeNull();
+    await screen.findByRole("button", { name: "Got an invite code?" });
+    expect(
+      screen.getByText(/Hosting and solo training need a profile/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/pair/i)).toBeNull();
     expect(screen.getByText(/no account needed/)).toBeInTheDocument();
     const join = screen.getByRole("button", { name: "Join a game" });
     const host = screen.getByRole("button", { name: "Host" });
@@ -77,11 +80,79 @@ describe("App", () => {
       join.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.queryByText("Solo training")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Pair this device" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Got an invite code?" }),
+    );
     expect(r.path()).toBe("/pair");
+    expect(await screen.findByText("Enter your code")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(await screen.findByRole("button", { name: "Join a game" }));
     expect(r.path()).toBe("/join");
+  });
+
+  it("on a fresh install points to the setup link, no game buttons", async () => {
+    const world = new FakeWorld({ seed: false });
+    const r = renderApp("/", world.device());
+    expect(
+      await screen.findByText("Reworm isn't set up yet"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/docker logs/)).toBeInTheDocument();
+    expect(screen.getByText("Play with friends")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Host/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Join/ })).toBeNull();
+    expect(screen.queryByText(/invite code/)).toBeNull();
+    expect(screen.queryByText(/server/i)).toBeNull();
+    r.unmount();
+    // the code screen too: there is nobody to get a code from yet
+    renderApp("/pair", world.device());
+    expect(
+      await screen.findByText("Reworm isn't set up yet"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Your code")).toBeNull();
+  });
+
+  it("on a fresh install looks again when the app comes back to the front", async () => {
+    const world = new FakeWorld({ seed: false });
+    const pad = world.device();
+    const me = () => pad.calls.filter((c) => c === "me").length;
+    renderApp("/", pad);
+    expect(
+      await screen.findByText("Reworm isn't set up yet"),
+    ).toBeInTheDocument();
+    // still not set up: asked once more, the card stays put meanwhile
+    const before = me();
+    fireEvent(document, new Event("visibilitychange"));
+    expect(screen.getByText("Reworm isn't set up yet")).toBeInTheDocument();
+    await waitFor(() => expect(me()).toBe(before + 1));
+    expect(screen.getByText("Reworm isn't set up yet")).toBeInTheDocument();
+    // set up on another device meanwhile: back on the front, the game is there
+    await world
+      .device()
+      .setup({ token: "fake-setup", name: "Jan", avatar: "vinyl" });
+    fireEvent.focus(window);
+    expect(
+      await screen.findByRole("button", { name: "Join a game" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Reworm isn't set up yet")).toBeNull();
+    // with an answer in, coming back asks nothing
+    const after = me();
+    fireEvent.focus(window);
+    fireEvent(document, new Event("visibilitychange"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(me()).toBe(after);
+  });
+
+  it("on a fresh install checks again on a tap", async () => {
+    const world = new FakeWorld({ seed: false });
+    renderApp("/pair", world.device());
+    expect(
+      await screen.findByText("Reworm isn't set up yet"),
+    ).toBeInTheDocument();
+    await world
+      .device()
+      .setup({ token: "fake-setup", name: "Jan", avatar: "vinyl" });
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByLabelText("Your code")).toBeInTheDocument();
   });
 
   it("holds the game night buttons back until it knows paired or not", async () => {

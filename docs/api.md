@@ -13,6 +13,8 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 
 ## Profiles, devices, pairing (D3)
 - `GET  /api/me` → `{ profile: {id,name,avatar,admin}, device: {id,label} }` | 401 `unauthorized` (not paired)
+- Every paired-only route answers a device without a profile 401 `unauthorized`, or 401 `setup_pending` while no
+  profile exists yet (the setup link below is unused; never carries the token).
 - `POST /api/setup` `{token, name, avatar}` → 201 + `/api/me` body. First device of a fresh server: the one-time
   token is printed in the server log on boot (`/setup/<token>` link) while no profile exists. Sets the cookie; that
   profile is the admin. 403 `invalid_token`, 410 `setup_done` once a profile exists.

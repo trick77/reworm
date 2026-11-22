@@ -59,6 +59,8 @@ type MeState = {
   me: Me | null;
   // unpaired: the server answered 401, this device has no profile
   unpaired: boolean;
+  // fresh: a 401 setup_pending, no profile exists yet: only the setup link from the log makes the first
+  fresh: boolean;
   // error: any other failure (server down): screens that need a profile show it with a retry
   error: ApiError | null;
   loading: boolean;
@@ -70,9 +72,29 @@ const MeContext = createContext<MeState | null>(null);
 function MeLoader({ children }: { children: ReactNode }) {
   const api = useApi();
   const r = useAsync("me", () => api.me());
+  const fresh = r.error?.status === 401 && r.error.code === "setup_pending";
+  // A device opened before the setup (a home-screen app has no reload) looks again when it comes back to the
+  // front. Quietly: only a changed answer reloads, so the setup card doesn't blink on every focus.
+  const recheck = useEffectEvent(() => {
+    if (document.visibilityState !== "visible") return;
+    api.me().then(r.reload, (e: unknown) => {
+      if (toApiError(e).code !== "setup_pending") r.reload();
+    });
+  });
+  useEffect(() => {
+    if (!fresh) return;
+    const on = () => recheck();
+    document.addEventListener("visibilitychange", on);
+    window.addEventListener("focus", on);
+    return () => {
+      document.removeEventListener("visibilitychange", on);
+      window.removeEventListener("focus", on);
+    };
+  }, [fresh]);
   const value: MeState = {
     me: r.error ? null : (r.data ?? null),
     unpaired: r.error?.status === 401,
+    fresh,
     error: r.error && r.error.status !== 401 ? r.error : null,
     loading: r.loading,
     reload: r.reload,
@@ -94,7 +116,8 @@ export function ApiProvider({
   );
 }
 
-// useMe is the paired profile of this device, loaded once per app start (reload() after a change).
+// useMe is the paired profile of this device, loaded once per app start (reload() after a change; while fresh,
+// again on coming back to the front).
 export function useMe(): MeState {
   const m = use(MeContext);
   if (!m) throw new Error("useMe outside ApiProvider");

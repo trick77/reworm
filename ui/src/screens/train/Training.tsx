@@ -571,7 +571,7 @@ export function Training({ id }: { id: string }) {
       <Screen tab="train">
         <ScreenHead back="/" title="Training" />
         {ses.error.status === 401 ? (
-          <Unpaired what="Training" />
+          <Unpaired title="Training needs a profile" onDone={ses.reload} />
         ) : ses.error.status === 404 ? (
           <Card style={{ marginTop: 18 }} role="alert">
             <div style={{ fontWeight: 700 }}>This session is gone</div>
