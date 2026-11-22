@@ -307,14 +307,11 @@ button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .app{container-type:inline-size;container-name:app}
 .cols{display:block}
 .av-strip{display:flex;gap:12px;overflow-x:auto;padding:6px 4px 10px;scrollbar-width:none}
-.who-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:22px 10px;margin-top:30px}
 @container app (min-width:560px){
   .scroll{padding-left:max(18px,calc((100% - 560px)/2));padding-right:max(18px,calc((100% - 560px)/2))}
-  /* avatar picker: all 12 in two rows of 6; single-column forms (join, who): form and button one block,
-     centered in the window, the back button by the form */
+  /* avatar picker: all 12 in two rows of 6; single-column forms (join, new profile): form and button one
+     block, centered in the window, the back button by the form */
   .av-strip{display:grid;grid-template-columns:repeat(6,52px);gap:12px;justify-content:center;overflow:visible}
-  .who-grid{display:flex;flex-wrap:wrap;justify-content:center}
-  .who-grid > button{width:120px}
   .scroll.form{flex:0 1 auto;margin-top:auto;padding-left:max(18px,calc((100% - 560px)/2));padding-right:max(18px,calc((100% - 560px)/2))}
   .scroll.form:last-child{margin-bottom:auto}
   .scroll.form + .sticky-cta{margin-bottom:auto;display:flex;justify-content:center}
@@ -562,7 +559,7 @@ const S = {
   view:"proto", frame:"phone", screen:"home",
   cfg:{src:"hit", pick:"Essentials", sets:["Essentials"], genres:["General"], from:1900, to:2025, mode:"ab", diff:"medium", clipStart:"intro", clipLen:20, len:10},
   ses:null, toast:null,
-  me:{name:"Jan",av:"vinyl"}, pair:null, joinAv:"mic",   // pair: null | "device" | "invite"
+  me:{name:"Jan",av:"vinyl"}, pair:null, joinAv:"mic",   // pair: null | "device"
   lobby:{mode:"years",more:false},                        // the host lobby: mode, "More options" open
 };
 
@@ -1065,24 +1062,27 @@ function avatarGrid(sel,attr){
      <span style="border-radius:50%;${k===sel?`box-shadow:0 0 0 3px var(--ink),0 0 0 6px ${AVATARS[k].bg}`:""};transition:transform .15s;${k===sel?"transform:scale(1.06)":""}">${av(k,56)}</span>
      <span style="font-size:11px;color:${k===sel?"var(--paper)":"var(--muted)"};font-weight:${k===sel?650:450};white-space:nowrap">${AVATARS[k].name}</span></button>`).join("")}</div>`;
 }
-function scrWho(){
+// scrNewProfile: Host a game on a device without a profile: anyone makes one right here (or brings theirs over
+// with a device code) and goes on into the lobby. Profiles are private: no picker, no switching.
+function scrNewProfile(){
   return `${statusBar()}<div class="scroll form fade-in">
-   <div style="max-width:560px;margin:0 auto;text-align:center;padding-top:40px">
-   <div class="seal" style="margin:0 auto;width:46px;height:46px;border-radius:12px">${WORM}</div>
-   <div class="h-title" style="margin-top:18px">Who's playing?</div>
-   <div class="sub">This device remembers the choice.</div>
-   <div class="who-grid">
-     ${PLAYERS.map(([n,,k])=>`<button data-who="${n}" style="display:flex;flex-direction:column;align-items:center;gap:8px">${av(k,88)}<b style="font-size:15px">${n}</b></button>`).join("")}
-     <button data-act="invite" style="display:flex;flex-direction:column;align-items:center;gap:8px"><span style="width:88px;height:88px;border-radius:50%;border:2px dashed var(--line);display:grid;place-items:center;color:var(--muted)">${ICON.plus.replace("<svg ",'<svg width="30" height="30" ')}</span><span class="sub" style="font-size:14px">Add someone</span></button>
+   <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">Host a game</div><div style="width:40px"></div></div>
+   <div class="card" style="margin:18px auto 0;max-width:460px">
+   <div style="font-weight:700">Create a profile to host</div>
+   <div class="sub" style="font-size:13px;margin:4px 0 16px">Pick a name and an avatar. Your profile keeps your training progress and is yours alone.</div>
+   <div style="text-align:center">
+   <div class="field" style="justify-content:center"><input placeholder="Your name" aria-label="Your name" style="font-family:var(--txt);font-size:17px;text-align:center;max-width:260px"></div>
+   <div class="av-strip" style="padding-top:14px">${AV_KEYS.map(k=>`<button data-joinav="${k}" style="flex:none;border-radius:50%;${k===S.joinAv?`box-shadow:0 0 0 3px var(--ink),0 0 0 6px ${AVATARS[k].bg}`:"opacity:.75"}">${av(k,52)}</button>`).join("")}</div>
+   <button class="btn primary" style="margin-top:18px" data-go="host">Create my profile</button>
    </div>
-   <div class="sub" style="margin-top:26px;font-size:12px">Only paired devices see this. New people join with an invite code.</div>
+   <button class="link" style="margin-top:14px;padding:12px 4px;color:var(--sky);font-size:13.5px" data-act="usecode">Have a profile on another device? Use its code</button>
    </div></div>`;
 }
-function pairPanel(kind){
-  const code=kind==="invite"?"MIA-7KQ":"H4K-9QZ";
+function pairPanel(){
+  const code="H4K-9QZ";
   return `<div class="card fade-in" style="margin-top:12px;border-color:var(--sky);text-align:center;padding:18px">
-    <div style="font-weight:700">${kind==="invite"?"Invite someone":"Add one of your devices"}</div>
-    <div class="sub" style="font-size:12.5px;margin:4px 0 14px">${kind==="invite"?"Scan on their phone: they pick a name and avatar and get their own progress.":"Scan with the new device's camera, or open the site there and type the code. It logs in as you."}</div>
+    <div style="font-weight:700">Add one of your devices</div>
+    <div class="sub" style="font-size:12.5px;margin:4px 0 14px">Scan with the new device's camera, or open the site there and type the code. It logs in as you.</div>
     <div style="display:flex;justify-content:center">${fakeQR("pair-"+code,150)}</div>
     <div class="num" style="font-size:30px;font-weight:800;letter-spacing:5px;margin-top:12px">${code}</div>
     <div class="sub" style="font-size:12px">valid 4:52 · works once</div>
@@ -1103,18 +1103,14 @@ function scrMe(){
    </div><div class="col">
    <div class="label">Your devices</div>
    <div class="card" style="padding:4px 16px">${DEVICES.map(([d,m,t],i)=>`<div class="set-row"><div><div>${d}</div><div class="m">${m} · ${t}</div></div>${i===0?`<span class="sub" style="font-size:12px">this one</span>`:`<span style="color:var(--rose);font-size:13px">Remove</span>`}</div>`).join("")}</div>
-   ${S.pair?pairPanel(S.pair):`<div class="row" style="gap:8px;margin-top:12px">
-     <button class="btn small" style="flex:1;background:var(--sky);color:#13110f" data-act="pairdev">${ICON.qr} Add a device</button>
-     <button class="btn ghost small" style="flex:1" data-act="invite">${ICON.plus} Invite someone</button></div>`}
+   ${S.pair?pairPanel():`<button class="btn small" style="margin-top:12px;background:var(--sky);color:#13110f" data-act="pairdev">${ICON.qr} Add a device</button>`}
    <div class="sub" style="font-size:12px;margin-top:10px">No passwords: each device keeps a login cookie for a year. Remove a lost phone here.</div>
-   <div class="label">Profiles on this Reworm</div>
-   <div class="card" style="padding:6px 14px">${PLAYERS.map(([n,,k])=>`<div class="set-row"><div class="row">${av(k,34)}<b>${n}</b></div><span class="sub" style="font-size:12px">${n===me.name?"you":"1 device"}</span></div>`).join("")}</div>
-   <button class="btn ghost small" style="margin-top:12px" data-go="who">Switch profile on this device</button>
+   <button class="btn ghost small" style="margin-top:18px" data-go="newProfile">Use another profile on this device</button>
    </div></div>
    <div style="height:10px"></div>
   </div>${tabs("gear")}`;
 }
-const SCREENS={home:scrHome,setup:scrSetup,play:scrPlay,reveal:scrReveal,summary:scrSummary,settings:scrSettings,host:scrHost,join:scrJoin,who:scrWho,me:scrMe,
+const SCREENS={home:scrHome,setup:scrSetup,play:scrPlay,reveal:scrReveal,summary:scrSummary,settings:scrSettings,host:scrHost,join:scrJoin,newProfile:scrNewProfile,me:scrMe,
   stage:scrStage,stageResult:scrStageResult,stageOver:scrStageOver,padLive:scrPadLive,padOut:scrPadOut,padWon:scrPadWon,padLost:scrPadLost};
 
 /* ======================= board (static states) ======================= */
@@ -1143,7 +1139,7 @@ function renderBoard(){
   S.lobby={mode:"years",more:true}; shot("7a · Host lobby — more options","More options open: the four settings, Done folds them back into the summary.",scrHost);
   S.lobby={mode:"years",more:false};
   shot("7b · Join on the phone","Scan the QR or type the 4-letter code, pick a name and avatar. No app, no account.",scrJoin);
-  shot("8 · Who's playing?","Profile picker on a shared device (the family iPad). Only paired devices get here.",scrWho);
+  shot("8 · Create a profile to host","Host a game on a device without a profile: anyone makes one here, name and avatar, and goes on into the lobby. A profile from another device comes over with its code (Add a device). Profiles are private: no picker, no switching. A profile's only device leaving it asks first: going on deletes that profile.",scrNewProfile);
   resetRound();
   shot("P0 · Pad: get ready","3, 2, 1 before every round, on every phone and the stage at once (the server's clock); no buttons yet.",scrPadCountdown);
   shot("P1 · Pad: round live","The phone during a round: the shown year, a draining 15 s bar, three big buttons. No audio on phones.",scrPadLive);
@@ -1295,7 +1291,7 @@ document.addEventListener("click",e=>{
     S.view=v.dataset.view;render();window.scrollTo(0,0);return;}
   const f=e.target.closest("[data-frame]"); if(f){S.frame=f.dataset.frame;render();return;}
   if(S.view!=="proto") return;
-  const el=e.target.closest("[data-go],[data-act],[data-ans],[data-src],[data-pick],[data-set],[data-genre],[data-mode],[data-diff],[data-clip],[data-clen],[data-len],[data-range],[data-av],[data-who],[data-joinav]");
+  const el=e.target.closest("[data-go],[data-act],[data-ans],[data-src],[data-pick],[data-set],[data-genre],[data-mode],[data-diff],[data-clip],[data-clen],[data-len],[data-range],[data-av],[data-joinav]");
   if(!el) return; e.preventDefault();
   const d=el.dataset, c=S.cfg;
   if(d.go){ if((d.go==="summary")&&!S.ses){go("home");return;} go(d.go); return; }
@@ -1306,7 +1302,6 @@ document.addEventListener("click",e=>{
   if(d.pick) c.pick=d.pick;
   if(d.av){ S.me.av=d.av; PLAYERS[0][2]=d.av; }
   if(d.joinav) S.joinAv=d.joinav;
-  if(d.who){ const p=PLAYERS.find(x=>x[0]===d.who); S.me={name:p[0],av:p[2]}; go("home"); return; }
   if(d.mode){ if(d.mode==="line"){toast("Timeline mode: later");return;} c.mode=d.mode; }
   if(d.diff) c.diff=d.diff;
   if(d.clip) c.clipStart=d.clip;
@@ -1337,7 +1332,7 @@ document.addEventListener("click",e=>{
       case "padresult": go("padLost"); return;
       case "padagain": resetRound(); go("padLive"); return;
       case "pairdev": S.pair="device"; if(S.screen!=="me") go("me"); break;
-      case "invite": S.pair="invite"; if(S.screen!=="me"){ go("me"); return; } break;
+      case "usecode": toast("Swaps the form for the 6-letter code of your other device (Add a device)"); return;
       case "pairclose": S.pair=null; break;
       case "listen": if(AUD.live&&AUD.el){ ensureCtx(); fadeIn(null); toast("Playing on — rest of the 90 s preview"); } else toast("No preview for this song in the mock"); return;
       case "am": toast("Opens the song in Apple Music"); return;

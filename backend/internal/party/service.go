@@ -162,10 +162,19 @@ func (s *Service) resolver() Resolver {
 	return s.o.Previews.PreviewURL
 }
 
-// create adds a room for the host profile under a fresh code.
+// create adds a room for the host profile under a fresh code. One room per host: profiles are free to make, so a
+// host must not fill MaxRooms alone; a new room ends the host's earlier one (its players see it gone). Answering
+// the earlier one instead would trap a host who left a game mid-round in it; the host's own device resumes its
+// room without asking here (the UI's hosting).
 func (s *Service) create(hostProfile string, c Config) (*Room, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	for code, r := range s.rooms {
+		if r.HostProfile() == hostProfile {
+			delete(s.rooms, code)
+			r.close()
+		}
+	}
 	if len(s.rooms) >= MaxRooms {
 		return nil, api.Fail(http.StatusServiceUnavailable, "too_many_rooms", "too many rooms are open")
 	}

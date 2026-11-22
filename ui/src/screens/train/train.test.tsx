@@ -407,7 +407,8 @@ describe("training", () => {
     expect(
       await screen.findByText("Training needs a profile"),
     ).toBeInTheDocument();
-    const { code } = await world.device("p-jan").pair("device");
+    const { code } = await world.device("p-jan").pair();
+    fireEvent.click(screen.getByRole("button", { name: /Use its code/ }));
     fireEvent.change(screen.getByLabelText("Your code"), {
       target: { value: code },
     });
@@ -423,7 +424,8 @@ describe("training", () => {
     expect(
       await screen.findByText("Training needs a profile"),
     ).toBeInTheDocument();
-    const again = await world.device("p-jan").pair("device");
+    const again = await world.device("p-jan").pair();
+    fireEvent.click(screen.getByRole("button", { name: /Use its code/ }));
     fireEvent.change(screen.getByLabelText("Your code"), {
       target: { value: again.code },
     });

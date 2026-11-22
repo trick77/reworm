@@ -5,6 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { ApiError } from "../api/client";
 import { FakeWorld } from "../test/fakeApi";
 import { renderApp } from "../test/render";
 
@@ -12,11 +13,11 @@ describe("pairing", () => {
   it("claims a device code: the new device logs in as the code's profile", async () => {
     const world = new FakeWorld();
     const mine = world.device("p-mia");
-    const { code } = await mine.pair("device");
+    const { code } = await mine.pair();
     const fresh = world.device();
     const r = renderApp(`/pair/${code.toLowerCase()}`, fresh);
     expect(screen.getByText("Enter your code")).toBeInTheDocument();
-    expect(screen.getByText(/Invite someone/)).toBeInTheDocument();
+    expect(screen.queryByText(/invite/i)).toBeNull();
     expect(screen.getByText(/Add a device/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
     await waitFor(() => expect(r.path()).toBe("/"));
@@ -24,32 +25,6 @@ describe("pairing", () => {
     expect(
       await screen.findByRole("button", { name: "Profile & devices" }),
     ).toBeInTheDocument();
-  });
-
-  it("claims an invite: asks for a name and an avatar, creates the profile", async () => {
-    const world = new FakeWorld();
-    const { code } = await world.device("p-jan").pair("invite");
-    const fresh = world.device();
-    const r = renderApp("/pair", fresh);
-    expect(r.container.querySelector(".scroll")).toHaveClass("form");
-    fireEvent.change(screen.getByLabelText("Your code"), {
-      target: { value: code },
-    });
-    fireEvent.keyDown(screen.getByLabelText("Your code"), { key: "Enter" });
-    expect(await screen.findByText("You're invited!")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Create my profile" }),
-    ).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Your name"), {
-      target: { value: "Lea" },
-    });
-    fireEvent.click(screen.getByRole("radio", { name: "Quaver" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create my profile" }));
-    await waitFor(() => expect(r.path()).toBe("/"));
-    expect((await fresh.me()).profile).toMatchObject({
-      name: "Lea",
-      avatar: "note",
-    });
   });
 
   it("shows a full address in the QR when the server hands a path", async () => {
@@ -141,52 +116,18 @@ describe("setup", () => {
 });
 
 describe("profiles and devices", () => {
-  it("switches the profile on a shared device", async () => {
-    const world = new FakeWorld();
-    const api = world.device("p-jan");
-    const r = renderApp("/who", api);
-    fireEvent.click(await screen.findByRole("button", { name: "Sarah" }));
-    await waitFor(() => expect(r.path()).toBe("/"));
-    expect((await api.me()).profile.name).toBe("Sarah");
-  });
-
-  it("explains why the admin profile can't be picked, and how to get it", async () => {
-    const world = new FakeWorld();
-    const api = world.device("p-mia");
-    const r = renderApp("/who", api);
-    fireEvent.click(await screen.findByRole("button", { name: "Jan" }));
-    const card = await screen.findByRole("alert");
-    expect(card).toHaveTextContent(
-      "Jan is the admin profileIt can't be picked here. Make a code on one of Jan's devices (Profile & devices → Add a device) and enter it on this one.",
-    );
-    expect(card).not.toHaveTextContent(/pair/i);
-    expect(r.path()).toBe("/who");
-    expect((await api.me()).profile.name).toBe("Mia");
-    fireEvent.click(screen.getByRole("button", { name: "Enter a code" }));
-    expect(r.path()).toBe("/pair");
-    expect(await screen.findByText("Enter your code")).toBeInTheDocument();
-  });
-
-  it("Add someone opens the profile page with an invite code", async () => {
-    const world = new FakeWorld();
-    const r = renderApp("/who", world.device("p-jan"));
-    fireEvent.click(await screen.findByRole("button", { name: "Add someone" }));
-    expect(r.path()).toBe("/me?invite=1");
-    expect(
-      await screen.findByRole("dialog", { name: "Invite someone" }),
-    ).toBeInTheDocument();
-  });
-
   it("changes the avatar, lists and removes devices, makes a pairing code", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const world = new FakeWorld();
     const api = world.device("p-jan");
-    renderApp("/me", api);
+    const r = renderApp("/me", api);
     expect(await screen.findByText("Profile & devices")).toBeInTheDocument();
     expect(await screen.findByText("this one")).toBeInTheDocument();
     expect(screen.getByText("2 h ago")).toBeInTheDocument();
     expect(screen.getByText("3 days ago")).toBeInTheDocument();
-    expect(screen.getByText("Profiles on this Reworm")).toBeInTheDocument();
+    // profiles are private: no list of the others, no invite
+    expect(screen.queryByText("Mia")).toBeNull();
+    expect(screen.queryByText(/invite/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("radio", { name: /Woofer/ }));
     await waitFor(() =>
@@ -216,36 +157,161 @@ describe("profiles and devices", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(
-      screen.getByRole("button", { name: "Switch profile on this device" }),
+      screen.getByRole("button", {
+        name: "Use another profile on this device",
+      }),
     );
-    expect(await screen.findByText("Who's playing?")).toBeInTheDocument();
+    expect(r.path()).toBe("/pair");
     // a centered block on a wide screen
     expect(document.querySelector(".scroll")).toHaveClass("form");
     vi.useRealTimers();
   });
 
-  it("a device without a profile enters a code right on the profile page and Who's playing", async () => {
+  it("a device without a profile creates one right on the profile page", async () => {
     const world = new FakeWorld();
-    const r = renderApp("/me", world.device());
+    const fresh = world.device();
+    const r = renderApp("/me", fresh);
     expect(
       await screen.findByText("No profile on this device yet"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/A profile is your invite/)).toBeInTheDocument();
-    expect(screen.queryByText(/pair/i)).toBeNull();
+    expect(screen.queryByText(/invite|pair/i)).toBeNull();
+    const create = screen.getByRole("button", { name: "Create my profile" });
+    expect(create).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: " Lea " },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: "Quaver" }));
+    fireEvent.click(create);
+    expect(await screen.findByText("this one")).toBeInTheDocument();
+    expect(r.path()).toBe("/me");
+    expect((await fresh.me()).profile).toMatchObject({
+      name: "Lea",
+      avatar: "note",
+      admin: false,
+    });
+  });
+
+  it("a device without a profile takes the code of its other device instead", async () => {
+    const world = new FakeWorld();
+    const r = renderApp("/me", world.device());
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Have a profile on another device? Use its code",
+      }),
+    );
+    expect(
+      screen.getByText(/Add a device and enter its code/),
+    ).toBeInTheDocument();
     // a code of Mia's other device: the page goes on as Mia's
-    const { code } = await world.device("p-mia").pair("device");
+    const { code } = await world.device("p-mia").pair();
     fireEvent.change(screen.getByLabelText("Your code"), {
       target: { value: code },
     });
     fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
     expect(await screen.findByText("this one")).toBeInTheDocument();
     expect(r.path()).toBe("/me");
-    r.unmount();
-    renderApp("/who", world.device());
+  });
+
+  it("a profile's only device asks before it leaves: keep it, or delete it and go on", async () => {
+    const world = new FakeWorld();
+    const mia = world.device("p-mia");
+    const r = renderApp("/me", mia);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Use another profile on this device",
+      }),
+    );
+    expect(r.path()).toBe("/pair");
     expect(
-      await screen.findByText("No profile on this device yet"),
+      await screen.findByText("Use another profile instead of Mia"),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Your code")).toBeInTheDocument();
+    // Jan's code: Mia would be stranded
+    const { code } = await world.device("p-jan").pair();
+    fireEvent.change(screen.getByLabelText("Your code"), {
+      target: { value: code },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This is Mia's only device. Going on deletes Mia's profile and training progress for good.",
+    );
+    // another code is another profile: the question goes, asked again on the next try
+    fireEvent.change(screen.getByLabelText("Your code"), {
+      target: { value: "AAAAAA" },
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Your code"), {
+      target: { value: code },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Keep Mia" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect((await mia.me()).profile.name).toBe("Mia");
+    // a new profile instead: asked again, and this time going on
+    fireEvent.click(
+      screen.getByRole("button", { name: "New here? Create a profile" }),
+    );
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Lea" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create my profile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Delete it" }));
+    await waitFor(() => expect(r.path()).toBe("/"));
+    expect((await mia.me()).profile.name).toBe("Lea");
+    expect(world.profiles.has("p-mia")).toBe(false);
+  });
+
+  it("a code's link opened in a tab already on /pair takes that code", async () => {
+    const world = new FakeWorld();
+    const fresh = world.device();
+    const r = renderApp("/pair", fresh);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "New here? Create a profile" }),
+    );
+    const { code } = await world.device("p-mia").pair();
+    act(() => r.loc.navigate(`/pair/${code}`));
+    expect(await screen.findByLabelText("Your code")).toHaveValue(code);
+  });
+
+  it("the admin's only device is refused, with the reason", async () => {
+    const world = new FakeWorld({ seed: false });
+    const admin = world.device();
+    await admin.setup({ token: "fake-setup", name: "Jan", avatar: "vinyl" });
+    renderApp("/pair", admin);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "New here? Create a profile" }),
+    );
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Lea" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create my profile" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "admin profile's only device",
+    );
+  });
+
+  it("back from the code to a new profile; a refused name is shown", async () => {
+    const world = new FakeWorld();
+    const api = world.device();
+    api.createProfile = () =>
+      Promise.reject(
+        new ApiError(400, "invalid_name", "a name is 1 to 24 characters"),
+      );
+    renderApp("/me", api);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Have a profile on another device? Use its code",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "New here? Create a profile" }),
+    );
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "x" },
+    });
+    fireEvent.keyDown(screen.getByLabelText("Your name"), { key: "Enter" });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "a name is 1 to 24 characters",
+    );
   });
 
   it("a fresh install shows the setup card instead of a code field", async () => {

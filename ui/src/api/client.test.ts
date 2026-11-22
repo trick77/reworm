@@ -125,7 +125,7 @@ describe("HttpApi calls", () => {
       Response.json({ error: "rate limited" }, { status: 429 }),
     );
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
-    await expect(api.pair("device")).rejects.toMatchObject({
+    await expect(api.pair()).rejects.toMatchObject({
       status: 429,
       message: "Too many tries. Wait a moment and try again.",
     });
@@ -201,12 +201,11 @@ describe("HttpApi calls", () => {
     );
     const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
     await api.setup({ token: "t", name: "Jan", avatar: "vinyl" });
-    await api.profiles();
-    await api.switchProfile("p2");
+    await api.createProfile({ name: "Mia", avatar: "mic" });
     await api.updateMe({ avatar: "mic" });
     await api.devices();
     await api.removeDevice("d 1");
-    await api.pair("invite");
+    await api.pair();
     await api.claimPair({ code: "H4K9QZ" });
     await api.room("K7Q4");
     await api.host("K7Q4", "next");
@@ -223,8 +222,7 @@ describe("HttpApi calls", () => {
     await api.trainStats();
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       "POST /api/setup",
-      "GET /api/profiles",
-      "POST /api/profiles/switch",
+      "POST /api/profiles",
       "PATCH /api/me",
       "GET /api/devices",
       "DELETE /api/devices/d%201",
@@ -244,12 +242,14 @@ describe("HttpApi calls", () => {
       "GET /api/train/sessions/t1/summary",
       "GET /api/train/stats",
     ]);
-    expect(calls[12].body).toEqual({ round: 3, choice: "later" });
-    expect(calls[15].body).toEqual({ round: 3, points: 2 });
+    expect(calls[1].body).toEqual({ name: "Mia", avatar: "mic" });
+    expect(calls[5].body).toEqual({ kind: "device" });
+    expect(calls[11].body).toEqual({ round: 3, choice: "later" });
+    expect(calls[14].body).toEqual({ round: 3, points: 2 });
     // training calls carry the time zone, the others don't
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    for (const c of calls.slice(16)) expect(c.headers?.["X-Timezone"]).toBe(tz);
-    expect(calls[1].headers).toBeUndefined();
+    for (const c of calls.slice(15)) expect(c.headers?.["X-Timezone"]).toBe(tz);
+    expect(calls[3].headers).toBeUndefined();
   });
 });
 

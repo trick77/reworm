@@ -18,23 +18,30 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - `POST /api/setup` `{token, name, avatar}` → 201 + `/api/me` body. First device of a fresh server: the one-time
   token is printed in the server log on boot (`/setup/<token>` link) while no profile exists. Sets the cookie; that
   profile is the admin. 403 `invalid_token`, 410 `setup_done` once a profile exists.
-- `GET  /api/profiles` → `[{id,name,avatar}]` (paired devices only; "Who's playing?")
-- `POST /api/profiles/switch` `{profileId}` → `/api/me` body; moves this device to that profile, re-issues the cookie.
-  Never into the admin profile (403 `admin_profile`) unless the device is on it already: admin only by pairing from
-  an admin device ("Add a device").
+- `POST /api/profiles` `{name, avatar, leave?}` → 201 + `/api/me` body, sets the cookie: anyone makes their own
+  profile (never admin). 401 `setup_pending` while no profile exists (only the setup link makes the first, the
+  admin). A browser already paired drops its old device row (`leave` below). Own limit per client address: 10
+  profiles made, then 10 an hour, and server-wide 30, then 30 an hour (an IPv6 caller rotates /64s); refusals do
+  not count (a party behind one router makes its profiles at once).
+  Profiles are private: no list of them, no switching between them; another device reaches one only with its
+  device code.
+- Leaving a profile (a new profile, or a code of another profile, on a paired browser): its last device leaving
+  would strand it, so 409 `last_device` unless `leave: true`, which deletes that profile with its progress. The
+  admin's last device never leaves: 409 `last_admin`.
 - `PATCH /api/me` `{name?, avatar?}` → `/api/me` body. Names: 1–24 printable characters (400 `invalid_name`).
 - `GET  /api/devices` → `[{id,label,lastSeen,current}]` (this profile's devices, last seen first; `lastSeen` is
   refreshed at most every 5 min); `DELETE /api/devices/{id}` → 204 (own profile's devices; the admin: any). Removing
-  the current device clears its cookie.
-- `POST /api/pair` `{kind: "device"|"invite"}` → 201 `{code: "H4K9QZ", url: "https://<host><path>/pair/H4K9QZ", expiresAt}`
+  the current device clears its cookie. A profile's last device stays: 409 `last_device` (`last_admin` for the
+  admin), removing it would strand the profile.
+- `POST /api/pair` `{kind: "device"}` → 201 `{code: "H4K9QZ", url: "https://<host><path>/pair/H4K9QZ", expiresAt}`
   (5 min, single use; alphabet without 0/O/1/I; rate-limited per client address). `url` is absolute only when the
   server has `PUBLIC_FQDN`; otherwise it is the path `/pair/<code>` and the client prefixes its origin and base (never
   built from the request's Host header).
-- The admin profile's only device cannot leave it: switching away, deleting it or claiming a code over it → 409
-  `last_admin` (pair a second device first).
-- `POST /api/pair/claim` `{code, name?, avatar?}` → 201 + `/api/me` body, sets the cookie. `device` adds this device to
-  the code's profile, `invite` creates a new profile (name+avatar required, a bad one leaves the code usable). A
-  browser already paired drops its old device row. 404 `invalid_code` (wrong, used or expired). Rate-limited.
+- The admin profile's only device cannot leave it: deleting it, making a new profile or claiming another profile's
+  code on it → 409 `last_admin` (pair a second device first).
+- `POST /api/pair/claim` `{code, leave?}` → 201 + `/api/me` body, sets the cookie: adds this device to the code's
+  profile. A browser already paired drops its old device row (`leave` above; a refusal leaves the code usable). 404
+  `invalid_code` (wrong, used or expired). Rate-limited.
 - avatar = one of: vinyl cassette boombox mic worm disco guitar drum note keys speaker jukebox (400 `invalid_avatar`)
 - Device label is guessed from the User-Agent: iPhone, iPad, Android, Mac, Windows, Chromebook, Linux, Browser.
 
@@ -55,7 +62,9 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 ## Party rooms (main feature)
 - `POST /api/rooms` (paired device = host) `{mode: "years"|"buzzer", deck, toWin: 10, clip: {length: 20, start:
   "chorus"|"random"}, difficulty: "easy"|"medium"|"hard"}` → 201 `{code: "K7Q4"}`. Every field optional (defaults as
-  shown; toWin 1–50, clip length 5–60 s). 400 `invalid_settings`.
+  shown; toWin 1–50, clip length 5–60 s). 400 `invalid_settings`. One room per host profile (profiles are free to
+  make, so one host must not fill the server's 200): a new room ends the host's earlier one, whatever its phase
+  (its players get 404). The UI resumes its own room (`hosting`) before it creates one.
 - Codes are 4 symbols, case-insensitive. A room expires after 2 h without any action. Every room route meters
   unknown codes per client address (20, then 10 a minute; 429), so codes cannot be guessed cheaply; a known room
   costs nothing there. Reads (`GET` state, events, me) are limited to 5/s per address (burst 60).

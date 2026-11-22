@@ -64,10 +64,6 @@ Indexes:
 
 ## profiles
 
-Go types:
-
-- `account.profileListJSON` (internal/account): profileListJSON is one profile GET /api/profiles lists.
-
 | Column | Type | Null | Default | PK |
 | --- | --- | --- | --- | --- |
 | `id` | TEXT | no |  | 1 |

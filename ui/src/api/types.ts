@@ -11,7 +11,6 @@ export type Device = {
   lastSeen: number;
   current: boolean;
 };
-export type PairKind = "device" | "invite";
 export type PairCode = { code: string; url: string; expiresAt: number };
 
 export type DeckSet = {

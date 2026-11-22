@@ -396,19 +396,13 @@ describe("party: lobby and join", () => {
     expect(world.rooms.size).toBe(1);
   });
 
-  it("takes an invite code right on /host into the lobby, and reports a gone room", async () => {
+  it("makes a profile right on /host and goes on into the lobby, and reports a gone room", async () => {
     const world = new FakeWorld();
     const r = renderApp("/host", world.device());
     expect(
-      await screen.findByText("Hosting is invite-only here"),
+      await screen.findByText("Create a profile to host"),
     ).toBeInTheDocument();
-    expect(screen.getByText(/A profile is your invite/)).toBeInTheDocument();
-    const { code } = await world.device("p-jan").pair("invite");
-    fireEvent.change(screen.getByLabelText("Your code"), {
-      target: { value: code },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
-    expect(await screen.findByText("You're invited!")).toBeInTheDocument();
+    expect(screen.queryByText(/invite/i)).toBeNull();
     fireEvent.change(screen.getByLabelText("Your name"), {
       target: { value: "Lea" },
     });

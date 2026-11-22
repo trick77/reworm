@@ -21,12 +21,12 @@ import { Button, Card, IconButton, Segmented } from "../../components/Controls";
 import { allYears, defaultRoom, load, save } from "../../lib/prefs";
 import {
   deckLabel,
+  GetProfile,
   Loading,
   Problem,
   QrCode,
   Screen,
   ScreenHead,
-  Unpaired,
 } from "../common";
 import { DeckPicker } from "../DeckPicker";
 import { Stage } from "./Stage";
@@ -93,7 +93,7 @@ export function Host() {
     <Screen>
       <ScreenHead back="/" title="Host a game" />
       {/* a code claimed here reloads the profile: the effect above then opens the room */}
-      {unpaired && <Unpaired title="Hosting is invite-only here" />}
+      {unpaired && <GetProfile title="Create a profile to host" />}
       {error && <Problem error={error} retry={retry} />}
       {!unpaired && !error && <Loading />}
     </Screen>

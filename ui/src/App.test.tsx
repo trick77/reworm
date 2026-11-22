@@ -69,14 +69,12 @@ describe("App", () => {
     expect(
       host.compareDocumentPosition(join) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: "Got an invite code?" }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create one" })).toBeNull();
   });
 
-  it("leads with Join on an unpaired device, an invite code an optional link", async () => {
+  it("leads with Join on an unpaired device, a new profile an optional link", async () => {
     const r = renderApp("/", new FakeWorld().device());
-    await screen.findByRole("button", { name: "Got an invite code?" });
+    await screen.findByRole("button", { name: "Create one" });
     expect(
       screen.getByText(/Hosting and solo training need a profile/),
     ).toBeInTheDocument();
@@ -90,11 +88,12 @@ describe("App", () => {
       join.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.queryByText("Solo training")).toBeNull();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Got an invite code?" }),
-    );
-    expect(r.path()).toBe("/pair");
-    expect(await screen.findByText("Enter your code")).toBeInTheDocument();
+    expect(screen.queryByText(/invite/i)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Create one" }));
+    expect(r.path()).toBe("/me");
+    expect(
+      await screen.findByRole("button", { name: "Create my profile" }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     fireEvent.click(await screen.findByRole("button", { name: "Join a game" }));
     expect(r.path()).toBe("/join");
@@ -110,7 +109,7 @@ describe("App", () => {
     expect(screen.getByText("Play with friends")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Host/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Join/ })).toBeNull();
-    expect(screen.queryByText(/invite code/)).toBeNull();
+    expect(screen.queryByText(/Create one/)).toBeNull();
     expect(screen.queryByText(/server/i)).toBeNull();
     r.unmount();
     // the code screen too: there is nobody to get a code from yet

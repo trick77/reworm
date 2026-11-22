@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"math/rand/v2"
 	"net/http"
 	"net/http/cookiejar"
@@ -313,9 +314,10 @@ func TestHTTP_refusals(t *testing.T) {
 		t.Errorf("start without previews = %d, want 503", rec.Code)
 	}
 	// Another paired profile is not the host.
-	inv := decodeBody[struct{ Code string }](t, h.do(http.MethodPost, "/api/pair", map[string]string{"kind": "invite"}))
 	other := e.browser()
-	other.do(http.MethodPost, "/api/pair/claim", map[string]string{"code": inv.Code, "name": "Mia", "avatar": "mic"})
+	if rec := other.do(http.MethodPost, "/api/profiles", map[string]string{"name": "Mia", "avatar": "mic"}); rec.Code != http.StatusCreated {
+		t.Fatalf("create profile = %d", rec.Code)
+	}
 	if rec := other.do(http.MethodPost, base+"/pause", nil); rec.Code != http.StatusForbidden {
 		t.Errorf("non-host pause = %d", rec.Code)
 	}
@@ -357,13 +359,40 @@ func TestRun_stopsWithTheContext(t *testing.T) {
 
 func TestMaxRooms(t *testing.T) {
 	e := newEnv(t, &preview.Fake{})
-	for range MaxRooms {
-		if _, err := e.svc.create("p", Config{}); err != nil {
+	for i := range MaxRooms {
+		if _, err := e.svc.create(fmt.Sprint("p", i), Config{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, err := e.svc.create("p", Config{})
+	_, err := e.svc.create("p-last", Config{})
 	wantProblem(t, err, "too_many_rooms")
+}
+
+// One room per host: profiles are free to make, so one host must not hold every room. A new room ends the host's
+// earlier one, whatever its phase; other hosts' rooms stay.
+func TestCreate_oneRoomPerHost(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	h := e.pairedHost()
+	code := e.createRoom(h, Config{})
+	other, err := e.svc.create("someone-else", Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		e.createRoom(h, Config{})
+	}
+	if rec := h.do(http.MethodGet, "/api/rooms/"+code, nil); rec.Code != http.StatusNotFound {
+		t.Errorf("the host's earlier room = %d, want 404", rec.Code)
+	}
+	if _, err := e.svc.room(other.Code()); err != nil {
+		t.Error("another host's room went")
+	}
+	e.svc.mu.Lock()
+	n := len(e.svc.rooms)
+	e.svc.mu.Unlock()
+	if n != 2 {
+		t.Errorf("rooms = %d, want 2 (one per host)", n)
+	}
 }
 
 // readEvent reads one SSE event's data line.
