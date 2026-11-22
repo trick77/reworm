@@ -8,10 +8,10 @@ github.com/ncruces/go-sqlite3-wasm/v6 v6.7.35401 h1:BlrYMg6wi+S0oxZ8IeGMHXi2nfjK
 github.com/ncruces/go-sqlite3-wasm/v6 v6.7.35401/go.mod h1:K/Z0eKUURoWW9cJ9rHeMGDF0G4pr0A6WizdC+Ohzj54=
 github.com/ncruces/julianday v1.0.0 h1:fH0OKwa7NWvniGQtxdJRxAgkBMolni2BjDHaWTxqt7M=
 github.com/ncruces/julianday v1.0.0/go.mod h1:Dusn2KvZrrovOMJuOt0TNXL6tB7U2E8kvza5fFc9G7g=
-github.com/trick77/ship/kit v0.21.0 h1:Ww42BOWrHryFdzRg5S2Pgj5erzRC8/WRqqdnpRLXO0E=
-github.com/trick77/ship/kit v0.21.0/go.mod h1:cE+kQhN2nb5j2ML174YKdGrC41M2GxnILzQLqFupsHE=
-github.com/trick77/ship/kit/auth v0.4.1 h1:l+X3QgRjFyuqdbHc4D9L1faRok6poaCh9vbXohCUYPw=
-github.com/trick77/ship/kit/auth v0.4.1/go.mod h1:yyGvxIwJgLVf63MqYMkI+yglI3Qppe9+Kw9Gty5D+1A=
+github.com/trick77/ship/kit v0.22.0 h1:TcdewoOha26SzH1ZTTw/QLYzrIHbXxGBJ0ktc5ARixU=
+github.com/trick77/ship/kit v0.22.0/go.mod h1:cE+kQhN2nb5j2ML174YKdGrC41M2GxnILzQLqFupsHE=
+github.com/trick77/ship/kit/auth v0.4.2 h1:MzR0wC44RH0EO0F6gdOLDq8/M/kZ20oyre9NZobcttg=
+github.com/trick77/ship/kit/auth v0.4.2/go.mod h1:DqX8JBv8lh6ATfmtVeobuFnHyerXxztamGJYLWXuUoU=
 github.com/trick77/toolkit v0.4.0 h1:Wc5p/IH6fiqp3Yuub/USJ7/tE8du7wbUxq9L41/a40U=
 github.com/trick77/toolkit v0.4.0/go.mod h1:8o2jn+f4FxaWh0Z2CLCAuhaEmR+morfaMG/LPjuobJE=
 golang.org/x/crypto v0.59.0 h1:xS2jhqYbzNrpvkWP2YTDf4TJwBy3ykR03i8vFDxEc7c=
