@@ -64,8 +64,10 @@ type Options struct {
 
 // Service holds the rooms and serves their API.
 type Service struct {
-	o       Options
-	guests  *auth.Sessions
+	o      Options
+	guests *auth.Sessions
+	// hosts is the host's room cookie: hosting needs no profile, the cookie names the host of one room.
+	hosts   *auth.Sessions
 	join    func(http.Handler) http.Handler
 	actions func(http.Handler) http.Handler
 	reads   func(http.Handler) http.Handler
@@ -88,6 +90,13 @@ func New(o Options) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
+	h, err := auth.NewSessions(auth.SessionConfig{
+		Name: "reworm_host", Key: auth.DeriveKey(hex.EncodeToString(o.Key), "host"), TTL: GuestTTL,
+		Path: o.BasePath + "/api/rooms", Secure: o.Secure,
+	})
+	if err != nil {
+		return nil, err
+	}
 	if o.Now == nil {
 		o.Now = time.Now
 	}
@@ -104,7 +113,7 @@ func New(o Options) (*Service, error) {
 	actLim := ratelimit.New(ratelimit.Options{Rate: 10, Burst: 60, Now: o.Now})
 	readLim := ratelimit.New(ratelimit.Options{Rate: 5, Burst: 60, Now: o.Now})
 	missLim := ratelimit.New(ratelimit.Options{Rate: 10.0 / 60, Burst: 20, Now: o.Now})
-	return &Service{o: o, guests: g, join: joinLim.Middleware(o.ClientKey), actions: actLim.Middleware(o.ClientKey),
+	return &Service{o: o, guests: g, hosts: h, join: joinLim.Middleware(o.ClientKey), actions: actLim.Middleware(o.ClientKey),
 		reads: readLim.Middleware(o.ClientKey), misses: missLim, rooms: map[string]*Room{}, countdown: Countdown}, nil
 }
 
@@ -162,15 +171,15 @@ func (s *Service) resolver() Resolver {
 	return s.o.Previews.PreviewURL
 }
 
-// create adds a room for the host profile under a fresh code. One room per host: profiles are free to make, so a
-// host must not fill MaxRooms alone; a new room ends the host's earlier one (its players see it gone). Answering
-// the earlier one instead would trap a host who left a game mid-round in it; the host's own device resumes its
-// room without asking here (the UI's hosting).
-func (s *Service) create(hostProfile string, c Config) (*Room, error) {
+// create adds a room for hostID under a fresh code; historyProfile ("" for none) orders its deck. One room per
+// host: a new room ends the host's earlier one (its players see it gone). Answering the earlier one instead would
+// trap a host who left a game mid-round in it; the host's own device resumes its room without asking here (the
+// UI's hosting).
+func (s *Service) create(hostID, historyProfile string, c Config) (*Room, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for code, r := range s.rooms {
-		if r.HostProfile() == hostProfile {
+		if r.HostID() == hostID {
 			delete(s.rooms, code)
 			r.close()
 		}
@@ -182,7 +191,8 @@ func (s *Service) create(hostProfile string, c Config) (*Room, error) {
 	for s.rooms[code] != nil {
 		code = api.Code(4)
 	}
-	r := newRoom(code, hostProfile, c, s.countdown, s.o.Now, s.o.Rand(), s.resolver())
+	r := newRoom(code, hostID, c, s.countdown, s.o.Now, s.o.Rand(), s.resolver())
+	r.historyProfile = historyProfile
 	s.rooms[code] = r
 	return r, nil
 }
@@ -199,16 +209,18 @@ func (s *Service) room(code string) (*Room, error) {
 	return r, nil
 }
 
-// loader is the play order of a deck for the host: shuffled, the host's recently played songs last.
-func (s *Service) loader(hostProfile string) Loader {
+// loader is the play order of a deck: shuffled, the profile's recently played songs last ("": no history).
+func (s *Service) loader(profile string) Loader {
 	return func(ctx context.Context, sel deck.Selector) ([]deck.Song, error) {
 		songs, err := s.o.Songs.Select(ctx, sel)
 		if err != nil {
 			return nil, err
 		}
-		played, err := s.o.Songs.Played(ctx, hostProfile, s.o.Now().Add(-historyWindow))
-		if err != nil {
-			return nil, err
+		var played map[string]time.Time
+		if profile != "" {
+			if played, err = s.o.Songs.Played(ctx, profile, s.o.Now().Add(-historyWindow)); err != nil {
+				return nil, err
+			}
 		}
 		byID := make(map[string]deck.Song, len(songs))
 		ids := make([]string, len(songs))
@@ -224,12 +236,13 @@ func (s *Service) loader(hostProfile string) Loader {
 	}
 }
 
-// recordPlayed notes a round's song in the host's history; a failure costs only the ordering of a later game.
-func (s *Service) recordPlayed(ctx context.Context, hostProfile, songID string) {
-	if songID == "" {
+// recordPlayed notes a round's song in the profile's history ("": none kept); a failure costs only the ordering
+// of a later game.
+func (s *Service) recordPlayed(ctx context.Context, profile, songID string) {
+	if songID == "" || profile == "" {
 		return
 	}
-	if err := s.o.Songs.RecordPlayed(ctx, hostProfile, songID, s.o.Now()); err != nil {
+	if err := s.o.Songs.RecordPlayed(ctx, profile, songID, s.o.Now()); err != nil {
 		slog.WarnContext(ctx, "played history not written", "song", songID, logging.Err(err))
 	}
 }
@@ -238,11 +251,11 @@ func (s *Service) recordPlayed(ctx context.Context, hostProfile, songID string) 
 
 // Mount adds the room routes.
 func (s *Service) Mount(mux *http.ServeMux) {
-	acc := s.o.Accounts
-	mux.HandleFunc("POST /api/rooms", acc.Require(s.handleCreate))
+	mux.HandleFunc("POST /api/rooms", s.handleCreate)
 	mux.Handle("GET /api/rooms/{code}", s.reads(s.withRoom(s.handleState)))
 	mux.Handle("GET /api/rooms/{code}/events", s.reads(s.withRoom(s.handleEvents)))
 	mux.Handle("GET /api/rooms/{code}/me", s.reads(s.withRoom(s.handleMe)))
+	mux.Handle("GET /api/rooms/{code}/host", s.reads(s.withRoom(s.handleHost)))
 	mux.Handle("POST /api/rooms/{code}/join", s.join(s.withRoom(s.handleJoin)))
 	for action, f := range map[string]func(hostCall) error{
 		"start": s.start, "next": s.next, "pause": s.pause, "resume": s.resume, "rematch": s.rematch,
@@ -294,7 +307,9 @@ type createResponse struct {
 	Code string `json:"code"`
 }
 
-func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request, id account.Identity) {
+// handleCreate opens a room for anyone: the host is whoever holds the room cookie it answers with (the earlier
+// host id when the browser hosted before, so its earlier room ends). A paired device adds its profile's history.
+func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request) {
 	var c Config
 	if !api.Decode(w, r, &c) {
 		return
@@ -303,12 +318,71 @@ func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request, id accoun
 		api.WriteError(w, r, err)
 		return
 	}
-	room, err := s.create(id.ProfileID, c)
+	hostID := api.ID()
+	if hc, ok := s.hosts.Read(r); ok && hc.Subject != "" {
+		hostID = hc.Subject
+	}
+	var history string
+	id, err := s.o.Accounts.Identify(r)
+	switch {
+	case err == nil:
+		history = id.ProfileID
+	case !errors.Is(err, api.ErrUnauthorized):
+		// a paired device must not lose its history to a failed lookup
+		api.WriteError(w, r, err)
+		return
+	}
+	room, err := s.create(hostID, history, c)
 	if err != nil {
 		api.WriteError(w, r, err)
 		return
 	}
+	if err := s.hosts.Issue(w, auth.Claims{Subject: hostID, Name: room.Code()}); err != nil {
+		s.drop(room) // nobody could host it
+		api.WriteError(w, r, err)
+		return
+	}
 	httpx.WriteJSON(w, http.StatusCreated, createResponse{Code: room.Code()})
+}
+
+// drop removes room and ends its streams.
+func (s *Service) drop(room *Room) {
+	s.mu.Lock()
+	if s.rooms[room.Code()] == room {
+		delete(s.rooms, room.Code())
+	}
+	s.mu.Unlock()
+	room.close()
+}
+
+// hostOf is the host id the request acts as in room: its host cookie for this room, else "".
+func (s *Service) hostOf(r *http.Request, room *Room) string {
+	if c, ok := s.hosts.Read(r); ok && c.Name == room.Code() {
+		return c.Subject
+	}
+	return ""
+}
+
+// isHost reports whether the request hosts room, and renews its host cookie when it does: a game night kept going
+// past the cookie's 12 h keeps its host.
+func (s *Service) isHost(w http.ResponseWriter, r *http.Request, room *Room) bool {
+	id := s.hostOf(r, room)
+	if id == "" || id != room.HostID() {
+		return false
+	}
+	if err := s.hosts.Issue(w, auth.Claims{Subject: id, Name: room.Code()}); err != nil {
+		slog.WarnContext(r.Context(), "host cookie not renewed", logging.Err(err))
+	}
+	return true
+}
+
+type hostResponse struct {
+	Host bool `json:"host"`
+}
+
+// handleHost tells the UI whether this browser hosts the room: the server's word, not the UI's own storage.
+func (s *Service) handleHost(w http.ResponseWriter, r *http.Request, room *Room) {
+	httpx.WriteJSON(w, http.StatusOK, hostResponse{Host: s.isHost(w, r, room)})
 }
 
 func (s *Service) handleState(w http.ResponseWriter, _ *http.Request, room *Room) {
@@ -421,12 +495,12 @@ func (s *Service) handleJoin(w http.ResponseWriter, r *http.Request, room *Room)
 	httpx.WriteJSON(w, http.StatusOK, joinResponse{PlayerID: playerID})
 }
 
-// hostCall is one host action: the room, the request, the caller's profile and the body (nil when empty).
+// hostCall is one host action: the room, the request, the caller's host id and the body (nil when empty).
 type hostCall struct {
-	room    *Room
-	ctx     context.Context
-	profile string
-	body    json.RawMessage
+	room *Room
+	ctx  context.Context
+	host string
+	body json.RawMessage
 }
 
 // into decodes the body into dst.
@@ -444,11 +518,11 @@ func (s *Service) hostAction(f func(hostCall) error) http.HandlerFunc {
 		if !api.DecodeOptional(w, r, &body) {
 			return
 		}
-		id, err := s.o.Accounts.Identify(r)
-		if err == nil {
-			err = f(hostCall{room: room, ctx: r.Context(), profile: id.ProfileID, body: body})
+		host := ""
+		if s.isHost(w, r, room) {
+			host = room.HostID()
 		}
-		if err != nil {
+		if err := f(hostCall{room: room, ctx: r.Context(), host: host, body: body}); err != nil {
 			api.WriteError(w, r, err)
 			return
 		}
@@ -457,22 +531,22 @@ func (s *Service) hostAction(f func(hostCall) error) http.HandlerFunc {
 }
 
 func (s *Service) start(c hostCall) error {
-	song, err := c.room.Start(c.ctx, c.profile, s.loader(c.room.HostProfile()))
-	s.recordPlayed(c.ctx, c.room.HostProfile(), song)
+	song, err := c.room.Start(c.ctx, c.host, s.loader(c.room.HistoryProfile()))
+	s.recordPlayed(c.ctx, c.room.HistoryProfile(), song)
 	return err
 }
 
 func (s *Service) next(c hostCall) error {
-	song, err := c.room.Next(c.ctx, c.profile)
-	s.recordPlayed(c.ctx, c.room.HostProfile(), song)
+	song, err := c.room.Next(c.ctx, c.host)
+	s.recordPlayed(c.ctx, c.room.HistoryProfile(), song)
 	return err
 }
 
-func (s *Service) pause(c hostCall) error { return c.room.Pause(s.o.Now(), c.profile) }
+func (s *Service) pause(c hostCall) error { return c.room.Pause(s.o.Now(), c.host) }
 
-func (s *Service) resume(c hostCall) error { return c.room.Resume(s.o.Now(), c.profile) }
+func (s *Service) resume(c hostCall) error { return c.room.Resume(s.o.Now(), c.host) }
 
-func (s *Service) rematch(c hostCall) error { return c.room.Rematch(s.o.Now(), c.profile) }
+func (s *Service) rematch(c hostCall) error { return c.room.Rematch(s.o.Now(), c.host) }
 
 type kickRequest struct {
 	PlayerID string `json:"playerId"`
@@ -483,7 +557,7 @@ func (s *Service) kick(c hostCall) error {
 	if err := c.into(&req); err != nil {
 		return err
 	}
-	return c.room.Kick(s.o.Now(), c.profile, req.PlayerID)
+	return c.room.Kick(s.o.Now(), c.host, req.PlayerID)
 }
 
 func (s *Service) settings(c hostCall) error {
@@ -494,7 +568,7 @@ func (s *Service) settings(c hostCall) error {
 	if err := cfg.Normalize(s.o.Now().Year()); err != nil {
 		return err
 	}
-	return c.room.Configure(s.o.Now(), c.profile, cfg)
+	return c.room.Configure(s.o.Now(), c.host, cfg)
 }
 
 type pressRequest struct {

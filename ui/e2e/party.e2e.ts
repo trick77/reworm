@@ -4,6 +4,8 @@ import {
   clip,
   closeDevices,
   expectPlaying,
+  hostRoom,
+  joinPhone,
   LABEL,
   party,
   round,
@@ -322,4 +324,18 @@ test("kick: a removed phone is told so and cannot rejoin", async ({
   expect((await roomState(stage, code)).players.map((p) => p.name)).toEqual([
     "Mia",
   ]);
+});
+
+test("anyone hosts: an iPad without a profile opens and runs the room, only it is the host", async ({
+  browser,
+}) => {
+  const { stage, code, join } = await hostRoom(browser, { admin: false });
+  await expect(stage.getByText(/profile/i)).toHaveCount(0);
+  const mia = await joinPhone(browser, join, "Mia", "Mic Drop");
+  await expect(stage.getByText("Players · 1")).toBeVisible();
+  await shot(stage, "host-without-profile");
+  const r = await mia.page.request.post(`api/rooms/${code}/start`);
+  expect(r.status()).toBe(403);
+  await stage.getByRole("button", { name: "Start game · 1 player" }).click();
+  await waitPhase(stage, code, "playing");
 });

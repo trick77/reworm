@@ -104,7 +104,6 @@ export type RoomState = {
   phase: Phase;
   // only while paused: the phase the pause froze
   pausedFrom?: "playing" | "buzzed" | "judging";
-  hostId: string;
   toWin: number;
   settings: { deck: Deck; clip: ClipSettings; difficulty: Difficulty };
   players: RoomPlayer[];

@@ -51,8 +51,8 @@ func fixed(t time.Time) func() time.Time { return func() time.Time { return t } 
 
 // testRoom is newRoom without the countdown: the rule tests answer the moment a round starts. TestCountdown
 // covers the countdown itself.
-func testRoom(code, hostProfile string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
-	return newRoom(code, hostProfile, c, 0, clock, rng, resolve)
+func testRoom(code, hostID string, c Config, clock func() time.Time, rng *rand.Rand, resolve Resolver) *Room {
+	return newRoom(code, hostID, c, 0, clock, rng, resolve)
 }
 
 // setClock waits for background prefetches and sets the room's clock to now.
@@ -511,7 +511,7 @@ func TestStart_slowPreviewsHoldNothingUp(t *testing.T) {
 	slow := &blocking{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	busy := testRoom("SLOW", host, Config{Mode: ModeYears, ToWin: 10}, fixed(t0), rand.New(rand.NewPCG(1, 2)), slow.PreviewURL)
 	join(t, busy, 1)
-	other, err := e.svc.create(host, Config{Mode: ModeYears, ToWin: 10})
+	other, err := e.svc.create(host, "", Config{Mode: ModeYears, ToWin: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1062,18 +1062,18 @@ function avatarGrid(sel,attr){
      <span style="border-radius:50%;${k===sel?`box-shadow:0 0 0 3px var(--ink),0 0 0 6px ${AVATARS[k].bg}`:""};transition:transform .15s;${k===sel?"transform:scale(1.06)":""}">${av(k,56)}</span>
      <span style="font-size:11px;color:${k===sel?"var(--paper)":"var(--muted)"};font-weight:${k===sel?650:450};white-space:nowrap">${AVATARS[k].name}</span></button>`).join("")}</div>`;
 }
-// scrNewProfile: Host a game on a device without a profile: anyone makes one right here (or brings theirs over
-// with a device code) and goes on into the lobby. Profiles are private: no picker, no switching.
+// scrNewProfile: a profile for solo training on a device without one (hosting needs none): anyone makes one right
+// here (or brings theirs over with a device code). Profiles are private: no picker, no switching.
 function scrNewProfile(){
   return `${statusBar()}<div class="scroll form fade-in">
-   <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">Host a game</div><div style="width:40px"></div></div>
+   <div class="row between"><button class="icon-btn" data-go="home">${ICON.back}</button><div style="font-weight:650">Profile</div><div style="width:40px"></div></div>
    <div class="card" style="margin:18px auto 0;max-width:460px">
-   <div style="font-weight:700">Create a profile to host</div>
+   <div style="font-weight:700">Create a profile</div>
    <div class="sub" style="font-size:13px;margin:4px 0 16px">Pick a name and an avatar. Your profile keeps your training progress and is yours alone.</div>
    <div style="text-align:center">
    <div class="field" style="justify-content:center"><input placeholder="Your name" aria-label="Your name" style="font-family:var(--txt);font-size:17px;text-align:center;max-width:260px"></div>
    <div class="av-strip" style="padding-top:14px">${AV_KEYS.map(k=>`<button data-joinav="${k}" style="flex:none;border-radius:50%;${k===S.joinAv?`box-shadow:0 0 0 3px var(--ink),0 0 0 6px ${AVATARS[k].bg}`:"opacity:.75"}">${av(k,52)}</button>`).join("")}</div>
-   <button class="btn primary" style="margin-top:18px" data-go="host">Create my profile</button>
+   <button class="btn primary" style="margin-top:18px" data-go="me">Create my profile</button>
    </div>
    <button class="link" style="margin-top:14px;padding:12px 4px;color:var(--sky);font-size:13.5px" data-act="usecode">Have a profile on another device? Use its code</button>
    </div></div>`;
@@ -1139,7 +1139,7 @@ function renderBoard(){
   S.lobby={mode:"years",more:true}; shot("7a · Host lobby — more options","More options open: the four settings, Done folds them back into the summary.",scrHost);
   S.lobby={mode:"years",more:false};
   shot("7b · Join on the phone","Scan the QR or type the 4-letter code, pick a name and avatar. No app, no account.",scrJoin);
-  shot("8 · Create a profile to host","Host a game on a device without a profile: anyone makes one here, name and avatar, and goes on into the lobby. A profile from another device comes over with its code (Add a device). Profiles are private: no picker, no switching. A profile's only device leaving it asks first: going on deletes that profile.",scrNewProfile);
+  shot("8 · Create a profile","Hosting needs no profile: any device opens a room, the host is the browser that opened it. A profile is for solo training: anyone makes one here, name and avatar. A profile from another device comes over with its code (Add a device). Profiles are private: no picker, no switching. A profile's only device leaving it asks first: going on deletes that profile.",scrNewProfile);
   resetRound();
   shot("P0 · Pad: get ready","3, 2, 1 before every round, on every phone and the stage at once (the server's clock); no buttons yet.",scrPadCountdown);
   shot("P1 · Pad: round live","The phone during a round: the shown year, a draining 15 s bar, three big buttons. No audio on phones.",scrPadLive);

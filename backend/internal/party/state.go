@@ -54,7 +54,6 @@ type State struct {
 	// PausedFrom is the phase a pause froze (playing, buzzed or judging), set only while paused: screens keep
 	// drawing that phase. Guessing it from what a screen last drew failed when two updates arrived together.
 	PausedFrom string        `json:"pausedFrom,omitempty"`
-	HostID     string        `json:"hostId"`
 	ToWin      int           `json:"toWin"`
 	Settings   Settings      `json:"settings"`
 	Players    []PlayerState `json:"players"`

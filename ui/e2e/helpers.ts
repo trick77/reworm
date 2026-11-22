@@ -152,9 +152,9 @@ export async function expectPlaying(stage: Page, id: string) {
     .toBe(id);
 }
 
-// hostRoom opens /host on the admin's iPad: a fresh room in the lobby.
-export async function hostRoom(browser: Browser) {
-  const stage = await device(browser, "stage", { admin: true });
+// hostRoom opens /host on the admin's iPad (admin false: an iPad without a profile): a fresh room in the lobby.
+export async function hostRoom(browser: Browser, { admin = true } = {}) {
+  const stage = await device(browser, "stage", { admin });
   await stage.addInitScript(() => {
     const w = window as unknown as Media;
     const play = HTMLMediaElement.prototype.play;

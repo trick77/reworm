@@ -1,5 +1,5 @@
-// Profiles (D3): "Add a device" logs a second browser in as the admin's profile; anyone else makes their own
-// profile right where hosting asks for one and goes on into the lobby. Profiles are private: no list, no switching.
+// Profiles (D3): "Add a device" logs a second browser in as the admin's profile; anyone else hosts without one and
+// makes their own on the profile page. Profiles are private: no list, no switching.
 import { expect, test, type Page } from "@playwright/test";
 import { closeDevices, device, shot } from "./helpers";
 
@@ -14,7 +14,7 @@ async function pairCode(admin: Page): Promise<string> {
   return (await code.textContent())!;
 }
 
-test("profiles: add a device, a stranger makes a profile on /host and hosts", async ({
+test("profiles: add a device, a stranger hosts without one and makes a profile", async ({
   browser,
 }) => {
   const admin = await device(browser, "laptop", { admin: true });
@@ -39,19 +39,18 @@ test("profiles: add a device, a stranger makes a profile on /host and hosts", as
   await third.getByRole("button", { name: "Use this code" }).click();
   await expect(third.getByRole("alert")).toContainText("unknown or expired");
 
-  // A stranger: name and avatar right where hosting asks for a profile, then on into the lobby
+  // A stranger hosts straight away, no profile; one is made on the profile page
   await third.goto("host");
-  await expect(third.getByText("Create a profile to host")).toBeVisible();
-  const name = `Guest${test.info().project.name === "webkit" ? "W" : "C"}`;
-  await third.getByLabel("Your name").fill(name);
-  await third.getByRole("radio", { name: "Quaver" }).click();
-  await shot(third, "host-create-profile");
-  await third.getByRole("button", { name: "Create my profile" }).click();
   await expect(third.locator('[aria-label="Room code"]')).toHaveText(
     /^[A-Z0-9]{4}$/,
   );
   await expect(third).toHaveURL(/\/reworm\/room\/[A-Z0-9]{4}$/);
   await third.goto("me");
+  const name = `Guest${test.info().project.name === "webkit" ? "W" : "C"}`;
+  await third.getByLabel("Your name").fill(name);
+  await third.getByRole("radio", { name: "Quaver" }).click();
+  await shot(third, "me-create-profile");
+  await third.getByRole("button", { name: "Create my profile" }).click();
   await expect(third.getByText(name, { exact: true }).first()).toBeVisible();
   await expect(third.getByText(/· admin$/)).toHaveCount(0);
   // private: Jan is nowhere on the stranger's profile page

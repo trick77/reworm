@@ -1,10 +1,10 @@
-// Hosting: /host (creates or resumes this device's room) and /room/:code (the lobby, then the stage, on the host
+// Hosting: /host (creates or resumes this device's room, no profile needed) and /room/:code (the lobby, then the stage, on the host
 // device). Home's Game night card leads here.
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { ApiError, type Api } from "../../api/client";
 import { appUrl, BASE } from "../../base";
-import { toApiError, useApi, useAsync, useMe } from "../../api/context";
+import { toApiError, useApi, useAsync } from "../../api/context";
 import type {
   ClipStart,
   Decks,
@@ -21,7 +21,6 @@ import { Button, Card, IconButton, Segmented } from "../../components/Controls";
 import { allYears, defaultRoom, load, save } from "../../lib/prefs";
 import {
   deckLabel,
-  GetProfile,
   Loading,
   Problem,
   QrCode,
@@ -43,7 +42,9 @@ function openRoom(api: Api, decks: Decks): Promise<{ code: string }> {
     if (hosting) {
       try {
         const s = await api.room(hosting);
-        if (s.phase !== "over") return { code: s.code };
+        // only a room the server still has this browser host (its host cookie) is resumed
+        if (s.phase !== "over" && (await api.roomHost(s.code)))
+          return { code: s.code };
       } catch (e) {
         // only a room that is gone gets replaced; any other failure must not open a second one
         if (!(e instanceof ApiError && e.status === 404)) throw e;
@@ -62,11 +63,11 @@ function openRoom(api: Api, decks: Decks): Promise<{ code: string }> {
   return creating;
 }
 
+// Host opens this device's room: anyone hosts, no profile needed (the server's room cookie makes it the host).
 export function Host() {
   const api = useApi();
   const [, go] = useLocation();
-  const { me, unpaired, error: meError, reload } = useMe();
-  const decks = useAsync(me ? "decks" : null, () => api.decks());
+  const decks = useAsync("decks", () => api.decks());
   const [failed, setFailed] = useState<{ e: ApiError; try: number } | null>(
     null,
   );
@@ -82,20 +83,15 @@ export function Host() {
       live = false;
     };
   }, [api, decks.data, go, attempt]);
-  const error =
-    meError ?? decks.error ?? (failed?.try === attempt ? failed.e : null);
+  const error = decks.error ?? (failed?.try === attempt ? failed.e : null);
   const retry = () => {
-    if (meError) reload();
-    else if (decks.error) decks.reload();
+    if (decks.error) decks.reload();
     else setAttempt((n) => n + 1);
   };
   return (
     <Screen>
       <ScreenHead back="/" title="Host a game" />
-      {/* a code claimed here reloads the profile: the effect above then opens the room */}
-      {unpaired && <GetProfile title="Create a profile to host" />}
-      {error && <Problem error={error} retry={retry} />}
-      {!unpaired && !error && <Loading />}
+      {error ? <Problem error={error} retry={retry} /> : <Loading />}
     </Screen>
   );
 }
@@ -369,8 +365,10 @@ function Lobby({ state, host }: { state: RoomState; host: boolean }) {
 }
 
 export function Room({ code }: { code: string }) {
-  const { me } = useMe();
+  const api = useApi();
   const { state, error, live } = useRoom(code);
+  // the server's word on who hosts (its host cookie), never this device's storage; a failed ask: not the host
+  const hosts = useAsync(`host:${code}`, () => api.roomHost(code));
   const [, go] = useLocation();
   // a 404 ends the room even when a state was showing
   if (error && (error.status === 404 || !state))
@@ -400,13 +398,13 @@ export function Room({ code }: { code: string }) {
         )}
       </Screen>
     );
-  if (!state)
+  if (!state || hosts.loading)
     return (
       <Screen>
         <Loading />
       </Screen>
     );
-  const host = !!me && me.profile.id === state.hostId;
+  const host = hosts.data === true;
   if (state.phase === "lobby") return <Lobby state={state} host={host} />;
   return (
     <StageScale>
