@@ -279,13 +279,22 @@ func TestCountdown(t *testing.T) {
 func TestCountdown_kickingTheLastPlayerEndsTheRound(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	r.countdown = Countdown
-	p := join(t, r, 1)
+	p := join(t, r, 2)
 	start(t, r, 5)
+	r.players[1].state = StateLate // joined during the round before: sits this one out
 	if err := r.Kick(t0.Add(time.Second), host, p[0]); err != nil {
 		t.Fatal(err)
 	}
 	if s := r.State(t0.Add(time.Second)); s.Phase != PhaseResult || s.Round.Result.WinnerID != nil {
 		t.Errorf("after the kick = %s %+v", s.Phase, s.Round)
+	}
+
+	// Nobody left at all: the game goes back to the lobby.
+	if err := r.Kick(t0.Add(time.Second), host, p[1]); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.State(t0.Add(time.Second)); s.Phase != PhaseLobby || s.Round != nil {
+		t.Errorf("empty room = %s %+v", s.Phase, s.Round)
 	}
 }
 
@@ -730,6 +739,143 @@ func TestKick_bansForTheRoomsLife(t *testing.T) {
 	_, _ = joinAs(r, t0, "", "", "Mia", "mic")
 	start(t, r, 3)
 	wantProblem(t, r.Answer(t0, guest, Round{N: 1}, right(r)), "kicked")
+}
+
+// Leave takes a player out at their own wish: the round goes on without them, and unlike a kick they may come
+// back, as a new player with no points.
+func TestLeave(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 2)
+	pro, _ := joinAs(r, t0, "", "profile-1", "Jan", "vinyl")
+	start(t, r, 4)
+	r.players[0].score = 2
+	wantProblem(t, r.Leave(t0, "never"), "not_in_room")
+	// The others answered wrong already: the last one thinking leaves, the round ends.
+	_ = r.Answer(t0, p[1], Round{N: 1}, wrong(r))
+	_ = r.Answer(t0, pro, Round{N: 1}, wrong(r))
+	if err := r.Leave(t0, p[0]); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.State(t0); s.Phase != PhaseResult || len(s.Players) != 2 {
+		t.Fatalf("after leave = %s, %d players", s.Phase, len(s.Players))
+	}
+	wantProblem(t, r.Leave(t0, p[0]), "not_in_room")
+	wantProblem(t, r.Answer(t0, p[0], Round{N: 1}, right(r)), "not_in_room")
+
+	// Back in: the same session and profile join again, fresh (a new id), and wait for the next round.
+	again, err := joinAs(r, t0, p[0], "", "P0", "mic")
+	if err != nil || again == p[0] {
+		t.Fatalf("rejoin = %q, %v; want a new id", again, err)
+	}
+	if pl := playerOf(r.State(t0), again); pl.Score != 0 || pl.State != StateLate {
+		t.Errorf("rejoined = %+v", pl)
+	}
+	if err := r.Leave(t0, pro); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := joinAs(r, t0, "", "profile-1", "Jan", "vinyl"); err != nil {
+		t.Errorf("profile rejoin = %v", err)
+	}
+}
+
+// The buzzer leaving mid-answer ends the round without points, as a kick does; during a pause on resume, even when
+// they joined again meanwhile from the same phone.
+func TestLeave_buzzerEndsTheRound(t *testing.T) {
+	r := newTestRoom(t, ModeBuzzer)
+	q := join(t, r, 2)
+	start(t, r, 3)
+	_ = r.Buzz(t0, q[0], Round{N: 1})
+	if err := r.Leave(t0, q[0]); err != nil {
+		t.Fatal(err)
+	}
+	if r.phase != PhaseResult || r.round.result == nil || r.round.result.Points != 0 {
+		t.Errorf("after the buzzer left: %s %+v", r.phase, r.round.result)
+	}
+
+	b := newTestRoom(t, ModeBuzzer)
+	q = join(t, b, 3)
+	start(t, b, 3)
+	_ = b.Buzz(t0, q[0], Round{N: 1})
+	_ = b.Pause(t0, host)
+	if err := b.Leave(t0, q[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := joinAs(b, t0, q[0], "", "P0", "mic"); err != nil {
+		t.Fatal(err)
+	}
+	_ = b.Resume(t0, host)
+	if b.phase != PhaseResult || b.round.result.Points != 0 || b.round.result.WinnerID != nil {
+		t.Errorf("after resume = %s %+v", b.phase, b.round.result)
+	}
+}
+
+// After the game, leaving keeps the final standings (the winner too); the lobby drops whoever left, and a room
+// everyone left goes back to it.
+func TestLeave_afterTheGame(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 2)
+	start(t, r, 3)
+	r.toWin = 1
+	if err := r.Answer(t0, p[0], Round{N: 1}, right(r)); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Leave(t0, p[0]); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.State(t0); s.Phase != PhaseOver || playerOf(s, p[0]).Score != 1 {
+		t.Fatalf("standings after the winner left = %+v", s)
+	}
+	// out is out: no player for them any more, a press is refused, joining again makes a new player
+	wantProblem(t, r.Member(p[0]), "not_in_room")
+	wantProblem(t, r.Answer(t0, p[0], Round{N: 1}, right(r)), "not_in_room")
+	again, err := joinAs(r, t0, p[0], "", "P0", "mic")
+	if err != nil || again == p[0] {
+		t.Fatalf("rejoin after the game = %q, %v; want a new id", again, err)
+	}
+	if pl := playerOf(r.State(t0), again); pl.Score != 0 {
+		t.Errorf("rejoined = %+v", pl)
+	}
+	if err := r.Rematch(t0, host); err != nil {
+		t.Fatal(err)
+	}
+	if s := r.State(t0); len(s.Players) != 2 || playerOf(s, p[0]).ID != "" {
+		t.Errorf("lobby after rematch = %+v", s.Players)
+	}
+
+	// Leavers don't fill the room: with 8 in, 2 leaving after the game, 2 new ones fit.
+	full := newTestRoom(t, ModeYears)
+	f := join(t, full, MaxPlayers)
+	start(t, full, 3)
+	full.phase = PhaseOver
+	_ = full.Leave(t0, f[0])
+	_ = full.Leave(t0, f[1])
+	if _, err := joinAs(full, t0, "", "", "New", "mic"); err != nil {
+		t.Errorf("join after two left = %v", err)
+	}
+	// The last one still in kicked after the others left: back to the lobby, as when they leave.
+	k := newTestRoom(t, ModeYears)
+	kp := join(t, k, 2)
+	start(t, k, 3)
+	k.phase = PhaseOver
+	_ = k.Leave(t0, kp[0])
+	if err := k.Kick(t0, host, kp[1]); err != nil {
+		t.Fatal(err)
+	}
+	if s := k.State(t0); s.Phase != PhaseLobby || len(s.Players) != 0 {
+		t.Errorf("after kicking the last one in = %s %+v", s.Phase, s.Players)
+	}
+
+	e := newTestRoom(t, ModeYears)
+	q := join(t, e, 1)
+	start(t, e, 3)
+	e.toWin = 1
+	_ = e.Answer(t0, q[0], Round{N: 1}, right(e))
+	if err := e.Leave(t0, q[0]); err != nil {
+		t.Fatal(err)
+	}
+	if s := e.State(t0); s.Phase != PhaseLobby || len(s.Players) != 0 {
+		t.Errorf("room everyone left = %s %+v", s.Phase, s.Players)
+	}
 }
 
 func TestKick_whilePausedSettlesOnResume(t *testing.T) {

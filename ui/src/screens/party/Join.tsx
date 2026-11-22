@@ -236,6 +236,10 @@ export function Join({ code: raw }: { code?: string }) {
           setJoined(null);
           setNote("You're not in this game any more. Join again?");
         }}
+        onLeft={() => {
+          save(playerKey(code), null);
+          go("/");
+        }}
       />
     );
   // nothing stored: wait for the server, through its failures, rather than offer the form

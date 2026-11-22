@@ -96,6 +96,10 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   profile, body optional; max 8 players, 409 `room_full`). The same cookie or profile joining again gets the same
   player (reconnect). A player joining during a round is `late` and plays from the next round. A kicked player or
   profile cannot rejoin the room (403 `kicked`). Rate-limited.
+- `POST /api/rooms/{code}/leave` → `{accepted: true}`: the guest cookie's or profile's player leaves, in any phase (a
+  running round is settled as after a kick; after the game they stay in the final standings until the lobby). Not
+  a kick: joining again plays as a new player (new id) with 0 points. A game nobody is left in (leave or kick) goes
+  back to the lobby. 401 `not_in_room`, 403 `kicked`.
 - host only (the host cookie of this room; 403 `not_host` otherwise), each answers the new `RoomState`:
   `POST …/start` (lobby; 409 `no_players`, 422 `deck_empty`), `…/next` (after a result; no song left → `over`),
   `…/pause` / `…/resume` (during a round; paused time extends every deadline), `…/rematch` (over → lobby, scores 0),

@@ -365,6 +365,39 @@ test("end game: the host ends a running round, the stage falls silent, everyone 
   ).toBe(true);
 });
 
+test("leave: a phone leaves mid-round, the round goes on without it, it may join again", async ({
+  browser,
+}) => {
+  const { stage, code, join, pads } = await party(browser, PLAYERS.slice(0, 2));
+  const [mia] = pads;
+  await stage.getByRole("button", { name: "Start game · 2 players" }).click();
+  await waitPhase(stage, code, "playing");
+  await expect(strip(stage, "Mia")).toBeVisible();
+
+  await mia.page.getByRole("button", { name: "Leave game" }).click();
+  await shot(mia.page, "pad-leave");
+  await mia.page.getByRole("button", { name: "Leave", exact: true }).click();
+  await expect(mia.page).toHaveURL(/\/reworm\/$/);
+  await expect(strip(stage, "Mia")).toHaveCount(0);
+  expect((await roomState(stage, code)).players.map((p) => p.name)).toEqual([
+    "Luca",
+  ]);
+
+  // not a kick: the same phone joins again, as a new player for the next round
+  await mia.page.goto(join);
+  await mia.page.getByLabel("Your name").fill("Mia");
+  await mia.page.getByRole("radio", { name: "Mic Drop" }).click();
+  await mia.page.getByRole("button", { name: "Join game" }).click();
+  await expect
+    .poll(async () =>
+      (await roomState(stage, code)).players.map((p) => [p.name, p.score]),
+    )
+    .toEqual([
+      ["Luca", 0],
+      ["Mia", 0],
+    ]);
+});
+
 test("kick: a removed phone is told so and cannot rejoin", async ({
   browser,
 }) => {

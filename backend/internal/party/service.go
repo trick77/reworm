@@ -276,6 +276,7 @@ func (s *Service) Mount(mux *http.ServeMux) {
 	mux.Handle("GET /api/rooms/{code}/me", s.reads(s.withRoom(s.handleMe)))
 	mux.Handle("GET /api/rooms/{code}/host", s.reads(s.withRoom(s.handleHost)))
 	mux.Handle("POST /api/rooms/{code}/join", s.join(s.withRoom(s.handleJoin)))
+	mux.Handle("POST /api/rooms/{code}/leave", s.actions(s.withRoom(s.handleLeave)))
 	for action, f := range map[string]func(hostCall) error{
 		"start": s.start, "next": s.next, "pause": s.pause, "resume": s.resume, "rematch": s.rematch,
 		"kick": s.kick, "settings": s.settings, "abort": s.abort,
@@ -559,6 +560,16 @@ func (s *Service) handleJoin(w http.ResponseWriter, r *http.Request, room *Room)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, joinResponse{PlayerID: playerID})
+}
+
+// handleLeave takes the request's player out of the room. The guest cookie stays; joining again makes a new
+// player under a new id (and cookie).
+func (s *Service) handleLeave(w http.ResponseWriter, r *http.Request, room *Room) {
+	if err := room.Leave(s.o.Now(), s.playerID(r, room)); err != nil {
+		api.WriteError(w, r, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, acceptedResponse{Accepted: true})
 }
 
 // hostCall is one host action: the room, the request, the caller's host id and the body (nil when empty).

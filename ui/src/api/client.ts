@@ -77,6 +77,8 @@ export interface Api {
   // roomMe: this browser's player in the room (guest cookie or profile); null when it has none or the
   // room is gone. A kicked player is refused (403 kicked).
   roomMe(code: string): Promise<string | null>;
+  // leaveRoom takes this browser's player out of the room; joining again plays as a new player.
+  leaveRoom(code: string): Promise<void>;
   // roomHost: whether this browser hosts the room (its host cookie, which asking renews).
   roomHost(code: string): Promise<boolean>;
   host(code: string, action: HostAction): Promise<void>;
@@ -226,6 +228,9 @@ export class HttpApi implements Api {
   room = (code: string) => this.get<RoomState>(room(code));
   joinRoom = (code: string, b: { name: string; avatar: string }) =>
     this.post<{ playerId: string }>(`${room(code)}/join`, b);
+  leaveRoom = async (code: string) => {
+    await this.post(`${room(code)}/leave`);
+  };
   roomMe = async (code: string) => {
     try {
       const r = await this.get<{ playerId?: string } | undefined>(
