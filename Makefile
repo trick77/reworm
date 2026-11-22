@@ -1,13 +1,17 @@
-.PHONY: build e2e run test tidy ui-build ui-dev ui-test dataset import-cards import-songs
+.PHONY: build e2e run test tidy ui-build ui-dev ui-test dataset import-cards import-charts import-songs
 
 # go:embed cannot reach ../data: the server embeds a copy of the dataset (ignored), as the image build makes it.
 dataset:
 	cp data/songs.jsonl backend/internal/dataset/files/songs.jsonl
 
-# The song database: card snapshots from the lists named in .env.local, then the songs. The song
-# step takes about an hour on an empty data/cache (MusicBrainz, 1 req/s); a rerun answers from the cache.
+# The song database: card snapshots from the lists named in .env.local, chart snapshots from Wikipedia
+# (2023 to last year), then the songs. The song step takes about an hour on an empty data/cache
+# (MusicBrainz, 1 req/s); a rerun answers from the cache.
 import-cards:
 	cd backend && go run ./cmd/import -env ../.env.local -data ../data cards
+
+import-charts:
+	cd backend && go run ./cmd/import -data ../data charts
 
 import-songs:
 	cd backend && go run ./cmd/import -env ../.env.local -data ../data songs

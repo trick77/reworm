@@ -398,6 +398,10 @@ func TestCredit(t *testing.T) {
 		{"Queen & David Bowie", "Queen, David Bowie", "", queenBowie, true, true},
 		{"David Bowie & Queen", "Queen, David Bowie", "", queenBowie, true, true},
 		{"Queen", "Queen, David Bowie", "", queenBowie, true, true},
+		// An unspaced slash is in the name: HUNTR/X's "x" joins nothing.
+		{"HUNTR/X, EJAE, AUDREY NUNA, REI AMI & KPop Demon Hunters Cast", "Huntr/x feat. Ejae, Audrey Nuna & Rei Ami", "",
+			rec("HUNTR/X (EJAE, AUDREY NUNA & REI AMI) & KPop Demon Hunters Cast", "HUNTR/X", "EJAE", "AUDREY NUNA", "REI AMI",
+				"KPop Demon Hunters Cast"), true, true},
 		{"David Bowie", "Queen, David Bowie", "", queenBowie, false, false},
 		{"Mark Ronson", "Mark Ronson, Amy Winehouse", "", rec("Mark Ronson feat. Amy Winehouse", "Mark Ronson", "Amy Winehouse"), true, true},
 		{"John Travolta & Olivia Newton-John", "John Travolta, Olivia Newton-John", "",

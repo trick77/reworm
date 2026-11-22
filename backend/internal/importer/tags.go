@@ -105,7 +105,9 @@ func (p *Pipeline) tag(ctx context.Context, r *resolved) error {
 
 func (p *Pipeline) tagOnline(ctx context.Context, r *resolved) error {
 	// The first reading Last.fm knows: a looser one (the main artist alone) can autocorrect to another, more
-	// listened track, whose listeners and tags are not the song's.
+	// listened track, whose listeners and tags are not the song's. A chart song takes its most listened reading:
+	// Billboard writes "Kendrick Lamar and SZA", which Last.fm knows as a stray scrobble (Luther: 1106 listeners,
+	// 2026-11-22), and its listeners decide whether a Billboard-only song stays (placeCharts).
 	var best lastfm.Track
 	found := false
 	for _, q := range readings(*r) {
@@ -113,8 +115,10 @@ func (p *Pipeline) tagOnline(ctx context.Context, r *resolved) error {
 		if err != nil {
 			return err
 		}
-		if ok {
+		if ok && (!found || t.Listeners > best.Listeners) {
 			best, found = t, true
+		}
+		if found && !r.Chart {
 			break
 		}
 	}
@@ -130,7 +134,7 @@ func (p *Pipeline) tagOnline(ctx context.Context, r *resolved) error {
 			return err
 		}
 	}
-	r.LastFM, r.Song.Listeners = found, best.Listeners
+	r.LastFM, r.Song.Listeners, r.christmas = found, best.Listeners, christmasTag(best.Tags)
 	r.Song.Genres = genres(r.Song.Sets, fromTrack, artistTags)
 	return nil
 }
@@ -152,6 +156,19 @@ func readings(r resolved) [][2]string {
 	add(musicbrainz.MainArtist(r.Artist), r.Song.Title)
 	if r.MBMatched {
 		add(r.match.Recording.Credit, r.match.Recording.Title)
+	}
+	// A chart's credit joins with "and" (Billboard), which MainArtist keeps whole; the most listened reading wins
+	// there anyway, so the first name alone is tried too, and Apple's track as Apple names it: Last.fm often keeps
+	// that title (Zach Bryan – I Remember Everything: 5575 listeners as Billboard writes it, 2026-11-22).
+	if r.Chart {
+		add(musicbrainz.Lead(r.Artist), r.Song.Title)
+		if r.MBMatched && len(r.match.Recording.Artists) > 0 {
+			add(r.match.Recording.Artists[0], r.match.Recording.Title)
+		}
+		if r.track.ID != "" {
+			add(r.track.Artist, r.track.Name)
+			add(musicbrainz.Lead(r.track.Artist), r.track.Name)
+		}
 	}
 	return out
 }

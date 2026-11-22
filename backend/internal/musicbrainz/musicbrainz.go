@@ -775,8 +775,9 @@ var joinWords = map[string]string{"and": coTok, "und": coTok, "e": coTok, "y": c
 func isJoin(t string) bool { return t == coTok || t == featTok || t == xTok || t == plusTok }
 
 // joinMarks are the joining marks song.Normalize drops or spells as "and": made words so they still part names, by
-// kind. An unspaced slash is in the name (AC/DC).
-var joinMarks = strings.NewReplacer(",", " & ", " / ", " & ", "+", " plus ", "×", " x ")
+// kind. An unspaced slash is in the name and joins its parts into one word (AC/DC, HUNTR/X): Normalize would
+// part them, and an "x" so parted reads as a join ("HUNTR/X, EJAE" as Huntr x Ejae).
+var joinMarks = strings.NewReplacer(",", " & ", " / ", " & ", "/", "", "+", " plus ", "×", " x ")
 
 // artistTokens is a credit normalized into words, every joining word or mark between two words as its join token
 // ("Malcolm X", "E Nomine" keep theirs), a leading "the" dropped.

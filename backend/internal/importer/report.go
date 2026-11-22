@@ -2,6 +2,7 @@ package importer
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,10 +19,13 @@ type setStats struct {
 // the songs as written, overrides applied: every section is built from them.
 type report struct {
 	sets     map[string]*setStats
+	charts   map[int]*chartStats
 	resolved []resolved
-	merged   []string
-	applied  []string
-	unknown  []string
+	// dropped are the chart songs left out, each with its Drop.
+	dropped []resolved
+	merged  []string
+	applied []string
+	unknown []string
 }
 
 func (r report) markdown() []byte {
@@ -36,6 +40,13 @@ func (r report) markdown() []byte {
 	w("without one stay in the dataset (no clip until an override). Last.fm, by the card's artist + title, else the\n")
 	w("main artist, else the MusicBrainz credit: the first track found gives the listeners and, by its top tags, the\n")
 	w("genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre, overrides included.\n\n")
+	w("Chart songs (`data/charts/*.csv`, from Wikipedia: Swiss, German, Austrian number ones and year-end top 10,\n")
+	w("Billboard Year-End Hot 100, UK top ten) are those no card names; a card of the same recording, or of the same\n")
+	w("first artist and title, wins. Their year is the\n")
+	w("MusicBrainz first release (the chart year only bounds the search), kept when Apple's track agrees within a\n")
+	w("year and it is no older than the first chart year. One only on Billboard needs a Last.fm listener minimum per\n")
+	w("release year. Each joins Mega Mix, rock or metal without pop/rap/dance/R&B/Latin also Rock Anthems, schlager\n")
+	w("Schlager Fest, a Last.fm \"christmas\" tag Christmas Hits.\n\n")
 
 	bySet := map[string]*struct{ songs, mb, preview int }{}
 	for slug := range r.sets {
@@ -125,6 +136,51 @@ func (r report) markdown() []byte {
 		w("| %s | %d | %d | %d | %d | %d |\n", slug, st.Cards, st.NoYear, n.songs, n.mb, n.preview)
 	}
 
+	w("\n## Charts\n\n| chart year | rows | on a card (same spelling) |\n|---|---:|---:|\n")
+	for _, y := range slices.Sorted(maps.Keys(r.charts)) {
+		w("| %d | %d | %d |\n", y, r.charts[y].Rows, r.charts[y].OnCard)
+	}
+	added, alsoCard := map[int]int{}, 0
+	for _, x := range r.resolved {
+		switch {
+		case x.Chart:
+			added[x.Song.Year]++
+		case len(x.Sources) > 0:
+			alsoCard++
+		}
+	}
+	w("\nChart songs added by release year (a card song spelled otherwise in a chart: %d):\n\n", alsoCard)
+	w("| year | added |\n|---|---:|\n")
+	for _, y := range slices.Sorted(maps.Keys(added)) {
+		w("| %d | %d |\n", y, added[y])
+	}
+	// Billboard-only songs kept and left out by their listeners: what billboardMinListeners is tuned on.
+	w("\nBillboard-only listeners by release year (kept p10 / p50, left out p50 / p90):\n\n" +
+		"| year | kept | p10 | p50 | left out | p50 | p90 | minimum |\n|---|---:|---:|---:|---:|---:|---:|---:|\n")
+	keptL, outL := map[int][]int{}, map[int][]int{}
+	for _, x := range r.resolved {
+		if x.Chart && billboardOnly(x) {
+			keptL[x.Song.Year] = append(keptL[x.Song.Year], x.Song.Listeners)
+		}
+	}
+	for _, x := range r.dropped {
+		if strings.HasPrefix(x.Drop, "only on Billboard") {
+			outL[x.Song.Year] = append(outL[x.Song.Year], x.Song.Listeners)
+		}
+	}
+	years := slices.Sorted(maps.Keys(keptL))
+	for y := range outL {
+		if !slices.Contains(years, y) {
+			years = append(years, y)
+		}
+	}
+	slices.Sort(years)
+	for _, y := range years {
+		k, o := keptL[y], outL[y]
+		w("| %d | %d | %d | %d | %d | %d | %d | %d |\n", y, len(k), percentile(k, 10), percentile(k, 50), len(o),
+			percentile(o, 50), percentile(o, 90), minListeners(y))
+	}
+
 	// Every rule, an empty one included: a rule matching nothing (or everything) shows here.
 	w("\n## Categories\n\n| category | songs |\n|---|---:|\n")
 	for _, rule := range categoryRules {
@@ -193,7 +249,7 @@ func (r report) markdown() []byte {
 		})
 	section("Card years that differ between sets (earliest kept)", "| artist | title | years |\n|---|---|---|",
 		func(x resolved) (string, bool) {
-			if len(x.Years) < 2 {
+			if len(x.Years) < 2 || x.Chart {
 				return "", false
 			}
 			ys := make([]string, len(x.Years))
@@ -224,6 +280,20 @@ func (r report) markdown() []byte {
 	})
 	section("Not on Last.fm", "| artist | title | genres (artist tags, sets, overrides) |\n|---|---|---|", func(x resolved) (string, bool) {
 		return fmt.Sprintf("| %s | %s | %s |", cell(x.Artist), cell(x.Title), strings.Join(x.Song.Genres, ", ")), !x.LastFM
+	})
+	section("Chart songs added", "| artist | title | year | charts | sets | genres | listeners |\n|---|---|---:|---|---|---|---:|",
+		func(x resolved) (string, bool) {
+			return fmt.Sprintf("| %s | %s | %d | %s | %s | %s | %d |", cell(x.Artist), cell(x.Title), x.Song.Year,
+				strings.Join(x.Sources, ", "), strings.Join(x.Song.Sets, ", "), strings.Join(x.Song.Genres, ", "),
+				x.Song.Listeners), x.Chart
+		})
+	rows = slices.Clone(r.dropped)
+	slices.SortFunc(rows, func(a, b resolved) int {
+		return strings.Compare(song.Key(a.Artist, a.Title), song.Key(b.Artist, b.Title))
+	})
+	section("Chart songs left out", "| artist | title | charts | why |\n|---|---|---|---|", func(x resolved) (string, bool) {
+		return fmt.Sprintf("| %s | %s | %s | %s |", cell(x.Artist), cell(x.Title), strings.Join(x.Sources, ", "),
+			cell(x.Drop)), true
 	})
 	if len(r.unknown) > 0 {
 		w("\n## Overrides for unknown song ids (%d)\n\n", len(r.unknown))

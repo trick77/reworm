@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/trick77/ship/kit/env"
@@ -23,26 +24,32 @@ import (
 
 	"github.com/trick77/reworm/internal/appletoken"
 	"github.com/trick77/reworm/internal/cards"
+	"github.com/trick77/reworm/internal/charts"
 	"github.com/trick77/reworm/internal/httpcache"
 	"github.com/trick77/reworm/internal/lastfm"
 	"github.com/trick77/reworm/internal/musicbrainz"
 	"github.com/trick77/reworm/internal/song"
 )
 
-const usage = `usage: import [-env file] [-data dir] [-workers n] [-offline] cards|songs
+const usage = `usage: import [-env file] [-data dir] [-workers n] [-offline] [-years YYYY-YYYY] cards|charts|songs
 
-  cards  download the card lists (BACKEND_CARDS_BASE_URL, BACKEND_CARDS_FILES) into <data>/cards/<set>.csv
-  songs  resolve the snapshots of the sets BACKEND_CARDS_FILES names against MusicBrainz, Apple Music and the
-         Cover Art Archive, listeners and genres from Last.fm (BACKEND_LASTFM_API_KEY), into <data>/songs.jsonl and
-         <data>/import-report.md; every answer is cached in <data>/cache.
-         -offline answers from the cache only: a song that would need the network keeps its previous entry`
+  cards   download the card lists (BACKEND_CARDS_BASE_URL, BACKEND_CARDS_FILES) into <data>/cards/<set>.csv
+  charts  download the charts of -years (default 2023 to last year) from Wikipedia into <data>/charts/<year>.csv:
+          Swiss, German, Austrian number ones and year-end top 10, Billboard Year-End Hot 100, UK top ten
+  songs   resolve the card snapshots of the sets BACKEND_CARDS_FILES names and the chart snapshots against
+          MusicBrainz, Apple Music and the Cover Art Archive, listeners and genres from Last.fm
+          (BACKEND_LASTFM_API_KEY), into <data>/songs.jsonl and <data>/import-report.md; every answer is cached in
+          <data>/cache. -offline answers from the cache only: a song that would need the network keeps its
+          previous entry`
 
 // Endpoints are the services' base URLs; tests point them at fixtures.
 type Endpoints struct {
 	MusicBrainz, AppleAPI, ApplePlayer, CoverArt, LastFM string
+	// DeWiki and EnWiki are the MediaWiki APIs the charts come from.
+	DeWiki, EnWiki string
 	// MBEvery spaces MusicBrainz requests (1 s); AppleEvery Apple's, LastFMEvery Last.fm's (cache misses only, as
-	// MusicBrainz). Above 0: kit's throttle refuses a zero gap (tests take 1 ns).
-	MBEvery, AppleEvery, LastFMEvery time.Duration
+	// MusicBrainz); WikiEvery Wikipedia's. Above 0: kit's throttle refuses a zero gap (tests take 1 ns).
+	MBEvery, AppleEvery, LastFMEvery, WikiEvery time.Duration
 }
 
 // maxQueue is how long a request may wait for its paced turn: never refused, the workers just queue.
@@ -54,11 +61,11 @@ const appleTries = 4
 // DefaultEndpoints are the real services.
 var DefaultEndpoints = Endpoints{
 	MusicBrainz: musicbrainz.BaseURL, AppleAPI: applemusic.DefaultBaseURL, ApplePlayer: applemusic.PlayerURL, CoverArt: CAAURL,
-	LastFM: lastfm.BaseURL,
+	LastFM: lastfm.BaseURL, DeWiki: charts.DeWiki, EnWiki: charts.EnWiki,
 	// Apple: the web player's API is unofficial with unpublished limits; 5 req/s caused a ~3.5 h block (2026-11-04),
 	// so 20 req/min, the one rate Apple publishes (its iTunes Search API). Last.fm's terms: at most 5 req/s
-	// averaged over 5 minutes.
-	MBEvery: time.Second, AppleEvery: 3 * time.Second, LastFMEvery: 250 * time.Millisecond,
+	// averaged over 5 minutes. Wikipedia answered ten parse requests back to back with 429 (2026-11-22).
+	MBEvery: time.Second, AppleEvery: 3 * time.Second, LastFMEvery: 250 * time.Millisecond, WikiEvery: 3 * time.Second,
 }
 
 // Main runs the command: args without the program name, getenv the process environment. It returns the exit code.
@@ -70,10 +77,11 @@ func Main(ctx context.Context, args []string, getenv func(string) string, stderr
 	dataDir := fs.String("data", "data", "the repo's data directory")
 	workers := fs.Int("workers", 4, "songs resolved at once (MusicBrainz stays at 1 req/s)")
 	offline := fs.Bool("offline", false, "songs: answer from the cache only, no network")
+	years := fs.String("years", fmt.Sprintf("%d-%d", firstChartYear, time.Now().Year()-1), "charts: the chart years")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() != 1 || (fs.Arg(0) != "cards" && fs.Arg(0) != "songs") {
+	if fs.NArg() != 1 || !slices.Contains([]string{"cards", "charts", "songs"}, fs.Arg(0)) {
 		fs.Usage()
 		return 2
 	}
@@ -88,9 +96,12 @@ func Main(ctx context.Context, args []string, getenv func(string) string, stderr
 	}
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	var err error
-	if fs.Arg(0) == "cards" {
+	switch fs.Arg(0) {
+	case "cards":
 		err = runCards(ctx, lookup, *dataDir, log)
-	} else {
+	case "charts":
+		err = runCharts(ctx, *dataDir, *years, ep, log)
+	default:
 		err = runSongs(ctx, lookup, *dataDir, *workers, *offline, ep, log)
 	}
 	if err != nil {
@@ -124,6 +135,46 @@ func runCards(ctx context.Context, lookup func(string) string, dataDir string, l
 	return nil
 }
 
+// firstChartYear is where the charts start: the card lists end 2021–2024, none reaches 2025 (2026-11-22).
+const firstChartYear = 2023
+
+// userAgent is how the import names itself to MusicBrainz and Wikipedia.
+func userAgent() string {
+	return "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )"
+}
+
+func runCharts(ctx context.Context, dataDir, spec string, ep Endpoints, log *slog.Logger) error {
+	years, err := charts.Years(spec)
+	if err != nil {
+		return err
+	}
+	client := &http.Client{Timeout: time.Minute,
+		Transport: &httpcache.Paced{Throttle: ratelimit.NewThrottle(ep.WikiEvery, maxQueue)}}
+	for _, y := range years {
+		var all []charts.Entry
+		for _, pg := range charts.Pages(y) {
+			wiki := ep.DeWiki
+			if pg.Wiki == charts.EnWiki {
+				wiki = ep.EnWiki
+			}
+			text, err := charts.Fetch(ctx, client, userAgent(), wiki, pg.Title)
+			if err != nil {
+				return err
+			}
+			es := charts.Parse(pg.Source, text)
+			if len(es) == 0 {
+				return fmt.Errorf("charts %s: no hits found (page layout changed?)", pg.Title)
+			}
+			all = append(all, es...)
+		}
+		if err := charts.WriteYear(filepath.Join(dataDir, "charts"), y, all); err != nil {
+			return err
+		}
+		log.Info("charts written", "year", y, "rows", len(all))
+	}
+	return nil
+}
+
 // configuredSources are the card sets BACKEND_CARDS_FILES names: the songs step reads exactly these snapshots.
 func configuredSources(lookup func(string) string) ([]cards.Source, error) {
 	r := env.New(lookup)
@@ -147,6 +198,14 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 	for _, f := range strays {
 		log.Warn("card snapshot of a set no longer configured, left out (delete it)", "file", f)
 	}
+	chartRows, err := charts.ReadAll(filepath.Join(dataDir, "charts"))
+	if err != nil {
+		return err
+	}
+	configured := map[string]bool{}
+	for _, s := range srcs {
+		configured[s.Slug()] = true
+	}
 	ovPath := filepath.Join(dataDir, "overrides.json")
 	ov, err := loadOverrides(ovPath)
 	if err != nil {
@@ -169,8 +228,12 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 		}
 	}
 
-	entries, stats := collect(sets)
-	log.Info("resolving songs", "sets", len(sets), "songs", len(entries), "offline", offline)
+	entries, stats, chartStats := collect(sets, chartRows)
+	p.ChartFrom = firstChartYear
+	for y := range chartStats {
+		p.ChartFrom = min(p.ChartFrom, y)
+	}
+	log.Info("resolving songs", "sets", len(sets), "chart rows", len(chartRows), "songs", len(entries), "offline", offline)
 	rs, err := p.resolveAll(ctx, entries)
 	if err != nil {
 		return err
@@ -179,10 +242,14 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 	if err != nil {
 		return err
 	}
+	rs, dropped := withoutDropped(rs)
+	rs = withoutTwins(rs)
 	log.Info("Last.fm listeners and genres", "songs", len(rs))
 	if err := p.tagAll(ctx, rs, func(id string) bool { return ov[id].Exclude }); err != nil {
 		return err
 	}
+	rs, filtered := placeCharts(rs, func(set string) bool { return configured[set] })
+	dropped = append(dropped, filtered...)
 	kept, applied, unknown, err := p.applyOverrides(ctx, rs, ov)
 	if err != nil {
 		return err
@@ -209,7 +276,8 @@ func runSongs(ctx context.Context, lookup func(string) string, dataDir string, w
 		}
 	}
 	// The report shows the dataset as written: every section from the songs kept, overrides applied.
-	rep := report{sets: stats, resolved: kept, merged: merged, applied: applied, unknown: unknown}
+	rep := report{sets: stats, charts: chartStats, resolved: kept, dropped: dropped, merged: merged, applied: applied,
+		unknown: unknown}
 	if err := fsx.WriteFileAtomic(filepath.Join(dataDir, "import-report.md"), rep.markdown(), 0o644); err != nil {
 		return err
 	}
@@ -258,7 +326,6 @@ func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, lastf
 		}
 		return &http.Client{Timeout: time.Minute, Transport: &httpcache.Transport{Dir: cache.Dir, Next: next, Redact: redact}}
 	}
-	userAgent := "Reworm/" + version.String() + " ( https://github.com/trick77/reworm )"
 	tokenPath := filepath.Join(cacheDir, "apple-token.json")
 	tokens := &applemusic.Source{BaseURL: ep.ApplePlayer, HTTP: &http.Client{Timeout: time.Minute, Transport: net},
 		OnNew: func(t applemusic.Token) {
@@ -274,9 +341,9 @@ func newPipeline(cacheDir string, workers int, offline bool, ep Endpoints, lastf
 	return &Pipeline{
 		MB: &musicbrainz.Client{BaseURL: ep.MusicBrainz,
 			HTTP:      cached(ep.MBEvery),
-			UserAgent: userAgent,
+			UserAgent: userAgent(),
 			Evict:     cache.Evict},
-		LastFM: &lastfm.Client{BaseURL: ep.LastFM, Key: lastfmKey, HTTP: cached(ep.LastFMEvery), UserAgent: userAgent,
+		LastFM: &lastfm.Client{BaseURL: ep.LastFM, Key: lastfmKey, HTTP: cached(ep.LastFMEvery), UserAgent: userAgent(),
 			Evict: cache.Evict},
 		// A batch: four tries on a cut body or a network blip, none on an offline miss (no retry fills the
 		// cache), and a 429 stops the run (applemusic.ErrRateLimited).

@@ -85,6 +85,9 @@ func services(t *testing.T, mbHits, lfHits *atomic.Int32) *httptest.Server {
 		case "track.getInfo|Queen|Bohemian Rhapsody":
 			_, _ = fmt.Fprint(w, `{"track":{"name":"Bohemian Rhapsody","listeners":"3000000","artist":{"name":"Queen"},
 "toptags":{"tag":[{"name":"classic rock"}]}}}`)
+		case "track.getInfo|Fresh Act|Fresh Song":
+			_, _ = fmt.Fprint(w, `{"track":{"name":"Fresh Song","listeners":"5","artist":{"name":"Fresh Act"},
+"toptags":{"tag":[{"name":"rock"},{"name":"christmas"}]}}}`)
 		case "track.getInfo|Lonely|Ballad":
 			_, _ = fmt.Fprint(w, `{"track":{"name":"Ballad","listeners":"12","artist":{"name":"Lonely"},"toptags":{"tag":[]}}}`)
 		case "artist.getTopTags|Joseito Fernandez|":
@@ -116,6 +119,9 @@ func services(t *testing.T, mbHits, lfHits *atomic.Int32) *httptest.Server {
 			_, _ = fmt.Fprint(w, dqRecordings)
 		case strings.Contains(q, `recording:"Bohemian Rhapsody"`):
 			_, _ = fmt.Fprint(w, brRecordings)
+		case strings.Contains(q, `recording:"Fresh Song"`):
+			_, _ = fmt.Fprint(w, `{"count":1,"recordings":[{"id":"fresh","score":100,"title":"Fresh Song",
+"first-release-date":"2024-03-01","isrcs":["FRESH1"],"artist-credit":[{"name":"Fresh Act"}],"releases":[]}]}`)
 		default:
 			_, _ = fmt.Fprint(w, `{"count":0,"recordings":[]}`)
 		}
@@ -133,6 +139,8 @@ func services(t *testing.T, mbHits, lfHits *atomic.Int32) *httptest.Server {
 		}
 		var data []string
 		switch r.URL.Query().Get("filter[isrc]") {
+		case "FRESH1":
+			data = append(data, appleSong("fresh-1", "Fresh Song", "Fresh Act", "Fresh Song - Single", "Fresh Act", "2024-03-01", "FRESH1", true))
 		case "SEAYD7601020":
 			// An unrelated track Apple files under the same ISRC: never the song, even as the only own-album hit.
 			data = append(data, appleSong("dq-comp", "Dancing Queen", "ABBA", "Party Hits", "Various Artists", "1976-01-01", "SEAYD7601020", true),
