@@ -532,6 +532,83 @@ func TestEvents_stateOnEveryChange(t *testing.T) {
 	}
 }
 
+func TestWait_HTTP(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	e.svc.pollHold = 50 * time.Millisecond
+	h := e.pairedHost()
+	code := e.createRoom(h, Config{})
+	pad := e.browser()
+	// No after: the state at once, and the pad gets its guest session.
+	rec := pad.do(http.MethodGet, "/api/rooms/"+code+"/wait", nil)
+	s := decodeBody[State](t, rec)
+	if rec.Code != http.StatusOK || s.Code != code || pad.cookies["reworm_guest"] == nil {
+		t.Fatalf("wait = %d %+v %v", rec.Code, s, pad.cookies)
+	}
+	// Up to date: the unchanged state after the hold.
+	rec = pad.do(http.MethodGet, fmt.Sprintf("/api/rooms/%s/wait?after=%d", code, s.Seq), nil)
+	if got := decodeBody[State](t, rec); rec.Code != http.StatusOK || got.Seq != s.Seq {
+		t.Fatalf("held wait = %d seq %d, want %d", rec.Code, got.Seq, s.Seq)
+	}
+	// A change during the hold answers it.
+	e.svc.pollHold = time.Minute
+	done := make(chan *httptest.ResponseRecorder)
+	go func() { done <- pad.do(http.MethodGet, fmt.Sprintf("/api/rooms/%s/wait?after=%d", code, s.Seq), nil) }()
+	room, _ := e.svc.room(code)
+	for {
+		room.mu.Lock()
+		n := len(room.polled)
+		room.mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(10 * time.Millisecond) // the poll subscribes under the same lock it marked itself in
+	if rec := e.browser().do(http.MethodPost, "/api/rooms/"+code+"/join", joinRequest{Name: "Mia", Avatar: "mic"}); rec.Code != http.StatusOK {
+		t.Fatalf("join = %d %s", rec.Code, rec.Body)
+	}
+	if got := decodeBody[State](t, <-done); got.Seq <= s.Seq || len(got.Players) != 1 {
+		t.Errorf("woken = seq %d players %+v", got.Seq, got.Players)
+	}
+	if rec := pad.do(http.MethodGet, "/api/rooms/ZZZZ/wait", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown room = %d", rec.Code)
+	}
+}
+
+func TestStreamID(t *testing.T) {
+	long := strings.Repeat("x", maxStreamID+1)
+	for q, want := range map[string]string{"?sid=a1": "a1", "": "", "?sid=" + long: ""} {
+		if got := streamID(httptest.NewRequest(http.MethodGet, "/x"+q, nil), "sid"); got != want {
+			t.Errorf("%q = %q, want %q", q, got, want)
+		}
+	}
+}
+
+// Every publish answers every held poll at once: a full room behind one address fits the limiter.
+func TestWait_limitFitsAnOffice(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	h := e.pairedHost()
+	code := e.createRoom(h, Config{})
+	b := e.browser()
+	for i := range 100 {
+		if rec := b.do(http.MethodGet, "/api/rooms/"+code+"/wait", nil); rec.Code != http.StatusOK {
+			t.Fatalf("wait %d = %d", i, rec.Code)
+		}
+	}
+}
+
+func TestWait_HTTPCapReached(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	h := e.pairedHost()
+	code := e.createRoom(h, Config{})
+	room, _ := e.svc.room(code)
+	room.close()
+	rec := h.do(http.MethodGet, fmt.Sprintf("/api/rooms/%s/wait?after=%d", code, room.State(t0).Seq), nil)
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+		t.Errorf("refused poll = %d %v", rec.Code, rec.Header())
+	}
+}
+
 func TestRoomLookups_guessingCodesIsLimited(t *testing.T) {
 	e := newEnv(t, &preview.Fake{})
 	h := e.pairedHost()

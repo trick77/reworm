@@ -1053,6 +1053,155 @@ func TestSubscribe_connectedAndEvents(t *testing.T) {
 	}
 }
 
+func TestWait_behindAnswersAtOnce(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	join(t, r, 1)
+	ch, _, cur, ok := r.Wait(t0, "", "", "", -1)
+	var s State
+	if !ok || ch != nil || json.Unmarshal([]byte(cur), &s) != nil || s.Seq != r.seq {
+		t.Fatalf("wait = %v %v %q", ok, ch, cur)
+	}
+}
+
+// A publish after the check is never lost: the subscription is taken under the same lock.
+func TestWait_holdsUntilPublish(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	ch, cancel, cur, ok := r.Wait(t0, "", "", "", r.seq)
+	if !ok || ch == nil || cur != "" {
+		t.Fatalf("wait = %v %v %q", ok, ch, cur)
+	}
+	defer cancel()
+	join(t, r, 1)
+	select {
+	case ev := <-ch:
+		if !strings.Contains(ev, `"name":"P0"`) {
+			t.Errorf("woken by %s", ev)
+		}
+	default:
+		t.Fatal("the join did not wake the wait")
+	}
+}
+
+// A poll ends the stream its page gave up on, by the page's id: a buffering proxy holds each one open, a slot of
+// the address's cap. The proxy also held the guest cookie, so the poll comes on another session.
+func TestWait_endsTheStreamItNames(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	const key = "198.51.100.1"
+	var cancels []func()
+	for i := range maxStreamsPerKey {
+		_, cancel, _, ok := r.OpenStream(fmt.Sprintf("lost%d", i), key, fmt.Sprintf("sid%d", i))
+		if !ok {
+			t.Fatalf("stream %d refused", i)
+		}
+		cancels = append(cancels, cancel)
+	}
+	for i := range maxStreamsPerKey {
+		ch, cancel, _, ok := r.Wait(t0, fmt.Sprintf("s%d", i), key, fmt.Sprintf("sid%d", i), r.seq)
+		if !ok || ch == nil {
+			t.Fatalf("wait %d refused", i)
+		}
+		defer cancel()
+	}
+	for _, c := range cancels {
+		c() // the stream handlers return
+	}
+	if len(r.streams) != 0 || len(r.cuts) != 0 {
+		t.Errorf("streams %v cuts %v left", r.streams, r.cuts)
+	}
+}
+
+// Only the named stream ends, and only from its own address: the session's other tab keeps its stream.
+func TestWait_cutsOnlyTheNamedStream(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	stalled, c1, _, _ := r.OpenStream("s", "a", "dead")
+	other, c2, _, _ := r.OpenStream("s", "a", "alive")
+	foreign, c3, _, _ := r.OpenStream("s", "b", "theirs")
+	defer c1()
+	defer c2()
+	defer c3()
+	r.Wait(t0, "s", "a", "dead", -1)
+	r.Wait(t0, "s", "a", "theirs", -1)
+	if _, open := <-stalled; open {
+		t.Error("the named stream stayed open")
+	}
+	for name, ch := range map[string]<-chan string{"other tab": other, "other address": foreign} {
+		select {
+		case _, open := <-ch:
+			if !open {
+				t.Errorf("%s: stream ended", name)
+			}
+		default:
+		}
+	}
+	// a taken id names no second stream
+	_, c4, _, _ := r.OpenStream("s", "a", "alive")
+	defer c4()
+	if r.cuts["alive"].key != "a" || len(r.cuts) != 2 {
+		t.Errorf("cuts %v", r.cuts)
+	}
+}
+
+// A poller counts as connected for pollGrace after its last poll, one publish per change.
+func TestWait_presence(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 1)
+	connected := func() bool { return r.State(t0).Players[0].Connected }
+	if connected() {
+		t.Fatal("connected before any poll")
+	}
+	seq := r.seq
+	r.Wait(t0, p[0], "", "", -1)
+	if !connected() || r.seq != seq+1 {
+		t.Fatalf("after the poll: connected %v, seq %d → %d", connected(), seq, r.seq)
+	}
+	r.Wait(t0.Add(time.Second), p[0], "", "", -1) // still connected: no publish
+	r.Tick(t0.Add(r.pollGrace))
+	if !connected() || r.seq != seq+1 {
+		t.Fatalf("inside the grace: connected %v, seq %d", connected(), r.seq)
+	}
+	r.Tick(t0.Add(time.Second + r.pollGrace))
+	if r.seq != seq+2 || r.State(t0).Players[0].Connected {
+		t.Errorf("after the grace: seq %d, players %+v", r.seq, r.State(t0).Players)
+	}
+	// A stream that closes while its session polls changes nothing.
+	_, cancel, _, _ := r.Subscribe(p[0], "")
+	r.Wait(t0.Add(time.Hour), p[0], "", "", -1)
+	seq = r.seq
+	cancel()
+	if r.seq != seq {
+		t.Error("a stream's close published while the session polled")
+	}
+}
+
+// A poll's grace running out changes nothing for a player still connected on its other session.
+func TestWait_presenceAcrossSessions(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	if _, err := r.Join(t0, Joiner{Session: "g", ProfileID: "pf", DeviceID: "d1", Name: "Mia", Avatar: "mic"}); err != nil {
+		t.Fatal(err)
+	}
+	_, cancel, _, _ := r.Subscribe(deviceSession("d1"), "")
+	defer cancel()
+	r.Wait(t0, r.players[0].id, "", "", -1)
+	seq := r.seq
+	r.Tick(t0.Add(r.pollGrace))
+	if r.seq != seq || !r.State(t0).Players[0].Connected {
+		t.Errorf("expiry published %d → %d, players %+v", seq, r.seq, r.State(t0).Players)
+	}
+}
+
+// A refused poll is no connection.
+func TestWait_capReached(t *testing.T) {
+	r := newTestRoom(t, ModeYears)
+	p := join(t, r, 1)
+	r.close()
+	if _, _, _, ok := r.Wait(t0, p[0], "", "", r.seq); ok {
+		t.Error("wait on a closed room")
+	}
+	if r.State(t0).Players[0].Connected {
+		t.Error("a refused poll counted as the connection")
+	}
+}
+
 func TestRoom_concurrentAnswers(t *testing.T) {
 	r := newTestRoom(t, ModeYears)
 	p := join(t, r, MaxPlayers)
