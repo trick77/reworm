@@ -99,13 +99,16 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 - host only (the host cookie of this room; 403 `not_host` otherwise), each answers the new `RoomState`:
   `POST …/start` (lobby; 409 `no_players`, 422 `deck_empty`), `…/next` (after a result; no song left → `over`),
   `…/pause` / `…/resume` (during a round; paused time extends every deadline), `…/rematch` (over → lobby, scores 0),
+  `…/abort` (any phase but the lobby → lobby, same players, scores 0),
   `…/kick {playerId}` (for the room's lifetime; during a pause the round is settled on resume), `…/settings {…same
   as create}` (lobby only). Wrong phase → 409 `wrong_phase`.
 - years mode: `POST …/answer {round, choice: "earlier"|"exact"|"later"}` → `{accepted: true}`; correctness only via state
 - buzzer mode: `POST …/buzz {round}`, `POST …/reveal {round}`, `POST …/judge {round, points: 0|1|2}` → `{accepted: true}`
+- Every press also takes `startedAt` (the round's, ms; 0 or missing = unchecked): round numbers restart with every
+  game, so a late press from an ended game's round 1 must not take the next game's round 1.
 - Player actions are rate-limited per client address (generous: a party shares one router). Refusals: 401
   `not_in_room` (no guest cookie / profile player for this room — never silent), 403 `kicked`, 409 `wrong_mode`,
-  `wrong_round` (not the running round, or over), `already_answered`, `already_buzzed`, `late` (joined mid-round),
+  `wrong_round` (not the running round, another game's round of that number, or over), `already_answered`, `already_buzzed`, `late` (joined mid-round),
   `wrong_phase` (paused, or the countdown before the round).
 - `start`, `next` and training need preview URLs: 503 `previews_unavailable` while no preview source is configured
   or when it fails (retry); a song the source has no preview for is skipped.

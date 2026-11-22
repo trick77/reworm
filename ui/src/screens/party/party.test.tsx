@@ -609,6 +609,71 @@ describe("party: years mode", () => {
   });
 });
 
+describe("party: ending a game", () => {
+  it("lets the host end a running game after confirming, back to the lobby with scores 0", async () => {
+    const world = new FakeWorld();
+    const { s, stageApi } = await hostRoom(world);
+    const { p } = await joinPad(world, "Mia");
+    const luca = world.addPlayer("K7Q4", "Luca", "guitar");
+    fireEvent.click(await enabled(s, "Start game · 2 players"));
+    await p.findByRole("button", { name: "Earlier" });
+    world.room("K7Q4").state.players.find((x) => x.id === luca)!.score = 3;
+
+    // the question takes the focus and Escape closes it
+    fireEvent.click(await enabled(s, "End game"));
+    expect(
+      await s.findByRole("button", { name: "Keep playing" }),
+    ).toHaveFocus();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(s.queryByRole("dialog")).toBeNull());
+
+    // a failed call says so and keeps the question open
+    vi.spyOn(stageApi, "host").mockRejectedValueOnce(
+      new ApiError(503, "x", "down"),
+    );
+    fireEvent.click(await enabled(s, "End game"));
+    const failing = within(await s.findByRole("dialog"));
+    fireEvent.click(failing.getByRole("button", { name: "End game" }));
+    expect(await failing.findByRole("alert")).toHaveTextContent(
+      "The game could not be ended. Try again.",
+    );
+    expect(world.room("K7Q4").state.phase).toBe("playing");
+    fireEvent.click(failing.getByRole("button", { name: "Keep playing" }));
+
+    // another device viewing the stage cannot end it
+    const g = within(renderApp("/room/K7Q4", world.device("p-jan")).container);
+    await g.findByText(/First to/);
+    expect(g.queryByRole("button", { name: "End game" })).toBeNull();
+
+    // Keep playing closes the question, the game goes on
+    fireEvent.click(await enabled(s, "End game"));
+    const ask = within(
+      await s.findByRole("dialog", { name: "End this game?" }),
+    );
+    fireEvent.click(ask.getByRole("button", { name: "Keep playing" }));
+    expect(s.queryByRole("dialog")).toBeNull();
+    expect(world.room("K7Q4").state.phase).toBe("playing");
+
+    // from a pause too: the overlay offers it beside Resume
+    fireEvent.click(await enabled(s, "Pause"));
+    expect(await s.findByText("Paused")).toBeInTheDocument();
+    const paused = s.getAllByRole("button", { name: "End game" });
+    fireEvent.click(paused[paused.length - 1]);
+    const sure = within(
+      await s.findByRole("dialog", { name: "End this game?" }),
+    );
+    fireEvent.click(sure.getByRole("button", { name: "End game" }));
+    await waitFor(() => expect(world.room("K7Q4").state.phase).toBe("lobby"));
+    expect(world.room("K7Q4").state.players.every((x) => x.score === 0)).toBe(
+      true,
+    );
+    expect(
+      await s.findByRole("button", { name: "Start game · 2 players" }),
+    ).toBeInTheDocument();
+    expect(await p.findByText("You're in!")).toBeInTheDocument();
+  });
+});
+
 describe("party: late join", () => {
   it("a phone joining mid-round sits it out, then plays the next one", async () => {
     const world = new FakeWorld();

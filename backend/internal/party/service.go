@@ -278,7 +278,7 @@ func (s *Service) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /api/rooms/{code}/join", s.join(s.withRoom(s.handleJoin)))
 	for action, f := range map[string]func(hostCall) error{
 		"start": s.start, "next": s.next, "pause": s.pause, "resume": s.resume, "rematch": s.rematch,
-		"kick": s.kick, "settings": s.settings,
+		"kick": s.kick, "settings": s.settings, "abort": s.abort,
 	} {
 		mux.HandleFunc("POST /api/rooms/{code}/"+action, s.hostAction(f))
 	}
@@ -614,6 +614,8 @@ func (s *Service) resume(c hostCall) error { return c.room.Resume(s.o.Now(), c.h
 
 func (s *Service) rematch(c hostCall) error { return c.room.Rematch(s.o.Now(), c.host) }
 
+func (s *Service) abort(c hostCall) error { return c.room.Abort(s.o.Now(), c.host) }
+
 type kickRequest struct {
 	PlayerID string `json:"playerId"`
 }
@@ -638,10 +640,14 @@ func (s *Service) settings(c hostCall) error {
 }
 
 type pressRequest struct {
-	Round  int    `json:"round"`
-	Choice string `json:"choice"`
-	Points *int   `json:"points"`
+	Round int `json:"round"`
+	// StartedAt is the round's startedAt as the client saw it (0: not checked).
+	StartedAt int64  `json:"startedAt"`
+	Choice    string `json:"choice"`
+	Points    *int   `json:"points"`
 }
+
+func (p pressRequest) at() Round { return Round{N: p.Round, StartedAt: p.StartedAt} }
 
 type acceptedResponse struct {
 	Accepted bool `json:"accepted"`
@@ -663,20 +669,20 @@ func (s *Service) playerAction(f func(*Room, string, pressRequest) error) http.H
 }
 
 func (s *Service) answer(room *Room, player string, req pressRequest) error {
-	return room.Answer(s.o.Now(), player, req.Round, req.Choice)
+	return room.Answer(s.o.Now(), player, req.at(), req.Choice)
 }
 
 func (s *Service) buzz(room *Room, player string, req pressRequest) error {
-	return room.Buzz(s.o.Now(), player, req.Round)
+	return room.Buzz(s.o.Now(), player, req.at())
 }
 
 func (s *Service) reveal(room *Room, player string, req pressRequest) error {
-	return room.Reveal(s.o.Now(), player, req.Round)
+	return room.Reveal(s.o.Now(), player, req.at())
 }
 
 func (s *Service) judge(room *Room, player string, req pressRequest) error {
 	if req.Points == nil {
 		return api.Fail(http.StatusBadRequest, "invalid_points", "points are 0, 1 or 2")
 	}
-	return room.Judge(s.o.Now(), player, req.Round, *req.Points)
+	return room.Judge(s.o.Now(), player, req.at(), *req.Points)
 }

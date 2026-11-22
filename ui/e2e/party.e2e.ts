@@ -340,6 +340,31 @@ test("reconnect: a phone reloaded mid-round gets its player back from the server
   expect(done.players).toHaveLength(2);
 });
 
+test("end game: the host ends a running round, the stage falls silent, everyone is back in the lobby", async ({
+  browser,
+}) => {
+  const { stage, code, pads } = await party(browser, PLAYERS.slice(0, 2));
+  await stage.getByRole("button", { name: "Start game · 2 players" }).click();
+  const s = await waitPhase(stage, code, "playing");
+  await expectPlaying(stage, round(s).song.id);
+
+  await stage.getByRole("button", { name: "End game" }).click();
+  const ask = stage.getByRole("dialog", { name: "End this game?" });
+  await expect(ask).toBeVisible();
+  await shot(stage, "stage-end-game");
+  await ask.getByRole("button", { name: "End game" }).click();
+  await waitPhase(stage, code, "lobby");
+  await expect(
+    stage.getByRole("button", { name: "Start game · 2 players" }),
+  ).toBeVisible();
+  await expect.poll(() => clip(stage)).toBeNull();
+  for (const p of pads)
+    await expect(p.page.getByText("You're in!")).toBeVisible();
+  expect(
+    (await roomState(stage, code)).players.every((p) => p.score === 0),
+  ).toBe(true);
+});
+
 test("kick: a removed phone is told so and cannot rejoin", async ({
   browser,
 }) => {

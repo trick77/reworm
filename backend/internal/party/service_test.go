@@ -185,6 +185,9 @@ func TestHTTP_yearsGame(t *testing.T) {
 	room.bg.Wait()
 	room.round.proposed = room.round.pick.song.Year + 4 // one point, not the game
 	choice := right(room)
+	if rec := guest.do(http.MethodPost, base+"/answer", pressRequest{Round: 1, StartedAt: 1, Choice: choice}); rec.Code != http.StatusConflict {
+		t.Errorf("answer for another game's round 1 = %d, want 409 wrong_round", rec.Code)
+	}
 	if rec := guest.do(http.MethodPost, base+"/answer", pressRequest{Round: 1, Choice: choice}); rec.Code != http.StatusOK ||
 		!decodeBody[acceptedResponse](t, rec).Accepted {
 		t.Fatalf("answer = %d %s", rec.Code, rec.Body)
@@ -238,6 +241,17 @@ func TestHTTP_yearsGame(t *testing.T) {
 	played, err := e.repo.Played(context.Background(), room.HistoryProfile(), t0.Add(-time.Hour))
 	if err != nil || len(played) != 2 {
 		t.Errorf("played history = %v, %v; want the two rounds", played, err)
+	}
+
+	if rec := guest.do(http.MethodPost, base+"/abort", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("guest abort = %d, want 403 not_host", rec.Code)
+	}
+	rec = h.do(http.MethodPost, base+"/abort", nil)
+	if s := decodeBody[State](t, rec); rec.Code != http.StatusOK || s.Phase != PhaseLobby || s.Round != nil {
+		t.Errorf("abort = %d %+v", rec.Code, s)
+	}
+	if rec := h.do(http.MethodPost, base+"/abort", nil); rec.Code != http.StatusConflict {
+		t.Errorf("abort in the lobby = %d, want 409", rec.Code)
 	}
 }
 

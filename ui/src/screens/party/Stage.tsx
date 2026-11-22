@@ -1,6 +1,6 @@
 // The stage: the host device (iPad, laptop on the TV) plays each round's clip and shows the round, the
 // result and the final podium. Phones are the pads (Pad.tsx).
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useApi } from "../../api/context";
 import type {
@@ -112,10 +112,12 @@ function StageTop({
   s,
   host,
   live,
+  onEnd,
 }: {
   s: RoomState;
   host: boolean;
   live: boolean;
+  onEnd: () => void;
 }) {
   const api = useApi();
   const paused = s.phase === "paused";
@@ -148,6 +150,10 @@ function StageTop({
               void api.host(s.code, paused ? "resume" : "pause").catch(() => {})
             }
           />
+        )}
+        {/* as Room.Abort: any phase but the lobby; game over has Rematch already */}
+        {host && s.phase !== "over" && (
+          <IconButton icon="x" label="End game" onClick={onEnd} />
         )}
       </div>
     </div>
@@ -494,6 +500,10 @@ export function Stage({
   const { s, left } = useStartedRoom(raw);
   useStageAudio(s);
   const [sound, setSound] = useState(audioUnlocked);
+  // ending: the host asked to end the game and confirms it here (no browser dialog: it blocks the page)
+  const [ending, setEnding] = useState(false);
+  // stable: EndGame focuses and listens once, not on every room update
+  const stopEnding = useCallback(() => setEnding(false), []);
   const r = s.round;
   const res = r?.result;
   const view = roundView(s);
@@ -539,7 +549,7 @@ export function Stage({
     <AppShell
       scrollClassName={`playscr fade-in${s.phase === "over" ? " center" : ""}`}
     >
-      <StageTop s={s} host={host} live={live} />
+      <StageTop s={s} host={host} live={live} onEnd={() => setEnding(true)} />
       {body}
       {host && s.phase === "result" && (
         <div
@@ -562,13 +572,20 @@ export function Stage({
               Clip and timer stop for everyone
             </div>
             {host && (
-              <Button
-                small
-                icon="play"
-                onClick={() => void api.host(s.code, "resume").catch(() => {})}
-              >
-                Resume
-              </Button>
+              <div className="row" style={{ justifyContent: "center", gap: 8 }}>
+                <Button
+                  small
+                  icon="play"
+                  onClick={() =>
+                    void api.host(s.code, "resume").catch(() => {})
+                  }
+                >
+                  Resume
+                </Button>
+                <Button small variant="ghost" onClick={() => setEnding(true)}>
+                  End game
+                </Button>
+              </div>
             )}
           </div>
         </div>
@@ -586,6 +603,57 @@ export function Stage({
           </div>
         </div>
       )}
+      {host && ending && s.phase !== "over" && (
+        <EndGame code={s.code} onClose={stopEnding} />
+      )}
     </AppShell>
+  );
+}
+
+// EndGame asks the host before the game ends (Room.Abort). It stays open until the server took it: a failed call
+// says so instead of leaving the host to think the game ended while it plays on.
+function EndGame({ code, onClose }: { code: string; onClose: () => void }) {
+  const api = useApi();
+  const keep = useRef<HTMLButtonElement>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    keep.current?.focus();
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [onClose]);
+  return (
+    <div
+      className="overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="End this game?"
+    >
+      <div>
+        <div className="stage-big">End this game?</div>
+        <div className="sub" style={{ margin: "6px 0 16px" }}>
+          Scores are lost, everyone goes back to the lobby.
+        </div>
+        <div className="row" style={{ justifyContent: "center", gap: 8 }}>
+          <Button
+            small
+            onClick={() => {
+              setFailed(false);
+              api.host(code, "abort").then(onClose, () => setFailed(true));
+            }}
+          >
+            End game
+          </Button>
+          <Button ref={keep} small variant="ghost" onClick={onClose}>
+            Keep playing
+          </Button>
+        </div>
+        {failed && (
+          <div className="sub" role="alert" style={{ marginTop: 12 }}>
+            The game could not be ended. Try again.
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
