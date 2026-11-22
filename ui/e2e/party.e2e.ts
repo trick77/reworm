@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   clip,
   closeDevices,
+  device,
   expectPlaying,
   hostRoom,
   joinPhone,
@@ -270,6 +271,43 @@ test("buzzer: buzz pauses, reveal by two, judging agrees or the room breaks the 
   await score(mia, 2);
   await score(sarah, 0);
   await shot(stage, "buzzer-nobody");
+});
+
+test("proxy: a phone whose stream a proxy buffers plays on through long polls", async ({
+  browser,
+}) => {
+  const { stage, code, join } = await hostRoom(browser);
+  const page = await device(browser, "phone");
+  // a TLS-inspecting proxy that buffers: the stream's request never answers, not even its headers
+  await page.route(/\/api\/rooms\/[^/]+\/events(\?|$)/, () => {});
+  const waits: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/wait")) waits.push(r.url());
+  });
+  await page.goto(join);
+  await page.getByLabel("Your name").fill("Mia");
+  await page.getByRole("radio", { name: "Mic Drop" }).click();
+  await page.getByRole("button", { name: "Join game" }).click();
+  await expect(page.getByText("You're in!")).toBeVisible();
+  // the stage sees the phone there: its polls are its connection
+  const row = stage.locator(".set-row").filter({ hasText: "Mia" });
+  await expect(row.getByText("ready")).toBeVisible({ timeout: 10_000 });
+  // the first poll names the stalled stream for the server to end
+  expect(waits[0]).toMatch(/\/wait\?cut=[0-9a-f]{32}$/);
+
+  await stage.getByRole("button", { name: "Start game · 1 player" }).click();
+  const s = await waitPhase(stage, code, "playing");
+  await page.getByRole("button", { name: LABEL[round(s).right] }).click();
+  const done = await waitPhase(stage, code, "result");
+  expect(done.round!.result!.winnerId).toBe(done.players[0].id);
+  await expect(page.getByText("You got it!")).toBeVisible();
+  // a reload probes the stream again and falls back again
+  const before = waits.length;
+  await page.reload();
+  await expect(page.getByText("You got it!")).toBeVisible();
+  await expect
+    .poll(() => waits.length, { timeout: 10_000 })
+    .toBeGreaterThan(before);
 });
 
 test("reconnect: a phone reloaded mid-round gets its player back from the server", async ({

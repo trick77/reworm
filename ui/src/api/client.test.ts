@@ -4,7 +4,12 @@ import {
   BACKOFF_MS,
   browserEnv,
   HttpApi,
+  LAG_MS,
+  PROBE_MS,
+  RESUME_MS,
+  streamId,
   transient,
+  WATCHDOG_MS,
   type EventSourceLike,
 } from "./client";
 import { secondsLeft, serverNow, syncServerClock } from "./clock";
@@ -314,7 +319,7 @@ describe("HttpApi.subscribeRoom", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(seen).toEqual(["lobby"]);
     const es = FakeES.all[0];
-    expect(es.url).toBe("/api/rooms/K7Q4/events");
+    expect(es.url).toMatch(/^\/api\/rooms\/K7Q4\/events\?sid=[0-9a-f]{32}$/);
     es.fire("open");
     es.fire("state", state("playing", 1, 2));
     es.fire("state", "{garbled");
@@ -441,6 +446,231 @@ describe("HttpApi.subscribeRoom", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(seen).toEqual(["playing"]);
     stop();
+  });
+});
+
+describe("HttpApi.subscribeRoom behind a buffering proxy", () => {
+  let hidden = false;
+  beforeAll(() => {
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      get: () => hidden,
+    });
+  });
+  afterAll(() => {
+    delete (document as { hidden?: boolean }).hidden;
+  });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    hidden = false;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    syncServerClock(Date.now());
+  });
+  const sidOf = (es: FakeES) =>
+    new URL(es.url, "http://x").searchParams.get("sid")!;
+
+  // wait answers /wait from a queue: each call takes the next state, or hangs until one is pushed.
+  function waiter(snap: RoomState) {
+    const queue: RoomState[] = [];
+    let wake: (() => void) | null = null;
+    const signals: AbortSignal[] = [];
+    const { fetch, calls } = fetchStub(async (c) => {
+      if (!c.url.includes("/wait")) return Response.json(snap);
+      while (!queue.length) await new Promise<void>((r) => (wake = r));
+      return Response.json(queue.shift());
+    });
+    const f = vi.fn((url: string, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal);
+      return fetch(url, init);
+    });
+    const push = (s: RoomState) => {
+      queue.push(s);
+      wake?.();
+    };
+    return { fetch: f, calls, push, signals };
+  }
+  const waits = (calls: Call[]) =>
+    calls.filter((c) => c.url.includes("/wait")).map((c) => c.url);
+
+  it("falls back to long polling when the first state misses the probe, also without `open`", async () => {
+    const w = waiter(state("lobby", 0, 1));
+    const api = new HttpApi({
+      fetch: w.fetch,
+      eventSource: (u) => new FakeES(u),
+    });
+    const seen: number[] = [];
+    const live: boolean[] = [];
+    const stop = api.subscribeRoom("K7Q4", {
+      onState: (s) => seen.push(s.seq),
+      onLive: (l) => live.push(l),
+    });
+    await vi.advanceTimersByTimeAsync(PROBE_MS - 1);
+    expect(FakeES.all[0].closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeES.all[0].closed).toBe(true);
+    // the first poll has no `after` (answered at once) and names the stalled stream for the server to end
+    expect(waits(w.calls)).toEqual([
+      `/api/rooms/K7Q4/wait?cut=${sidOf(FakeES.all[0])}`,
+    ]);
+    w.push(state("lobby", 0, 1));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(live).toEqual([false, true]);
+    expect(waits(w.calls).at(-1)).toBe("/api/rooms/K7Q4/wait?after=1");
+    w.push(state("playing", 1, 2));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seen).toEqual([1, 2]);
+    expect(waits(w.calls).at(-1)).toBe("/api/rooms/K7Q4/wait?after=2");
+    // never back to the stream
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(FakeES.all).toHaveLength(1);
+    stop();
+    expect(w.signals.at(-1)?.aborted).toBe(true);
+  });
+
+  it("only reconnects when the page slept: hidden, back a moment ago, or its timer fired late", async () => {
+    const w = waiter(state("lobby", 0, 1));
+    const api = new HttpApi({
+      fetch: w.fetch,
+      eventSource: (u) => new FakeES(u),
+    });
+    const stop = api.subscribeRoom("K7Q4", { onState: () => {} });
+    FakeES.all[0].fire("state", state("lobby", 0, 1));
+    // hidden: the watchdog runs out, the stream is reopened, no polling
+    hidden = true;
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS + BACKOFF_MS);
+    expect(FakeES.all).toHaveLength(2);
+    // back again: the stream reopened on waking misses its probe within RESUME_MS: only reopened again
+    hidden = false;
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(RESUME_MS).toBeGreaterThan(PROBE_MS);
+    await vi.advanceTimersByTimeAsync(PROBE_MS + 2 * BACKOFF_MS);
+    expect(FakeES.all).toHaveLength(3);
+    // a timer that fires long after it was due: the page was frozen
+    const es = FakeES.all[2];
+    es.fire("state", state("lobby", 0, 1));
+    await vi.advanceTimersByTimeAsync(RESUME_MS);
+    vi.setSystemTime(Date.now() + 60_000);
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS - RESUME_MS);
+    expect(es.closed).toBe(true);
+    expect(waits(w.calls)).toHaveLength(0);
+    stop();
+  });
+
+  it("does not count old states that arrive right after the page came back", async () => {
+    const snap = { ...state("lobby", 0, 1), now: Date.now() };
+    const w = waiter(snap);
+    const api = new HttpApi({
+      fetch: w.fetch,
+      eventSource: (u) => new FakeES(u),
+    });
+    const stop = api.subscribeRoom("K7Q4", { onState: () => {} });
+    await vi.advanceTimersByTimeAsync(0);
+    document.dispatchEvent(new Event("visibilitychange"));
+    const es = FakeES.all[0];
+    for (let i = 2; i < 6; i++)
+      es.fire("state", { ...state("lobby", 0, i), now: Date.now() - 30_000 });
+    expect(es.closed).toBe(false);
+    stop();
+  });
+
+  it("keeps the stream while pings come, falls back when everything stops", async () => {
+    const w = waiter(state("lobby", 0, 1));
+    const api = new HttpApi({
+      fetch: w.fetch,
+      eventSource: (u) => new FakeES(u),
+    });
+    const stop = api.subscribeRoom("K7Q4", { onState: () => {} });
+    const es = FakeES.all[0];
+    es.fire("state", state("lobby", 0, 1));
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(WATCHDOG_MS - 1);
+      es.fire("ping", "");
+    }
+    expect(es.closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(WATCHDOG_MS);
+    expect(es.closed).toBe(true);
+    expect(waits(w.calls)).toHaveLength(1);
+    stop();
+  });
+
+  it("falls back when states come late, and keeps the clock off them", async () => {
+    const t = Date.now();
+    const snap = { ...state("lobby", 0, 1), now: t };
+    const w = waiter(snap);
+    const api = new HttpApi({
+      fetch: w.fetch,
+      eventSource: (u) => new FakeES(u),
+    });
+    const seen: number[] = [];
+    const stop = api.subscribeRoom("K7Q4", {
+      onState: (s) => seen.push(s.seq),
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const es = FakeES.all[0];
+    // on time, then one late and one on time: a slow moment, not a buffer
+    es.fire("state", { ...state("lobby", 0, 2), now: Date.now() });
+    es.fire("state", { ...state("lobby", 0, 3), now: Date.now() - LAG_MS - 1 });
+    es.fire("state", { ...state("lobby", 0, 4), now: Date.now() });
+    expect(es.closed).toBe(false);
+    const offset = serverNow() - Date.now();
+    es.fire("state", { ...state("lobby", 0, 5), now: Date.now() - 4_000 });
+    es.fire("state", { ...state("lobby", 0, 6), now: Date.now() - 4_000 });
+    expect(seen).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(serverNow() - Date.now()).toBe(offset);
+    expect(es.closed).toBe(true);
+    expect(waits(w.calls)).toEqual([`/api/rooms/K7Q4/wait?cut=${sidOf(es)}`]);
+    stop();
+  });
+
+  it("still reconnects a stream that drops", async () => {
+    const w = waiter(state("lobby", 0, 1));
+    const api = new HttpApi({
+      fetch: w.fetch,
+      eventSource: (u) => new FakeES(u),
+    });
+    const stop = api.subscribeRoom("K7Q4", { onState: () => {} });
+    FakeES.all[0].fire("error");
+    await vi.advanceTimersByTimeAsync(BACKOFF_MS);
+    expect(FakeES.all).toHaveLength(2);
+    expect(sidOf(FakeES.all[1])).not.toBe(sidOf(FakeES.all[0]));
+    expect(waits(w.calls)).toHaveLength(0);
+    stop();
+  });
+
+  it("backs off a failing poll, reports a refusal once per run, ends on a room that is gone", async () => {
+    const replies = [503, 403, 403, 0, 404];
+    const { fetch, calls } = fetchStub((c) => {
+      if (!c.url.includes("/wait")) return Response.json(state("lobby", 0, 1));
+      const st = replies.shift()!;
+      return st
+        ? Response.json({ error: `e${st}` }, { status: st })
+        : Response.json(state("lobby", 0, 2));
+    });
+    const onError = vi.fn();
+    const live: boolean[] = [];
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    api.subscribeRoom("K7Q4", {
+      onState: () => {},
+      onError,
+      onLive: (l) => live.push(l),
+    });
+    await vi.advanceTimersByTimeAsync(PROBE_MS);
+    await vi.advanceTimersByTimeAsync(
+      BACKOFF_MS + 2 * BACKOFF_MS + 4 * BACKOFF_MS,
+    );
+    expect(waits(calls)).toHaveLength(5);
+    expect(waits(calls)[0]).toMatch(/\/wait\?cut=/);
+    expect(onError.mock.calls.map(([e]) => e.status)).toEqual([403, 404]);
+    expect(live).toEqual([false, true]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(waits(calls)).toHaveLength(5);
+  });
+
+  it("names streams at random", () => {
+    expect(streamId()).toMatch(/^[0-9a-f]{32}$/);
+    expect(streamId()).not.toBe(streamId());
   });
 });
 

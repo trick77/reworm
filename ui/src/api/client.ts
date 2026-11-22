@@ -146,6 +146,7 @@ export class HttpApi implements Api {
     path: string,
     body?: unknown,
     extra?: Record<string, string>,
+    signal?: AbortSignal,
   ) {
     let res: Response;
     const headers: Record<string, string> = { ...extra };
@@ -156,6 +157,7 @@ export class HttpApi implements Api {
         credentials: "same-origin",
         headers: Object.keys(headers).length ? headers : undefined,
         body: body === undefined ? undefined : JSON.stringify(body),
+        ...(signal ? { signal } : {}),
       });
     } catch (e) {
       throw new ApiError(0, "network", (e as Error).message || "offline");
@@ -274,34 +276,92 @@ export class HttpApi implements Api {
     );
   trainStats = () => this.train<TrainStats>("GET", "/api/train/stats");
 
+  // wait is one long poll: the room's state once it is newer than seq `after` (none: at once), else the
+  // unchanged state after the server's hold.
+  // `cut` names the stream the page gave up on: the server ends it (the proxy holds it open there).
+  private wait = (
+    code: string,
+    after: number,
+    cut: string,
+    signal: AbortSignal,
+  ) => {
+    const q = new URLSearchParams();
+    if (Number.isFinite(after)) q.set("after", String(after));
+    if (cut) q.set("cut", cut);
+    const qs = q.toString();
+    return this.call<RoomState>(
+      "GET",
+      `${room(code)}/wait${qs ? `?${qs}` : ""}`,
+      undefined,
+      undefined,
+      signal,
+    );
+  };
+
   // subscribeRoom: snapshot first, then the event stream. A dropped stream is closed (EventSource's own
   // retry would skip what changed meanwhile) and reopened after a backoff, with a fresh snapshot.
+  //
+  // A proxy that buffers the response (TLS inspection in an office) passes the stream's 200 and then
+  // nothing, or everything late: the stream is stalled when its first state misses PROBE_MS, when nothing
+  // (state or ping) comes for WATCHDOG_MS, or when LAG_EVENTS states in a row come LAG_MS late. Then the
+  // subscription long-polls (/wait, whole responses any proxy passes) for good; its first poll names the
+  // stalled stream (`sid`) for the server to end. A phone that slept looks the same for a moment (timers fire
+  // late, queued states arrive old): while the page is hidden, a timer fired late, or within RESUME_MS of
+  // coming back, a stall only reconnects the stream.
   subscribeRoom(code: string, h: RoomHandlers): () => void {
     let closed = false;
     let es: EventSourceLike | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let watch: ReturnType<typeof setTimeout> | undefined;
+    let poller: AbortController | null = null;
     let attempt = 0;
+    let resumedAt = -Infinity;
+    const onVisible = () => {
+      if (!document.hidden) resumedAt = Date.now();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const settling = () =>
+      document.hidden || Date.now() - resumedAt < RESUME_MS;
+    let live: boolean | undefined;
+    const setLive = (l: boolean) => {
+      if (l === live) return;
+      live = l;
+      h.onLive?.(l);
+    };
     // order: a state older than the last applied one (by seq) is dropped, snapshot or event. One of the same
-    // seq changes nothing but still sets the server clock (`now`).
+    // seq changes nothing but still sets the server clock (`now`), unless it came late.
     let lastSeq = -Infinity;
-    const apply = (s: RoomState) => {
+    const apply = (s: RoomState, clock = true) => {
       if (s.seq < lastSeq) return;
-      syncServerClock(s.now);
+      if (clock) syncServerClock(s.now);
       if (s.seq === lastSeq) return;
       lastSeq = s.seq;
       h.onState(s);
     };
+    // lag: a whole response's `now` sets the reference offset (the least delayed one seen); an event whose
+    // offset falls LAG_MS behind it sat in a buffer on the way.
+    let ref = -Infinity;
+    let late = 0;
+    const sample = (s: RoomState) => {
+      ref = Math.max(ref, s.now - Date.now());
+    };
     const stop = () => {
       closed = true;
       clearTimeout(timer);
+      clearTimeout(watch);
       es?.close();
       es = null;
+      poller?.abort();
+      poller = null;
+      document.removeEventListener("visibilitychange", onVisible);
     };
 
     const snapshot = () =>
       this.room(code).then(
         (s) => {
-          if (!closed) apply(s);
+          if (closed) return;
+          sample(s);
+          apply(s);
         },
         (e: ApiError) => {
           if (closed) return;
@@ -310,38 +370,140 @@ export class HttpApi implements Api {
         },
       );
 
+    // poll: the first request goes without `after`, answered at once (a fresh snapshot, and live again without
+    // waiting out a quiet room's hold). `cut` rides along until a poll is answered. A refusal that is no outage
+    // (not transient, not 404) is reported once per run of failures.
+    const poll = async (cut: string) => {
+      let first = true;
+      let reported = false;
+      while (!closed) {
+        const ac = new AbortController();
+        poller = ac;
+        try {
+          const s = await this.wait(
+            code,
+            first ? -Infinity : lastSeq,
+            cut,
+            ac.signal,
+          );
+          if (closed) return;
+          first = false;
+          cut = "";
+          attempt = 0;
+          reported = false;
+          setLive(true);
+          sample(s);
+          apply(s);
+        } catch (e) {
+          if (closed) return;
+          const err = e as ApiError;
+          if (err.status === 404) {
+            stop(); // the room is gone: nothing to poll
+            h.onError?.(err);
+            return;
+          }
+          if (!transient(err) && !reported) {
+            reported = true;
+            h.onError?.(err);
+          }
+          setLive(false);
+          await new Promise((r) => (timer = setTimeout(r, backoff(attempt++))));
+        }
+      }
+    };
+
+    const fallback = (sid: string) => {
+      clearTimeout(watch);
+      es?.close();
+      es = null;
+      setLive(false);
+      void poll(sid);
+    };
+
+    // drop closes src and reopens a stream after the backoff, with a fresh snapshot.
+    const drop = (src: EventSourceLike) => {
+      src.close();
+      if (es !== src || closed) return;
+      clearTimeout(watch);
+      es = null;
+      late = 0;
+      setLive(false);
+      const delay = backoff(attempt++);
+      timer = setTimeout(() => {
+        if (closed) return;
+        void snapshot();
+        open();
+      }, delay);
+    };
+
     const open = () => {
-      const src = this.env.eventSource(`${room(code)}/events`);
+      const sid = streamId();
+      const src = this.env.eventSource(
+        `${room(code)}/events?sid=${encodeURIComponent(sid)}`,
+      );
       es = src;
+      // the probe runs from here, not from `open`: a proxy that holds even the headers never fires it
+      const arm = (ms: number) => {
+        clearTimeout(watch);
+        const due = Date.now() + ms;
+        watch = setTimeout(() => {
+          if (es !== src || closed) return;
+          // fired late: the page was frozen (a locked phone), not the stream
+          if (settling() || Date.now() - due > FROZEN_MS) drop(src);
+          else fallback(sid);
+        }, ms);
+      };
+      arm(PROBE_MS);
       src.addEventListener("open", () => {
         attempt = 0;
-        h.onLive?.(true);
+        setLive(true);
+      });
+      src.addEventListener("ping", () => {
+        if (es === src && !closed) arm(WATCHDOG_MS);
       });
       src.addEventListener("state", (e) => {
-        if (closed) return;
+        if (closed || es !== src) return;
         attempt = 0;
+        arm(WATCHDOG_MS);
+        let s: RoomState;
         try {
-          apply(JSON.parse(e.data as string) as RoomState);
+          s = JSON.parse(e.data as string) as RoomState;
         } catch {
-          // a garbled event: the next one (or the snapshot after a reconnect) is whole
+          return; // a garbled event: the next one (or the snapshot after a reconnect) is whole
         }
+        if (ref - (s.now - Date.now()) > LAG_MS) {
+          apply(s, false); // late: its `now` would set the clock behind
+          // states queued while the page slept arrive old: no stall
+          if (settling()) late = 0;
+          else if (++late >= LAG_EVENTS) fallback(sid);
+          return;
+        }
+        late = 0;
+        apply(s);
       });
-      src.addEventListener("error", () => {
-        src.close();
-        if (es !== src || closed) return;
-        es = null;
-        h.onLive?.(false);
-        const delay = backoff(attempt++);
-        timer = setTimeout(() => {
-          if (closed) return;
-          void snapshot();
-          open();
-        }, delay);
-      });
+      src.addEventListener("error", () => drop(src));
     };
 
     void snapshot();
     open();
     return stop;
   }
+}
+
+// The stall detection of subscribeRoom. HEARTBEAT_MS is the server's ping (party/service.go heartbeat).
+// FROZEN_MS is how late a timer may fire before the page counts as having slept.
+export const PROBE_MS = 5_000;
+export const HEARTBEAT_MS = 10_000;
+export const WATCHDOG_MS = 2 * HEARTBEAT_MS + 5_000;
+export const LAG_MS = 2_000;
+export const LAG_EVENTS = 2;
+export const RESUME_MS = 2 * PROBE_MS; // a stream reopened on waking still gets its probe in
+export const FROZEN_MS = 2_000;
+
+// streamId names a stream for a later poll to end it: random, so another phone behind the same address cannot
+// guess it.
+export function streamId(): string {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
 }
