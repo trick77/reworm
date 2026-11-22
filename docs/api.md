@@ -74,11 +74,20 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   costs nothing there. Reads (`GET` state, events, me) are limited to 5/s per address (burst 60).
 - `GET  /api/rooms/{code}` → `RoomState` (snapshot; also used after SSE reconnect) | 404 `unknown_room`
 - `GET  /api/rooms/{code}/events` → SSE, event `state` with the full `RoomState` on every change, the current one
-  first (small payload; simplest correct). `: keepalive` comments every 25 s. 503 `too_many_streams` past 64 per
-  room or 12 per client address (a party shares one router). A browser that is neither paired nor holds a guest
-  cookie for the room gets one with the stream; joining later on that cookie makes the open stream count as the
-  player's connection (`connected`). `nextClip` is resolved in the background after start/next and arrives with a
-  later `state` event.
+  first (small payload; simplest correct). Event `ping` (empty data) after 10 s of silence: a named event, not a
+  comment, because the client watches the stream for silence and EventSource hides comments. 503
+  `too_many_streams` past 64 per room or 12 per client address (a party shares one router). A browser that is
+  neither paired nor holds a guest cookie for the room gets one with the stream; joining later on that cookie makes
+  the open stream count as the player's connection (`connected`). `nextClip` is resolved in the background after
+  start/next and arrives with a later `state` event.
+  `?sid=` (≤ 64 chars, random) names the stream for a later `wait` to end.
+- `GET  /api/rooms/{code}/wait?after={seq}&cut={sid}` → `RoomState`, the long poll a client falls back to when a
+  proxy buffers the stream (TLS inspection: the 200 passes, events don't, or late). Answers at once when the room
+  is past `after` (or `after` is missing), else on the next change, else unchanged after 20 s. `cut` ends the
+  stream of that `sid` opened from the same address: the proxy holds it open on the server, a slot of the cap, and
+  may have swallowed the guest cookie it carried. An answered poll counts as the connection for 30 s. Cookie and
+  503 `too_many_streams` as `events`; its own limit, 20/s per address (burst 120): every change answers every held
+  poll at once, and an office's NAT puts the whole party behind one address.
 - `GET  /api/rooms/{code}/host` → `{host}`: whether this browser's host cookie hosts the room (renews it when it
   does). The UI shows host controls and resumes its saved room (`hosting`) only on its word.
 - `GET  /api/rooms/{code}/me` → `{playerId}` the guest cookie or paired profile plays as | 401 `not_in_room` (no
@@ -128,7 +137,8 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   pause answer `wrong_phase` during it; a player joining then plays the round.
 - `winnerMs` is the winning press (years: the answer, buzzer: the buzz) in ms after `startedAt`, paused time left
   out; null without a winner.
-- No host id: every player gets the state, and profiles are private. `connected` = the player has an event stream open. `clip.from` is seconds into
+- No host id: every player gets the state, and profiles are private. `connected` = the player has an event stream
+  open or long-polled within 30 s. `clip.from` is seconds into
   the 90 s preview (0 for `chorus`). `coverUrl` is `/api/covers/{id}?v={version}` or null. `winnerId` is null when nobody scored.
   `nextClip` is null when the deck has nothing left. `round` stays after the result (and in `over`) until the next one.
 - `answered` = gave a correct answer (years); `out` = wrong answer this round (years); `late` = joined mid-round,

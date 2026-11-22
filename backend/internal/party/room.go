@@ -145,6 +145,12 @@ type Room struct {
 	lastActive time.Time
 	// streams counts the open streams per session (Subscribe).
 	streams map[string]int
+	// cuts end a stream by the id its page gave it (Wait's cut): a buffering proxy holds a stream open long after
+	// its page gave up on it, and may never have passed the guest cookie it was opened with.
+	cuts map[string]cut
+	// polled is each long-polling session's last Wait: its connection while it holds no stream, for pollGrace.
+	polled    map[string]time.Time
+	pollGrace time.Duration
 	// bg tracks background prefetches (tests wait on it).
 	bg sync.WaitGroup
 	// unsent: a deadline fired in touch and nothing published it yet (Tick does).
@@ -202,7 +208,8 @@ func (c *Config) Normalize(thisYear int) error {
 
 func newRoom(code, hostID string, c Config, countdown time.Duration, clock func() time.Time, rng *rand.Rand,
 	resolve Resolver) *Room {
-	r := &Room{code: code, hostID: hostID, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{}, clock: clock,
+	r := &Room{code: code, hostID: hostID, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{},
+		cuts: map[string]cut{}, polled: map[string]time.Time{}, pollGrace: PollHold + pollSlack, clock: clock,
 		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey}),
 		countdown: countdown}
 	r.lastActive = clock()
@@ -252,10 +259,57 @@ func cloneResult(res *ResultState) *ResultState {
 	return &c
 }
 
-// connected reports whether a stream is open for p: on its guest session, or on the device it joined from.
+// connected reports whether p has a connection, a stream or a recent long poll: on its guest session, or on the
+// device it joined from.
 func (r *Room) connected(p *player) bool {
-	return r.streams[p.id] > 0 || (p.device != "" && r.streams[deviceSession(p.device)] > 0)
+	return r.live(p.id) || (p.device != "" && r.live(deviceSession(p.device)))
 }
+
+// live reports whether session holds a stream or polled within pollGrace. An expired poll is dropped by expirePolls,
+// so a session in polled is live.
+func (r *Room) live(session string) bool {
+	_, polled := r.polled[session]
+	return r.streams[session] > 0 || polled
+}
+
+// presence is every player's connected, in order: taken before a change of streams or polls, presenceChanged
+// tells whether anyone's flag moved. A player has two sessions (guest and device), so one session's change alone
+// does not say.
+func (r *Room) presence() []bool {
+	out := make([]bool, len(r.players))
+	for i, p := range r.players {
+		out[i] = r.connected(p)
+	}
+	return out
+}
+
+func (r *Room) presenceChanged(before []bool) bool {
+	return !slices.Equal(before, r.presence())
+}
+
+// expirePolls drops the polls older than pollGrace by now and reports whether a player lost its connection.
+func (r *Room) expirePolls(now time.Time) bool {
+	var before []bool
+	for session, at := range r.polled {
+		if now.Sub(at) < r.pollGrace {
+			continue
+		}
+		if before == nil {
+			before = r.presence()
+		}
+		delete(r.polled, session)
+	}
+	return before != nil && r.presenceChanged(before)
+}
+
+// cut is a stream Wait can end: by the id its page gave it, from the address it was opened from.
+type cut struct {
+	key  string
+	stop func()
+}
+
+// maxStreamID bounds a page's stream id: a random token, not a payload.
+const maxStreamID = 64
 
 // deviceSession is the stream session of a paired device.
 func deviceSession(deviceID string) string { return "device:" + deviceID }
@@ -327,14 +381,26 @@ func (r *Room) publish() {
 // one who joins after the stream opened. It returns the current state as the stream's first event; ok is false
 // when a stream cap is reached.
 func (r *Room) Subscribe(session, key string) (ch <-chan string, cancel func(), first string, ok bool) {
+	return r.OpenStream(session, key, "")
+}
+
+// OpenStream is Subscribe for a stream its page named sid (a random id, "" for none): a Wait from the same address
+// that names it ends the stream (its channel closes) once the page fell back to polling.
+func (r *Room) OpenStream(session, key, sid string) (ch <-chan string, cancel func(), first string, ok bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	ch, stop, ok := r.hub.Subscribe(key)
 	if !ok {
 		return nil, stop, "", false
 	}
+	before := r.presence()
 	r.streams[session]++
-	if r.onSession(session) {
+	if _, taken := r.cuts[sid]; sid != "" && !taken {
+		r.cuts[sid] = cut{key: key, stop: stop}
+	} else {
+		sid = ""
+	}
+	if r.presenceChanged(before) {
 		r.publish()
 	}
 	b, _ := json.Marshal(r.state()) // plain structs
@@ -344,21 +410,57 @@ func (r *Room) Subscribe(session, key string) (ch <-chan string, cancel func(), 
 			stop()
 			r.mu.Lock()
 			defer r.mu.Unlock()
+			before := r.presence()
 			if r.streams[session]--; r.streams[session] <= 0 {
 				delete(r.streams, session)
 			}
-			if r.onSession(session) {
+			if sid != "" {
+				delete(r.cuts, sid)
+			}
+			if r.presenceChanged(before) {
 				r.publish()
 			}
 		})
 	}, string(b), true
 }
 
-// onSession reports whether a player is on session.
-func (r *Room) onSession(session string) bool {
-	return session != "" && slices.ContainsFunc(r.players, func(p *player) bool {
-		return p.id == session || (p.device != "" && deviceSession(p.device) == session)
-	})
+// Wait is one long poll, its checks and its subscription under one lock, so no publish falls between them.
+//
+// cutID names the stream the page gave up on: a buffering proxy holds it open on the server, a slot of the
+// address's cap and a fake connection, and it may be on another session (the proxy held the guest cookie its
+// response carried). It ends when opened from the same address.
+//
+// A client behind on the room (seq > after) gets the state now: cur, ch nil. Otherwise ch is a subscription the
+// next publish wakes, cancel ends it; ok is false when the stream cap is reached. Only a poll that is answered
+// counts as the session's connection, for pollGrace.
+func (r *Room) Wait(now time.Time, session, key, cutID string, after int64) (ch <-chan string, cancel func(), cur string, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.advance(now) || r.unsent {
+		r.publish()
+	}
+	if c, found := r.cuts[cutID]; cutID != "" && found && c.key == key {
+		c.stop() // the stream's handler returns, its cancel counts it out
+		delete(r.cuts, cutID)
+	}
+	cancel = func() {}
+	if r.seq <= after {
+		if ch, cancel, ok = r.hub.Subscribe(key); !ok {
+			return nil, cancel, "", false
+		}
+	}
+	if session != "" {
+		before := r.presence()
+		r.polled[session] = now
+		if r.presenceChanged(before) {
+			r.publish() // wakes the subscription above too: the client gets its own connection at once
+		}
+	}
+	if ch == nil {
+		b, _ := json.Marshal(r.state()) // plain structs
+		return nil, cancel, string(b), true
+	}
+	return ch, cancel, "", true
 }
 
 // close ends every stream of the room.
@@ -799,9 +901,10 @@ func (r *Room) Rematch(now time.Time, hostID string) error {
 
 // --- rounds ----------------------------------------------------------------------------------------------------
 
-// advance fires every deadline that passed by now and reports whether anything changed.
+// advance fires every deadline that passed by now (a poller's grace among them) and reports whether anything
+// changed.
 func (r *Room) advance(now time.Time) bool {
-	changed := false
+	changed := r.expirePolls(now)
 	for {
 		rd := r.round
 		switch {

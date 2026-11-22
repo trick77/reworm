@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -40,8 +41,18 @@ const historyWindow = 90 * 24 * time.Hour
 // tickEvery is how often Run fires the rooms' deadlines: well inside the photo window.
 const tickEvery = 100 * time.Millisecond
 
-// heartbeat keeps an idle stream open through proxies.
-const heartbeat = 25 * time.Second
+// heartbeat keeps an idle stream open through proxies. It is a named event ("ping"), not a comment: the client
+// watches its stream for silence (a buffering proxy passes the 200, then nothing) and EventSource hides comments.
+// The client's watchdog is twice this plus slack, so it bounds how long a stream that stalls mid-game freezes it.
+const heartbeat = 10 * time.Second
+
+// PollHold is how long a long poll (/wait) waits for a change before it answers the unchanged state: well under the
+// 30-60 s after which proxies cut a quiet request.
+const PollHold = 20 * time.Second
+
+// pollSlack is how long after its last poll a long-polling player still counts as connected: the gap between one
+// answer and the next request, and a slow phone's turn-around.
+const pollSlack = 10 * time.Second
 
 // Options configures New.
 type Options struct {
@@ -71,11 +82,14 @@ type Service struct {
 	join    func(http.Handler) http.Handler
 	actions func(http.Handler) http.Handler
 	reads   func(http.Handler) http.Handler
+	waits   func(http.Handler) http.Handler
 	// misses meters unknown room codes per client: guessing codes costs, playing does not.
 	misses *ratelimit.Limiter
 
 	// countdown is each new room's lead-in before a round (Countdown; tests set 0).
 	countdown time.Duration
+	// pollHold is a long poll's wait (PollHold; tests shorten it).
+	pollHold time.Duration
 
 	mu    sync.Mutex
 	rooms map[string]*Room
@@ -112,9 +126,13 @@ func New(o Options) (*Service, error) {
 	joinLim := ratelimit.New(ratelimit.Options{Rate: 30.0 / 60, Burst: 30, Now: o.Now})
 	actLim := ratelimit.New(ratelimit.Options{Rate: 10, Burst: 60, Now: o.Now})
 	readLim := ratelimit.New(ratelimit.Options{Rate: 5, Burst: 60, Now: o.Now})
+	// Every publish answers every held long poll at once, and behind an office's NAT eight pads and the stage
+	// poll from one address: reads' 5/s would refuse a busy round.
+	waitLim := ratelimit.New(ratelimit.Options{Rate: 20, Burst: 120, Now: o.Now})
 	missLim := ratelimit.New(ratelimit.Options{Rate: 10.0 / 60, Burst: 20, Now: o.Now})
 	return &Service{o: o, guests: g, hosts: h, join: joinLim.Middleware(o.ClientKey), actions: actLim.Middleware(o.ClientKey),
-		reads: readLim.Middleware(o.ClientKey), misses: missLim, rooms: map[string]*Room{}, countdown: Countdown}, nil
+		reads: readLim.Middleware(o.ClientKey), waits: waitLim.Middleware(o.ClientKey), misses: missLim,
+		rooms: map[string]*Room{}, countdown: Countdown, pollHold: PollHold}, nil
 }
 
 // Run fires the rooms' deadlines and drops idle rooms until ctx ends.
@@ -254,6 +272,7 @@ func (s *Service) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/rooms", s.handleCreate)
 	mux.Handle("GET /api/rooms/{code}", s.reads(s.withRoom(s.handleState)))
 	mux.Handle("GET /api/rooms/{code}/events", s.reads(s.withRoom(s.handleEvents)))
+	mux.Handle("GET /api/rooms/{code}/wait", s.waits(s.withRoom(s.handleWait)))
 	mux.Handle("GET /api/rooms/{code}/me", s.reads(s.withRoom(s.handleMe)))
 	mux.Handle("GET /api/rooms/{code}/host", s.reads(s.withRoom(s.handleHost)))
 	mux.Handle("POST /api/rooms/{code}/join", s.join(s.withRoom(s.handleJoin)))
@@ -421,10 +440,10 @@ func (s *Service) handleEvents(w http.ResponseWriter, r *http.Request, room *Roo
 		api.WriteError(w, r, err)
 		return
 	}
-	ch, cancel, first, ok := room.Subscribe(session, s.o.ClientKey(r))
+	ch, cancel, first, ok := room.OpenStream(session, s.o.ClientKey(r), streamID(r, "sid"))
 	if !ok {
 		httpx.SetRetryAfter(w, 5*time.Second)
-		api.WriteError(w, r, api.Fail(http.StatusServiceUnavailable, "too_many_streams", "too many open streams"))
+		api.WriteError(w, r, errTooManyStreams)
 		return
 	}
 	defer cancel()
@@ -436,7 +455,7 @@ func (s *Service) handleEvents(w http.ResponseWriter, r *http.Request, room *Roo
 		return
 	}
 	defer sw.Close()
-	sw.Heartbeat(heartbeat)
+	_ = sw.HeartbeatEvent(heartbeat, "ping") // a constant, valid name
 	if sw.Send("state", first) != nil {
 		return
 	}
@@ -452,6 +471,53 @@ func (s *Service) handleEvents(w http.ResponseWriter, r *http.Request, room *Roo
 			}
 		}
 	}
+}
+
+// errTooManyStreams is a refused stream or long poll: the room's or the address's cap is reached.
+var errTooManyStreams = api.Fail(http.StatusServiceUnavailable, "too_many_streams", "too many open streams")
+
+// streamID is a page's id for its stream (?sid on events, ?cut on wait), "" when missing or too long to be one.
+func streamID(r *http.Request, name string) string {
+	if id := r.URL.Query().Get(name); len(id) <= maxStreamID {
+		return id
+	}
+	return ""
+}
+
+// handleWait is the long poll a client falls back to when a proxy buffers its event stream: every answer is a whole
+// response, which any proxy passes. ?after is the last seq the client has; an older room answers at once, else
+// the next change does, or the unchanged state after pollHold. A missing after answers at once. ?cut names the
+// stream the page gave up on, ended here.
+func (s *Service) handleWait(w http.ResponseWriter, r *http.Request, room *Room) {
+	session, err := s.streamSession(w, r, room)
+	if err != nil {
+		api.WriteError(w, r, err)
+		return
+	}
+	after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+	if err != nil {
+		after = -1
+	}
+	ch, cancel, cur, ok := room.Wait(s.o.Now(), session, s.o.ClientKey(r), streamID(r, "cut"), after)
+	if !ok {
+		httpx.SetRetryAfter(w, 5*time.Second)
+		api.WriteError(w, r, errTooManyStreams)
+		return
+	}
+	defer cancel()
+	if ch == nil {
+		httpx.WriteJSON(w, http.StatusOK, json.RawMessage(cur))
+		return
+	}
+	t := time.NewTimer(s.pollHold)
+	defer t.Stop()
+	select {
+	case <-r.Context().Done():
+		return
+	case <-ch: // a change, or the room closed
+	case <-t.C:
+	}
+	httpx.WriteJSON(w, http.StatusOK, room.State(s.o.Now()))
 }
 
 type joinRequest struct {
