@@ -31,6 +31,7 @@ describe("pairing", () => {
     const { code } = await world.device("p-jan").pair("invite");
     const fresh = world.device();
     const r = renderApp("/pair", fresh);
+    expect(r.container.querySelector(".scroll")).toHaveClass("form");
     fireEvent.change(screen.getByLabelText("Your code"), {
       target: { value: code },
     });
@@ -96,6 +97,8 @@ describe("setup", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/server|pair/i)).toBeNull();
+    // form and button a centered block on a wide screen
+    expect(r.container.querySelector(".scroll")).toHaveClass("form");
     fireEvent.change(screen.getByLabelText("Your name"), {
       target: { value: "Jan" },
     });
@@ -216,6 +219,8 @@ describe("profiles and devices", () => {
       screen.getByRole("button", { name: "Switch profile on this device" }),
     );
     expect(await screen.findByText("Who's playing?")).toBeInTheDocument();
+    // a centered block on a wide screen
+    expect(document.querySelector(".scroll")).toHaveClass("form");
     vi.useRealTimers();
   });
 

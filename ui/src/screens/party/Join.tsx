@@ -76,6 +76,7 @@ function JoinForm({
 
   return (
     <Screen
+      className="form"
       footer={
         <Button disabled={!ready} onClick={join}>
           {busy ? "Joining…" : "Join game"}

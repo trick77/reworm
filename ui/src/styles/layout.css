@@ -153,6 +153,46 @@
     padding-left: max(18px, calc((100% - 560px) / 2));
     padding-right: max(18px, calc((100% - 560px) / 2));
   }
+  /* the avatar picker: no hidden scroller for a mouse, all 12 in two rows of 6 (388px with the selected
+     ring's room: fits the 420 columns of join and pair and the unpaired card) */
+  .av-strip {
+    display: grid;
+    grid-template-columns: repeat(6, 52px);
+    gap: 12px;
+    justify-content: center;
+    overflow: visible;
+  }
+  /* single-column forms (join, setup, pair, who): form and button one block, centered in the window.
+     The container can't style .app itself, so auto margins on its children center them; the sibling
+     selector outranks the two-column screens' right-aligned .sticky-cta below. */
+  .scroll.form {
+    flex: 0 1 auto;
+    margin-top: auto;
+    /* the 560 column from 760 too, so the back button sits by the form, not at the window's edge */
+    padding-left: max(18px, calc((100% - 560px) / 2));
+    padding-right: max(18px, calc((100% - 560px) / 2));
+  }
+  .scroll.form:last-child {
+    margin-bottom: auto;
+  }
+  .scroll.form + .sticky-cta {
+    margin-bottom: auto;
+    display: flex;
+    justify-content: center;
+  }
+  /* who's playing: the profiles centered under the title, the last row too (a grid packs it left); 120px
+     keeps the room a 1fr track gave long names */
+  .who-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .who-grid > button {
+    width: 120px;
+  }
+  .scroll.form + .sticky-cta > .btn {
+    max-width: 420px;
+  }
 }
 @container app (min-width: 760px) {
   .scroll {
