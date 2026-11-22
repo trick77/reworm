@@ -76,7 +76,7 @@ describe("App", () => {
     const r = renderApp("/", new FakeWorld().device());
     await screen.findByRole("button", { name: "Create one" });
     expect(
-      screen.getByText(/Hosting and solo training need a profile/),
+      screen.getByText(/^Solo training needs a profile/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/pair/i)).toBeNull();
     expect(screen.queryByText(/server/i)).toBeNull();
@@ -99,7 +99,7 @@ describe("App", () => {
     expect(r.path()).toBe("/join");
   });
 
-  it("on a fresh install points to the setup link, no game buttons", async () => {
+  it("on a fresh install points to the setup link, the game playable already", async () => {
     const world = new FakeWorld({ seed: false });
     const r = renderApp("/", world.device());
     expect(
@@ -107,8 +107,13 @@ describe("App", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/docker logs/)).toBeInTheDocument();
     expect(screen.getByText("Play with friends")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Host/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Join/ })).toBeNull();
+    // anyone hosts: no profile needed, so no setup either
+    expect(
+      screen.getByRole("button", { name: "Join a game" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Host" }));
+    expect(r.path()).toBe("/host");
+    expect(await screen.findByLabelText("Room code")).toBeInTheDocument();
     expect(screen.queryByText(/Create one/)).toBeNull();
     expect(screen.queryByText(/server/i)).toBeNull();
     r.unmount();
@@ -134,13 +139,13 @@ describe("App", () => {
     expect(screen.getByText("Reworm isn't set up yet")).toBeInTheDocument();
     await waitFor(() => expect(me()).toBe(before + 1));
     expect(screen.getByText("Reworm isn't set up yet")).toBeInTheDocument();
-    // set up on another device meanwhile: back on the front, the game is there
+    // set up on another device meanwhile: back on the front, the setup card makes way for a profile of its own
     await world
       .device()
       .setup({ token: "fake-setup", name: "Jan", avatar: "vinyl" });
     fireEvent.focus(window);
     expect(
-      await screen.findByRole("button", { name: "Join a game" }),
+      await screen.findByRole("button", { name: "Create one" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Reworm isn't set up yet")).toBeNull();
     // with an answer in, coming back asks nothing

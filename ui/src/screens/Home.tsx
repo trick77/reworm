@@ -42,9 +42,9 @@ const STEPS: ReactNode[] = [
   "Fastest right answer takes the round.",
 ];
 
-// GameNight leads with Join on a guest's phone (no profile, can only join) and with Host on a paired device.
-// guest null: not known yet, no buttons, so a guest never taps a Host that turns into Join under the finger; also
-// a fresh install, where no game can exist.
+// GameNight leads with Join on a device without a profile (a guest's phone, mostly) and with Host on a paired
+// device; both work for anyone. guest null: not known yet, no buttons, so a guest never taps a Host that turns
+// into Join under the finger.
 function GameNight({ guest }: { guest: boolean | null }) {
   const [, go] = useLocation();
   const [first, second] = guest ? [JOIN, HOST] : [HOST, JOIN];
@@ -123,14 +123,12 @@ export function Home() {
             </button>
           )}
         </div>
-        {/* fresh: no profile anywhere, so no game to host or join: no buttons */}
-        <GameNight
-          guest={me ? false : fresh ? null : unpaired || meError ? true : null}
-        />
+        {/* anyone hosts or joins, a fresh install too; a profile is for solo training */}
+        <GameNight guest={me ? false : unpaired || meError ? true : null} />
         {fresh && <SetupPending />}
         {unpaired && !fresh && (
           <div className="sub" style={{ marginTop: 14, fontSize: 13 }}>
-            Hosting and solo training need a profile.{" "}
+            Solo training needs a profile.{" "}
             <button
               type="button"
               className="link"

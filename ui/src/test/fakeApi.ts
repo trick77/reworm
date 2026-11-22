@@ -439,7 +439,6 @@ export class FakeWorld {
   // ---- the room engine ----
 
   createRoom(deviceId: string, s: RoomSettings): string {
-    const dev = this.devices.get(deviceId)!;
     let code = this.codes.shift();
     while (!code || this.rooms.has(code)) {
       const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -463,7 +462,6 @@ export class FakeWorld {
         code,
         mode: s.mode,
         phase: "lobby",
-        hostId: dev.profileId!,
         toWin: s.toWin,
         settings: { deck: s.deck, clip: s.clip, difficulty: s.difficulty },
         players: [],
@@ -1000,8 +998,9 @@ export class FakeApi implements Api {
     });
   decks = () => this.log("decks", () => ok(FAKE_DECKS));
 
+  // anyone hosts: no profile needed, the device is the host
   createRoom = (s: RoomSettings) =>
-    this.paired("createRoom", () =>
+    this.log("createRoom", () =>
       ok({ code: this.world.createRoom(this.deviceId, s) }),
     );
   room = (code: string) =>
@@ -1053,6 +1052,13 @@ export class FakeApi implements Api {
       return ok(
         r && id && r.state.players.some((p) => p.id === id) ? id : null,
       );
+    });
+  roomHost = (code: string) =>
+    this.log("roomHost", () => {
+      const r = this.world.rooms.get(code);
+      return r
+        ? ok(r.hostDevice === this.deviceId)
+        : fail(404, "unknown_room", "no such room");
     });
   private hostOnly(name: string, code: string, f: () => Promise<void>) {
     return this.log(name, () => {

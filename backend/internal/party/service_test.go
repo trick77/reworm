@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
@@ -29,6 +30,7 @@ type env struct {
 	svc  *Service
 	acc  *account.Service
 	repo *deck.Repo
+	db   *sql.DB
 	mux  *http.ServeMux
 	mu   sync.Mutex
 	now  time.Time
@@ -48,7 +50,7 @@ func newEnv(t *testing.T, previews preview.Source) *env {
 			t.Fatal(err)
 		}
 	}
-	e := &env{t: t, now: t0}
+	e := &env{t: t, now: t0, db: db}
 	key := make([]byte, 32)
 	e.acc, err = account.New(account.Options{DB: db, Key: key, Now: e.clock})
 	if err != nil {
@@ -140,9 +142,6 @@ func (e *env) createRoom(h *browser, body any) string {
 func TestHTTP_yearsGame(t *testing.T) {
 	e := newEnv(t, &preview.Fake{})
 	h := e.pairedHost()
-	if rec := e.browser().do(http.MethodPost, "/api/rooms", Config{}); rec.Code != http.StatusUnauthorized {
-		t.Errorf("unpaired create = %d", rec.Code)
-	}
 	if rec := h.do(http.MethodPost, "/api/rooms", Config{Mode: "quiz"}); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad config = %d", rec.Code)
 	}
@@ -164,18 +163,24 @@ func TestHTTP_yearsGame(t *testing.T) {
 	// The host's own phone joins as the paired profile, no name needed.
 	jan := decodeBody[joinResponse](t, h.do(http.MethodPost, base+"/join", nil)).PlayerID
 
-	if rec := guest.do(http.MethodPost, base+"/start", nil); rec.Code != http.StatusUnauthorized {
-		t.Errorf("guest start = %d", rec.Code)
+	if rec := guest.do(http.MethodPost, base+"/start", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("guest start = %d, want 403 not_host", rec.Code)
 	}
 	rec = h.do(http.MethodPost, base+"/start", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("start = %d %s", rec.Code, rec.Body)
 	}
 	s := decodeBody[State](t, rec)
-	if s.Phase != PhasePlaying || s.HostID == "" || len(s.Players) != 2 || s.Round.ProposedYear == nil {
+	if s.Phase != PhasePlaying || len(s.Players) != 2 || s.Round.ProposedYear == nil {
 		t.Fatalf("started = %+v", s)
 	}
+	if strings.Contains(rec.Body.String(), "hostId") {
+		t.Errorf("state names the host: %s", rec.Body)
+	}
 	room, _ := e.svc.room(code)
+	if room.HistoryProfile() == "" {
+		t.Fatal("a paired host's room keeps no history")
+	}
 	// Start's background prefetch publishes the state (reads the round): wait for it before writing.
 	room.bg.Wait()
 	room.round.proposed = room.round.pick.song.Year + 4 // one point, not the game
@@ -230,9 +235,81 @@ func TestHTTP_yearsGame(t *testing.T) {
 		t.Errorf("rematch mid-game = %d", rec.Code)
 	}
 
-	played, err := e.repo.Played(context.Background(), s.HostID, t0.Add(-time.Hour))
+	played, err := e.repo.Played(context.Background(), room.HistoryProfile(), t0.Add(-time.Hour))
 	if err != nil || len(played) != 2 {
 		t.Errorf("played history = %v, %v; want the two rounds", played, err)
+	}
+}
+
+// Anyone hosts: a browser without a profile opens a room, its room cookie makes it the host of that room only, and
+// no history is kept for it.
+func TestHTTP_hostWithoutProfile(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	h := e.browser()
+	code := e.createRoom(h, Config{Mode: ModeYears, ToWin: 10, Deck: deck.Selector{Sets: []string{"essentials"}}})
+	base := "/api/rooms/" + code
+	if h.cookies["reworm_host"] == nil {
+		t.Fatalf("no host cookie: %v", h.cookies)
+	}
+	room, _ := e.svc.room(code)
+	if room.HistoryProfile() != "" {
+		t.Errorf("history profile = %q, want none", room.HistoryProfile())
+	}
+	guest := e.browser()
+	if rec := guest.do(http.MethodPost, base+"/join", joinRequest{Name: "Mia", Avatar: "mic"}); rec.Code != http.StatusOK {
+		t.Fatalf("join = %d %s", rec.Code, rec.Body)
+	}
+	if rec := guest.do(http.MethodPost, base+"/start", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("guest start = %d, want 403", rec.Code)
+	}
+	// The server, not the UI's storage, says who hosts; asking renews the host's cookie.
+	rec := h.do(http.MethodGet, base+"/host", nil)
+	if !decodeBody[hostResponse](t, rec).Host || !strings.Contains(rec.Header().Get("Set-Cookie"), "reworm_host=") {
+		t.Errorf("host asks = %s %v", rec.Body, rec.Header())
+	}
+	if decodeBody[hostResponse](t, guest.do(http.MethodGet, base+"/host", nil)).Host {
+		t.Error("a guest is told it hosts")
+	}
+	// Another host's cookie is for its own room only.
+	other := e.browser()
+	e.createRoom(other, Config{})
+	if rec := other.do(http.MethodPost, base+"/start", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("other host start = %d, want 403", rec.Code)
+	}
+	if decodeBody[hostResponse](t, other.do(http.MethodGet, base+"/host", nil)).Host {
+		t.Error("another room's host is told it hosts this one")
+	}
+	if rec := h.do(http.MethodPost, base+"/start", nil); rec.Code != http.StatusOK {
+		t.Fatalf("start = %d %s", rec.Code, rec.Body)
+	}
+	room.bg.Wait()
+	var n int
+	if err := e.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM played_history`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("played history rows = %d, %v; want none", n, err)
+	}
+	// The same browser hosting again keeps its host id: the earlier room ends.
+	again := e.createRoom(h, Config{})
+	if _, err := e.svc.room(code); err == nil {
+		t.Error("the host's earlier room is still open")
+	}
+	if rec := h.do(http.MethodPost, "/api/rooms/"+again+"/pause", nil); rec.Code != http.StatusConflict {
+		t.Errorf("host pause in the lobby = %d, want 409 (host, wrong phase)", rec.Code)
+	}
+}
+
+// A paired device whose lookup fails gets an error, not a room without its history.
+func TestHTTP_createLookupFails(t *testing.T) {
+	e := newEnv(t, &preview.Fake{})
+	h := e.pairedHost()
+	_ = e.db.Close()
+	if rec := h.do(http.MethodPost, "/api/rooms", Config{}); rec.Code != http.StatusInternalServerError {
+		t.Errorf("create = %d %s, want 500", rec.Code, rec.Body)
+	}
+	e.svc.mu.Lock()
+	n := len(e.svc.rooms)
+	e.svc.mu.Unlock()
+	if n != 0 {
+		t.Errorf("rooms = %d, want none", n)
 	}
 }
 
@@ -360,21 +437,20 @@ func TestRun_stopsWithTheContext(t *testing.T) {
 func TestMaxRooms(t *testing.T) {
 	e := newEnv(t, &preview.Fake{})
 	for i := range MaxRooms {
-		if _, err := e.svc.create(fmt.Sprint("p", i), Config{}); err != nil {
+		if _, err := e.svc.create(fmt.Sprint("p", i), "", Config{}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_, err := e.svc.create("p-last", Config{})
+	_, err := e.svc.create("p-last", "", Config{})
 	wantProblem(t, err, "too_many_rooms")
 }
 
-// One room per host: profiles are free to make, so one host must not hold every room. A new room ends the host's
-// earlier one, whatever its phase; other hosts' rooms stay.
+// One room per host: a new room ends the host's earlier one, whatever its phase; other hosts' rooms stay.
 func TestCreate_oneRoomPerHost(t *testing.T) {
 	e := newEnv(t, &preview.Fake{})
 	h := e.pairedHost()
 	code := e.createRoom(h, Config{})
-	other, err := e.svc.create("someone-else", Config{})
+	other, err := e.svc.create("someone-else", "", Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,19 +612,22 @@ func TestEvents_capReached(t *testing.T) {
 	}
 }
 
-// Under a path prefix the guest cookie stays scoped to the room API below it.
-func TestNew_guestCookiePath(t *testing.T) {
-	for base, want := range map[string]string{"": "/api/rooms/", "/reworm": "/reworm/api/rooms/"} {
+// Under a path prefix the guest and host cookies stay scoped to the room API below it; the host's also reaches
+// POST /api/rooms, so hosting again ends its earlier room.
+func TestNew_cookiePaths(t *testing.T) {
+	for base, want := range map[string]string{"": "/api/rooms", "/reworm": "/reworm/api/rooms"} {
 		s, err := New(Options{Key: make([]byte, 32), BasePath: base})
 		if err != nil {
 			t.Fatal(err)
 		}
-		rec := httptest.NewRecorder()
-		if err := s.guests.Issue(rec, auth.Claims{Subject: "p", Name: "K7Q4"}); err != nil {
-			t.Fatal(err)
-		}
-		if c := rec.Result().Cookies(); len(c) != 1 || c[0].Path != want {
-			t.Errorf("base %q: cookies = %v, want path %s", base, c, want)
+		for sessions, path := range map[*auth.Sessions]string{s.guests: want + "/", s.hosts: want} {
+			rec := httptest.NewRecorder()
+			if err := sessions.Issue(rec, auth.Claims{Subject: "p", Name: "K7Q4"}); err != nil {
+				t.Fatal(err)
+			}
+			if c := rec.Result().Cookies(); len(c) != 1 || c[0].Path != path {
+				t.Errorf("base %q: cookies = %v, want path %s", base, c, path)
+			}
 		}
 	}
 }

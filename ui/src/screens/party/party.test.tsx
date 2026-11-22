@@ -158,10 +158,11 @@ describe("party: lobby and join", () => {
     expect(s.queryByRole("group", { name: "First to" })).toBeNull();
   });
 
-  it("shows another profile viewing the lobby neither settings nor the stage line", async () => {
+  it("shows another device viewing the lobby neither settings nor the stage line", async () => {
     const world = new FakeWorld();
     await hostRoom(world);
-    const g = within(renderApp("/room/K7Q4", world.device("p-mia")).container);
+    // the host's own profile on another browser: the room's host is the browser that opened it
+    const g = within(renderApp("/room/K7Q4", world.device("p-jan")).container);
     expect(
       await g.findByText("The host's device starts the game."),
     ).toBeInTheDocument();
@@ -396,28 +397,33 @@ describe("party: lobby and join", () => {
     expect(world.rooms.size).toBe(1);
   });
 
-  it("makes a profile right on /host and goes on into the lobby, and reports a gone room", async () => {
+  it("opens a new room when the saved one is no longer this browser's", async () => {
+    const world = new FakeWorld();
+    const { stage } = await hostRoom(world);
+    stage.unmount();
+    // the saved room code stays, but this browser lost its host cookie: the server says it hosts nothing
+    const other = renderApp("/host", world.device());
+    await waitFor(() => expect(other.path()).not.toBe("/host"));
+    expect(other.path()).not.toBe("/room/K7Q4");
+    expect(world.rooms.size).toBe(2);
+    expect(
+      await within(other.container).findByRole("button", {
+        name: /Start game/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("hosts without a profile straight into the lobby, and reports a gone room", async () => {
     const world = new FakeWorld();
     const r = renderApp("/host", world.device());
-    expect(
-      await screen.findByText("Create a profile to host"),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/invite/i)).toBeNull();
-    fireEvent.change(screen.getByLabelText("Your name"), {
-      target: { value: "Lea" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create my profile" }));
     expect(await screen.findByLabelText("Room code")).toBeInTheDocument();
     expect(r.path()).toMatch(/^\/room\/[A-Z0-9]{4}$/);
-    const room = [...world.rooms.values()].at(-1)!;
-    expect(world.profiles.get(room.state.hostId)?.name).toBe("Lea");
+    expect(screen.queryByText(/profile/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /Start game/ })).toBeDisabled();
     r.unmount();
-    // a fresh install: no code to get yet, the setup link instead
+    // a fresh install hosts too
     const f = renderApp("/host", new FakeWorld({ seed: false }).device());
-    expect(
-      await screen.findByText("Reworm isn't set up yet"),
-    ).toBeInTheDocument();
-    expect(screen.queryByLabelText("Your code")).toBeNull();
+    expect(await screen.findByLabelText("Room code")).toBeInTheDocument();
     f.unmount();
     const g = renderApp("/room/GONE", world.device("p-jan"));
     expect(await screen.findByText("Room GONE is gone")).toBeInTheDocument();

@@ -5,8 +5,9 @@ JSON over HTTP. Live party state over SSE (kit/sse). Every path here is app-rela
 `previewUrl`, a path-only pair `url`) gets the same prefix from the client; absolute URLs are final. Only the probes
 (`/healthz`, `/readyz`) stay at the host's root. Cookies: device session `reworm_device` (kit/auth Sessions, path
 `<PUBLIC_PATH>/`, 1 year, claim = device id, checked against `devices` on every request, so a removed device is
-signed out at once) and room guest session `reworm_guest` (12 h, path `<PUBLIC_PATH>/api/rooms/`, claim = player id +
-room code). All times are server
+signed out at once), room guest session `reworm_guest` (12 h, path `<PUBLIC_PATH>/api/rooms/`, claim = player id +
+room code) and room host session `reworm_host` (12 h, renewed by every host call, path `<PUBLIC_PATH>/api/rooms`,
+claim = host id + room code). All times are server
 unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a proper status; kit's own refusals carry
 `error` only: 400 `malformed request` (body does not parse), 413 `request body too large`, 429 `rate limited` (with
 `Retry-After`).
@@ -60,11 +61,14 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   version; `If-None-Match` with it → 304. Covers no song names any more are removed at boot.
 
 ## Party rooms (main feature)
-- `POST /api/rooms` (paired device = host) `{mode: "years"|"buzzer", deck, toWin: 10, clip: {length: 20, start:
-  "chorus"|"random"}, difficulty: "easy"|"medium"|"hard"}` → 201 `{code: "K7Q4"}`. Every field optional (defaults as
-  shown; toWin 1–50, clip length 5–60 s). 400 `invalid_settings`. One room per host profile (profiles are free to
-  make, so one host must not fill the server's 200): a new room ends the host's earlier one, whatever its phase
-  (its players get 404). The UI resumes its own room (`hosting`) before it creates one.
+- `POST /api/rooms` (anyone, no profile) `{mode: "years"|"buzzer", deck, toWin: 10, clip: {length: 20, start:
+  "chorus"|"random"}, difficulty: "easy"|"medium"|"hard"}` → 201 `{code: "K7Q4"}` + host cookie (`reworm_host`,
+  12 h, path `/api/rooms`: the host id and the room code). Every field optional (defaults as shown; toWin 1–50, clip
+  length 5–60 s). 400 `invalid_settings`, 503 `too_many_rooms` past 200 open rooms (the only bound on creating).
+  One room per host: a browser holding a host cookie keeps its host id, and its new room ends its earlier one,
+  whatever its phase (its players get 404). A paired device's room orders the deck by that profile's played
+  history (last 90 days at the back) and adds its rounds to it; without a profile no history is read or kept. The
+  UI resumes its own room (`hosting`) before it creates one.
 - Codes are 4 symbols, case-insensitive. A room expires after 2 h without any action. Every room route meters
   unknown codes per client address (20, then 10 a minute; 429), so codes cannot be guessed cheaply; a known room
   costs nothing there. Reads (`GET` state, events, me) are limited to 5/s per address (burst 60).
@@ -75,13 +79,15 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   cookie for the room gets one with the stream; joining later on that cookie makes the open stream count as the
   player's connection (`connected`). `nextClip` is resolved in the background after start/next and arrives with a
   later `state` event.
+- `GET  /api/rooms/{code}/host` → `{host}`: whether this browser's host cookie hosts the room (renews it when it
+  does). The UI shows host controls and resumes its saved room (`hosting`) only on its word.
 - `GET  /api/rooms/{code}/me` → `{playerId}` the guest cookie or paired profile plays as | 401 `not_in_room` (no
   session for this room) | 403 `kicked`. The pad asks this instead of trusting its own storage.
 - `POST /api/rooms/{code}/join` `{name, avatar}` → guest cookie, `{playerId}` (paired profiles join with their
   profile, body optional; max 8 players, 409 `room_full`). The same cookie or profile joining again gets the same
   player (reconnect). A player joining during a round is `late` and plays from the next round. A kicked player or
   profile cannot rejoin the room (403 `kicked`). Rate-limited.
-- host only (the profile that created the room; 403 `not_host`, 401 unpaired), each answers the new `RoomState`:
+- host only (the host cookie of this room; 403 `not_host` otherwise), each answers the new `RoomState`:
   `POST …/start` (lobby; 409 `no_players`, 422 `deck_empty`), `…/next` (after a result; no song left → `over`),
   `…/pause` / `…/resume` (during a round; paused time extends every deadline), `…/rematch` (over → lobby, scores 0),
   `…/kick {playerId}` (for the room's lifetime; during a pause the round is settled on resume), `…/settings {…same
@@ -99,7 +105,7 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
 ```
 { code, seq, now, mode, phase: "lobby"|"countdown"|"playing"|"buzzed"|"judging"|"result"|"paused"|"over",
   pausedFrom?: "playing"|"buzzed"|"judging",   // only while paused: the phase the pause froze
-  hostId, toWin,
+  toWin,
   settings: {deck, clip, difficulty},
   players: [{ id, name, avatar, score, connected, state: "thinking"|"out"|"late"|"buzzed"|"answered" }],
   round: null | {
@@ -122,7 +128,7 @@ unix milliseconds. Errors: `{ "error": "<code>", "message": "<text>" }` with a p
   pause answer `wrong_phase` during it; a player joining then plays the round.
 - `winnerMs` is the winning press (years: the answer, buzzer: the buzz) in ms after `startedAt`, paused time left
   out; null without a winner.
-- `hostId` is the host's profile id. `connected` = the player has an event stream open. `clip.from` is seconds into
+- No host id: every player gets the state, and profiles are private. `connected` = the player has an event stream open. `clip.from` is seconds into
   the 90 s preview (0 for `chorus`). `coverUrl` is `/api/covers/{id}?v={version}` or null. `winnerId` is null when nobody scored.
   `nextClip` is null when the deck has nothing left. `round` stays after the result (and in `over`) until the next one.
 - `answered` = gave a correct answer (years); `out` = wrong answer this round (years); `late` = joined mid-round,

@@ -72,6 +72,8 @@ export interface Api {
   // roomMe: this browser's player in the room (guest cookie or profile); null when it has none or the
   // room is gone. A kicked player is refused (403 kicked).
   roomMe(code: string): Promise<string | null>;
+  // roomHost: whether this browser hosts the room (its host cookie, which asking renews).
+  roomHost(code: string): Promise<boolean>;
   host(code: string, action: HostAction): Promise<void>;
   kick(code: string, playerId: string): Promise<void>;
   roomSettings(code: string, settings: RoomSettings): Promise<void>;
@@ -227,6 +229,9 @@ export class HttpApi implements Api {
       throw e;
     }
   };
+  roomHost = async (code: string) =>
+    (await this.get<{ host?: boolean } | undefined>(`${room(code)}/host`))
+      ?.host === true;
   host = (code: string, action: HostAction) =>
     this.post(`${room(code)}/${action}`);
   kick = (code: string, playerId: string) =>

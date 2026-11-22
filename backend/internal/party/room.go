@@ -122,15 +122,18 @@ type Room struct {
 	mu    sync.Mutex
 	fetch sync.Mutex
 
-	code        string
-	hostProfile string
-	mode        string
-	toWin       int
-	settings    Settings
-	phase       string
-	pausedFrom  string
-	pausedAt    time.Time
-	players     []*player
+	code string
+	// hostID is the host's id from its room cookie, never sent to a client.
+	hostID string
+	// historyProfile is the profile whose played history orders the deck: the creating device's, "" for none.
+	historyProfile string
+	mode           string
+	toWin          int
+	settings       Settings
+	phase          string
+	pausedFrom     string
+	pausedAt       time.Time
+	players        []*player
 	// banned are the player and profile ids the host kicked, for the room's lifetime.
 	banned map[string]bool
 	round  *round
@@ -197,9 +200,9 @@ func (c *Config) Normalize(thisYear int) error {
 	return nil
 }
 
-func newRoom(code, hostProfile string, c Config, countdown time.Duration, clock func() time.Time, rng *rand.Rand,
+func newRoom(code, hostID string, c Config, countdown time.Duration, clock func() time.Time, rng *rand.Rand,
 	resolve Resolver) *Room {
-	r := &Room{code: code, hostProfile: hostProfile, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{}, clock: clock,
+	r := &Room{code: code, hostID: hostID, phase: PhaseLobby, banned: map[string]bool{}, streams: map[string]int{}, clock: clock,
 		rng: rng, resolve: resolve, hub: sse.NewHub[string](sse.HubOptions{Max: maxStreams, MaxPerKey: maxStreamsPerKey}),
 		countdown: countdown}
 	r.lastActive = clock()
@@ -262,7 +265,7 @@ func (r *Room) state() State {
 	set := r.settings
 	set.Deck.Sets, set.Deck.Categories, set.Deck.Genres = slices.Clone(set.Deck.Sets), slices.Clone(set.Deck.Categories),
 		slices.Clone(set.Deck.Genres)
-	s := State{Code: r.code, Seq: r.seq, Now: api.Millis(r.clock()), Mode: r.mode, Phase: r.phase, HostID: r.hostProfile,
+	s := State{Code: r.code, Seq: r.seq, Now: api.Millis(r.clock()), Mode: r.mode, Phase: r.phase,
 		ToWin: r.toWin, Settings: set, Players: make([]PlayerState, len(r.players))}
 	if r.phase == PhasePaused {
 		s.PausedFrom = r.pausedFrom
@@ -405,8 +408,11 @@ func (r *Room) member(playerID string) error {
 	return nil
 }
 
-// HostProfile is the profile that created the room.
-func (r *Room) HostProfile() string { return r.hostProfile }
+// HostID is the id of the host that created the room.
+func (r *Room) HostID() string { return r.hostID }
+
+// HistoryProfile is the profile whose played history orders the deck, "" for none.
+func (r *Room) HistoryProfile() string { return r.historyProfile }
 
 // Joiner is who joins: a guest by its session id (the player id its cookie carries), or a paired profile from a
 // device.
@@ -475,19 +481,19 @@ func (r *Room) idleSince() time.Time { return time.UnixMilli(r.idle.Load()) }
 
 // --- host actions ----------------------------------------------------------------------------------------------
 
-func (r *Room) host(profileID string) error {
-	if profileID == "" || profileID != r.hostProfile {
+func (r *Room) host(hostID string) error {
+	if hostID == "" || hostID != r.hostID {
 		return errNotHost
 	}
 	return nil
 }
 
 // Configure changes the settings, in the lobby only.
-func (r *Room) Configure(now time.Time, profileID string, c Config) error {
+func (r *Room) Configure(now time.Time, hostID string, c Config) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.touch(now)
-	if err := r.host(profileID); err != nil {
+	if err := r.host(hostID); err != nil {
 		return err
 	}
 	if r.phase != PhaseLobby {
@@ -500,11 +506,11 @@ func (r *Room) Configure(now time.Time, profileID string, c Config) error {
 
 // Kick removes a player for the rest of the room's life (player and profile). A running round is settled at once;
 // a paused one when it resumes.
-func (r *Room) Kick(now time.Time, profileID, playerID string) error {
+func (r *Room) Kick(now time.Time, hostID, playerID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now = r.touch(now)
-	if err := r.host(profileID); err != nil {
+	if err := r.host(hostID); err != nil {
 		return err
 	}
 	i := slices.IndexFunc(r.players, func(p *player) bool { return p.id == playerID })
@@ -548,9 +554,9 @@ func (r *Room) settle(now time.Time) {
 	}
 }
 
-func (r *Room) canStart(profileID string) error {
+func (r *Room) canStart(hostID string) error {
 	switch {
-	case r.host(profileID) != nil:
+	case r.host(hostID) != nil:
 		return errNotHost
 	case r.phase != PhaseLobby:
 		return errPhase
@@ -564,10 +570,10 @@ func (r *Room) canStart(profileID string) error {
 
 // Start begins the game: loads the deck's play order, resolves the first song and plays it, then prefetches the
 // next clip. The deck query and every preview lookup run outside the room lock. It returns the first song's id.
-func (r *Room) Start(ctx context.Context, profileID string, load Loader) (string, error) {
+func (r *Room) Start(ctx context.Context, hostID string, load Loader) (string, error) {
 	r.mu.Lock()
 	r.touch(r.clock())
-	err := r.canStart(profileID)
+	err := r.canStart(hostID)
 	sel, gen := r.settings.Deck, r.gen
 	r.mu.Unlock()
 	if err != nil {
@@ -578,7 +584,7 @@ func (r *Room) Start(ctx context.Context, profileID string, load Loader) (string
 		return "", err
 	}
 	r.mu.Lock()
-	if err := r.canStart(profileID); err != nil || r.gen != gen {
+	if err := r.canStart(hostID); err != nil || r.gen != gen {
 		r.mu.Unlock()
 		return "", errPhase
 	}
@@ -591,7 +597,7 @@ func (r *Room) Start(ctx context.Context, profileID string, load Loader) (string
 	r.mu.Lock()
 	now := r.touch(r.clock())
 	// The settings changed meanwhile (configure bumps gen): this queue is for the old deck.
-	if err := r.canStart(profileID); err != nil || r.gen != gen {
+	if err := r.canStart(hostID); err != nil || r.gen != gen {
 		r.mu.Unlock()
 		return "", errPhase
 	}
@@ -613,10 +619,10 @@ func (r *Room) Start(ctx context.Context, profileID string, load Loader) (string
 
 // Next plays the next round after a result; with no song left the game is over. It returns the song's id, "" when
 // none.
-func (r *Room) Next(ctx context.Context, profileID string) (string, error) {
+func (r *Room) Next(ctx context.Context, hostID string) (string, error) {
 	r.mu.Lock()
 	r.touch(r.clock())
-	err := r.host(profileID)
+	err := r.host(hostID)
 	if err == nil && r.phase != PhaseResult {
 		err = errPhase
 	}
@@ -723,11 +729,11 @@ func (r *Room) play(now time.Time, p pick, n int) {
 }
 
 // Pause freezes a running round; Resume moves its deadlines by the time it stood still.
-func (r *Room) Pause(now time.Time, profileID string) error {
+func (r *Room) Pause(now time.Time, hostID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now = r.touch(now)
-	if err := r.host(profileID); err != nil {
+	if err := r.host(hostID); err != nil {
 		return err
 	}
 	switch r.phase {
@@ -741,11 +747,11 @@ func (r *Room) Pause(now time.Time, profileID string) error {
 }
 
 // Resume continues a paused round and settles what changed while it stood still (a kick).
-func (r *Room) Resume(now time.Time, profileID string) error {
+func (r *Room) Resume(now time.Time, hostID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now = r.touch(now)
-	if err := r.host(profileID); err != nil {
+	if err := r.host(hostID); err != nil {
 		return err
 	}
 	if r.phase != PhasePaused {
@@ -772,11 +778,11 @@ func (r *Room) Resume(now time.Time, profileID string) error {
 }
 
 // Rematch takes a finished game back to the lobby with the same players.
-func (r *Room) Rematch(now time.Time, profileID string) error {
+func (r *Room) Rematch(now time.Time, hostID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.touch(now)
-	if err := r.host(profileID); err != nil {
+	if err := r.host(hostID); err != nil {
 		return err
 	}
 	if r.phase != PhaseOver {

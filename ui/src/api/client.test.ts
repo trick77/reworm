@@ -61,7 +61,6 @@ const state = (phase: RoomState["phase"], n = 0, seq = 1): RoomState => ({
   now: 0,
   mode: "years",
   phase,
-  hostId: "p1",
   toWin: 10,
   settings: {
     deck: { sets: [], categories: [], genres: [], from: 1900, to: 2025 },
@@ -164,6 +163,18 @@ describe("HttpApi calls", () => {
     await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ code: "kicked" });
     reply = Response.json({ error: "boom" }, { status: 500 });
     await expect(api.roomMe("K7Q4")).rejects.toMatchObject({ status: 500 });
+  });
+
+  it("asks the room whether this browser hosts it", async () => {
+    let reply = Response.json({ host: true });
+    const { fetch, calls } = fetchStub(() => reply);
+    const api = new HttpApi({ fetch, eventSource: (u) => new FakeES(u) });
+    expect(await api.roomHost("K7Q4")).toBe(true);
+    expect(calls[0].url).toBe("/api/rooms/K7Q4/host");
+    reply = Response.json({ host: false });
+    expect(await api.roomHost("K7Q4")).toBe(false);
+    reply = new Response(null, { status: 200 });
+    expect(await api.roomHost("K7Q4")).toBe(false);
   });
 
   it("names a non-JSON error by its status", async () => {
