@@ -9,24 +9,32 @@ without one stay in the dataset (no clip until an override). Last.fm, by the car
 main artist, else the MusicBrainz credit: the first track found gives the listeners and, by its top tags, the
 genres (else the artist's top tags); Rock Anthems and Schlager Fest add their genre, overrides included.
 
+Chart songs (`data/charts/*.csv`, from Wikipedia: Swiss, German, Austrian number ones and year-end top 10,
+Billboard Year-End Hot 100, UK top ten) are those no card names; a card of the same recording, or of the same
+first artist and title, wins. Their year is the
+MusicBrainz first release (the chart year only bounds the search), kept when Apple's track agrees within a
+year and it is no older than the first chart year. One only on Billboard needs a Last.fm listener minimum per
+release year. Each joins Mega Mix, rock or metal without pop/rap/dance/R&B/Latin also Rock Anthems, schlager
+Schlager Fest, a Last.fm "christmas" tag Christmas Hits.
+
 ## Totals
 
 | | count |
 |---|---:|
 | cards | 3036 |
 | cards without a year (dropped) | 0 |
-| songs | 2757 |
+| songs | 3009 |
 | card spellings merged into one recording | 27 |
-| MusicBrainz matched | 2656 |
-| MusicBrainz matched, no low-confidence note | 2115 |
-| Apple track with preview | 2663 |
+| MusicBrainz matched | 2908 |
+| MusicBrainz matched, no low-confidence note | 2314 |
+| Apple track with preview | 2915 |
 | no Apple preview | 94 |
-| Apple track on the original album | 1853 |
-| cover: Apple (original album) | 1853 |
-| cover: Cover Art Archive | 627 |
-| cover: none | 277 |
-| Last.fm track found | 2718 |
-| no genre | 216 |
+| Apple track on the original album | 2063 |
+| cover: Apple (original album) | 2063 |
+| cover: Cover Art Archive | 658 |
+| cover: none | 288 |
+| Last.fm track found | 2970 |
+| no genre | 242 |
 | overrides applied | 0 |
 
 ## Sets
@@ -34,41 +42,65 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | set | cards | no year | songs | MusicBrainz | Apple preview |
 |---|---:|---:|---:|---:|---:|
 | cheesy-classics | 308 | 0 | 308 | 304 | 302 |
-| christmas-hits | 154 | 0 | 154 | 147 | 151 |
+| christmas-hits | 154 | 0 | 157 | 150 | 154 |
 | crowd-pleasers | 226 | 0 | 226 | 225 | 224 |
 | essentials | 308 | 0 | 308 | 300 | 302 |
-| mega-mix | 500 | 0 | 500 | 497 | 498 |
+| mega-mix | 500 | 0 | 752 | 749 | 750 |
 | party-starters | 308 | 0 | 308 | 305 | 305 |
 | radio-gold | 154 | 0 | 154 | 151 | 150 |
-| rock-anthems | 308 | 0 | 308 | 308 | 307 |
+| rock-anthems | 308 | 0 | 314 | 314 | 313 |
 | schlager-fest | 308 | 0 | 307 | 282 | 290 |
 | screen-hits | 154 | 0 | 154 | 113 | 106 |
 | sunshine | 308 | 0 | 308 | 302 | 306 |
+
+## Charts
+
+| chart year | rows | on a card (same spelling) |
+|---|---:|---:|
+| 2023 | 269 | 52 |
+| 2024 | 260 | 67 |
+| 2025 | 243 | 29 |
+
+Chart songs added by release year (a card song spelled otherwise in a chart: 12):
+
+| year | added |
+|---|---:|
+| 2023 | 94 |
+| 2024 | 89 |
+| 2025 | 69 |
+
+Billboard-only listeners by release year (kept p10 / p50, left out p50 / p90):
+
+| year | kept | p10 | p50 | left out | p50 | p90 | minimum |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 2023 | 14 | 437484 | 570954 | 33 | 136329 | 342348 | 400000 |
+| 2024 | 17 | 439041 | 756617 | 24 | 82416 | 213942 | 300000 |
+| 2025 | 8 | 304460 | 545988 | 13 | 61325 | 181218 | 200000 |
 
 ## Categories
 
 | category | songs |
 |---|---:|
-| gen-alpha | 337 |
+| gen-alpha | 589 |
 
 ## Genres (Last.fm listeners of the songs Last.fm knows)
 
 | genre | songs | on Last.fm | p10 | p50 |
 |---|---:|---:|---:|---:|
-| chanson | 4 | 4 | 9898 | 9972 |
-| country | 51 | 50 | 831 | 185335 |
-| dance | 389 | 388 | 13675 | 329962 |
-| disco-funk | 170 | 170 | 15981 | 280344 |
-| hip-hop | 136 | 135 | 24852 | 292386 |
-| indie | 306 | 304 | 74823 | 971808 |
-| italo | 5 | 5 | 69228 | 125341 |
-| latin | 67 | 67 | 2256 | 195586 |
-| metal | 210 | 210 | 94384 | 582831 |
-| pop | 1157 | 1151 | 7579 | 301965 |
-| reggae | 53 | 53 | 58338 | 250451 |
-| rnb-soul | 329 | 328 | 30283 | 341497 |
-| rock | 880 | 878 | 32221 | 572595 |
-| schlager | 409 | 402 | 84 | 3295 |
+| chanson | 4 | 4 | 9906 | 9974 |
+| country | 62 | 61 | 1135 | 254418 |
+| dance | 421 | 420 | 12235 | 321469 |
+| disco-funk | 175 | 175 | 17987 | 294554 |
+| hip-hop | 206 | 205 | 16674 | 335168 |
+| indie | 332 | 330 | 59103 | 969043 |
+| italo | 6 | 6 | 69283 | 125463 |
+| latin | 78 | 78 | 3197 | 243280 |
+| metal | 211 | 211 | 97779 | 583886 |
+| pop | 1262 | 1256 | 7724 | 325880 |
+| reggae | 55 | 55 | 52556 | 250643 |
+| rnb-soul | 365 | 364 | 34601 | 388238 |
+| rock | 896 | 894 | 33264 | 579122 |
+| schlager | 407 | 400 | 84 | 3357 |
 
 ## Year conflicts: MusicBrainz or Apple more than a year off the song's year (card, or override) (361)
 
@@ -487,18 +519,22 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | The Rembrandts | I'll Be There for You (Theme from "Friends') | The Rembrandts | I'll Be There for You |
 | Whitney Houston | I Will Always Love You | Whitney Houston | Bodyguard (I Will Always Love You) |
 
-## Low-confidence matches (582)
+## Low-confidence matches (635)
 
 | artist | title | why |
 |---|---|---|
+| 4Batz and Drake | Act II: Date @ 8 | Apple track found by search (4batz – act ii: date @ 8) |
+| 6PM Records feat. Hurts, Luciano & Sira | Wonderful Life | MusicBrainz matched as 6PM Records – Wonderful Life |
 | A. R. Rahman | Slumdog Millionär (Jai Ho) | MusicBrainz matched as A. R. Rahman – Jai Ho |
 | A Touch Of Class | Around the World (La La La La La) | MusicBrainz matched as A Touch Of Class – Around the World; Apple track found by search (A Touch of Class – Around the World (La La La La La) [Radio Version]) |
+| Adam Port & Stryv feat. Keinemusik, Orso & Malachiii | Move | MusicBrainz matched as Adam Port & Stryv – Move |
 | Adele | James Bond 007 - Skyfall | MusicBrainz matched as Adele – Skyfall |
 | Aerosmith | Armageddon (I Don't Want to Miss a Thing) | MusicBrainz matched as Aerosmith – I Don't Want to Miss a Thing |
 | Alabama 3 | Die Sopranos (Woke Up This Morning) | MusicBrainz matched as Alabama 3 – Woke Up This Morning |
 | Alan Silvestri | Forrest Gump (Forrest Gump Suite) | MusicBrainz matched as Alan Silvestri – Forrest Gump; Apple track found by search (Alan Silvestri – Forrest Gump Suite) |
 | Alanis Morissette | You Oughta Know - 2015 Remaster | MusicBrainz matched as Alanis Morissette – You Oughta Know |
 | Alcatraz | Crying At the Discoteque | MusicBrainz has it only from 2015, after the card year |
+| Alex Warren & Jelly Roll | Bloodline | MusicBrainz matched as Alex Warren – Bloodline |
 | Alice Merton | No Roots - Live from Spotify Berlin | MusicBrainz matched as Alice Merton – No Roots |
 | Alisha | Deine braunen Augen | Apple track found by search (Alisha – Deine braunen Augen) |
 | All Time Low | Monsters (feat. blackbear) | MusicBrainz matched as All Time Low – Monsters |
@@ -518,6 +554,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Avicii, Sandro Cavazza | Without You (feat. Sandro Cavazza) | MusicBrainz matched as Avicii – Without You |
 | Avicii | Levels - Radio Edit | MusicBrainz matched as Avicii – Levels |
 | AYLIVA | Sie weiß (feat. Mero) | MusicBrainz matched as AYLIVA – Sie weiß |
+| Aymen feat. Sira | 30 Mal am Tag | MusicBrainz matched as Aymen – 30 Mal am Tag |
 | B 3 | I.O.I.O. | Apple track found by search (B 3 – I.O.I.O. (Radio Edit)) |
 | Barbra Streisand | So wie wir waren - The Way We Were | MusicBrainz matched as Barbra Streisand – The Way We Were |
 | Barenaked Ladies | The Big Bang Theory | MusicBrainz has it only from 2019, after the card year |
@@ -540,9 +577,11 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Bill Haley & His Comets | (We're Gonna) Rock Around The Clock | Apple track found by search (Bill Haley and His Comets – (We're Gonna) Rock Around the Clock) |
 | Bill Medley, Jennifer Warnes | (I've Had) The Time of My Life | MusicBrainz matched as Bill Medley – (I've Had) The Time of My Life |
 | Bill Ramsey | Zuckerpuppe (Aus der Bauchtanz-Truppe) | Apple track found by search (Bill Ramsey – Zuckerpuppe (Aus der Bauchtanzgruppe)) |
+| Billy Gillies featuring Hannah Boleyn | DNA (Loving You) | MusicBrainz matched as Billy Gillies – DNA (Loving You) |
 | Billy Mack | Tatsächlich Liebe (Christmas Is All Around) | MusicBrainz matched as Billy Mack – Christmas Is All Around |
 | Billy Mo | Ich kauf' mir lieber einen Tirolerhut | MusicBrainz has it only from 1987, after the card year; Apple track found by search (Billy Mo – Ich kauf' mir lieber einen Tirolerhut) |
 | Bing Crosby | I'll Be Home For Christmas | Apple track found by search (Bing Crosby – I'll Be Home For Christmas (If Only In My Dreams)) |
+| Bl3ss & CamrinWatsin featuring bbyclose | Kisses | MusicBrainz matched as Bl3ss & CamrinWatsin – Kisses |
 | Blind Guardian | Mirror Mirror - Remastered 2007 | MusicBrainz matched as Blind Guardian – Mirror Mirror |
 | blink-182 | First Date | Apple track found by search (blink-182 – First Date) |
 | Blondie | One Way Or Another - Remastered 2001 | MusicBrainz matched as Blondie – One Way Or Another |
@@ -575,12 +614,17 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Carly Simon | Die Waffen der Frauen (Let The River Run) | MusicBrainz matched as Carly Simon – Let The River Run; Apple track found by search (Carly Simon – Let the River Run) |
 | Carrière | Mein Ein und mein Alles | Apple track found by search (Carriére – Mein Ein und mein Alles) |
 | Cassandra Steen ft. Adel Tawil | Stadt | MusicBrainz matched as Cassandra Steen – Stadt |
+| Cassö feat. D-Block Europe & Raye | Prada | MusicBrainz matched as Cassö – Prada |
 | Caterina Valente, Silvio Francesco | Itsy Bitsy Teenie Weenie Honolulu Strand Bikini | Apple track found by search (Silvio Francesco & Caterina Valente – Itsy Bitsy Teenie Weenie Honolulu Strand Bikini) |
 | Catherine Zeta-Jones | Chicago (Cell Block Tango) | MusicBrainz matched as Catherine Zeta-Jones – Cell Block Tango |
 | C.C. Catch | Backseat of Your Cadillac | Apple track found by search (C.C. Catch – Backseat of Your Cadillac (Single Version)) |
 | CeeLo Green | All I Need Is Love (feat. Disney's the Muppets) | Apple track found by search (CeeLo Green – All I Need Is Love (feat. The Muppets)) |
+| Central Cee featuring 21 Savage | GBP | MusicBrainz matched as Central Cee – GBP |
+| Central Cee featuring Dave | CRG | MusicBrainz matched as Central Cee – CRG |
 | Chad Kroeger, Josey Scott | Spider-Man (Hero) | MusicBrainz matched as Chad Kroeger – Hero |
 | Charles Brown | Please Come Home For Christmas | Apple track found by search (Charles Brown – Please Come Home for Christmas) |
+| Charli XCX featuring Billie Eilish | Guess | Apple track found by search (Charli xcx – Guess) |
+| Chase & Status & Bou featuring Irah, Flowdan, Trigga & Takura | Baddadan | MusicBrainz matched as Chase & Status & Bou – Baddadan |
 | Cheryl | Fight For This Love | Apple track found by search (Cheryl – Fight for This Love (Moto Blanco Radio Edit)) |
 | Christian Anders | Geh nicht vorbei | Apple track found by search (Christian Anders – Geh' nicht vorbei (Französisch)) |
 | Christian Lais | Atemlos | Apple track found by search (Christian Lais – Atemlos (Radio Edit)) |
@@ -604,11 +648,15 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Cornelia Froboess | Pack Die Badehose Ein | Apple track found by search (Cornelia Froboess – Pack die Badehose ein) |
 | Costa Cordalis | Pan | Apple track found by search (Costa Cordalis – Pan) |
 | Craig David | Rise & Fall (feat. Sting) | MusicBrainz matched as Craig David – Rise & Fall |
+| Cynthia Erivo featuring Ariana Grande | Defying Gravity | MusicBrainz matched as Cynthia Erivo – Defying Gravity |
 | Daft Punk | Get Lucky (feat. Pharrell Williams and Nile Rodgers) | MusicBrainz matched as Daft Punk – Get Lucky |
 | Dana | All Kinds of Everything | Apple track found by search (Dana – All Kinds of Everything) |
 | Dana | It's Gonna Be a Cold, Cold Christmas | Apple track found by search (Dana – It's Gonna Be a Cold, Cold Christmas) |
 | Danny Elfman | Batman | MusicBrainz has it only from 2010, after the card year |
+| Dardan feat. Azet | Malli | MusicBrainz matched as Dardan – Malli |
 | Das Bo | Türlich, Türlich (Sicher, Dicker) | Apple track found by search (Das Bo – Türlich, Türlich (Sicher, Dicker)) |
+| Dave featuring James Blake | History | MusicBrainz matched as Dave – History |
+| Dave featuring Tems | Raindance | MusicBrainz matched as Dave – Raindance |
 | Dave Stewart (feat. Candy Dulfer) | Lily Was Here | Apple track found by search (Dave Stewart – Lily Was Here) |
 | David Bowie & Pat Metheny Group | This Is Not America | MusicBrainz matched as David Bowie – This Is Not America |
 | David Bowie | Heroes - 2017 Remaster | MusicBrainz matched as David Bowie – Heroes |
@@ -653,11 +701,16 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Douglas J. Cuomo | Sex And The City | MusicBrainz has it only from 2002, after the card year |
 | Drafi Deutscher | Heute male ich dein Bild, Cindy Lou (The Birds and the Bees) | MusicBrainz matched as Drafi Deutscher – Heute male ich dein Bild, Cindy Lou; Apple track found by search (Drafi Deutscher – Heute male ich dein Bild, Cindy Lou (The Birds and the Bees)) |
 | Drafi Deutscher | Marmor, Stein und Eisen bricht | MusicBrainz artist matched loosely (Drafi Deutscher and His Magics) |
+| Drake featuring J. Cole | First Person Shooter | MusicBrainz matched as Drake – First Person Shooter |
+| Drake featuring Sexyy Red and SZA | Rich Baby Daddy | MusicBrainz matched as Drake – Rich Baby Daddy |
+| Drake featuring SZA | Slime You Out | MusicBrainz matched as Drake – Slime You Out |
+| Drake featuring Yeat | IDGAF | MusicBrainz matched as Drake – IDGAF |
 | Eartha Kitt & Henri René and His Orchestra | Santa Baby | MusicBrainz matched as Eartha Kitt – Santa Baby; Apple track found by search (Eartha Kitt – Santa Baby) |
 | Ed Sheeran & Justin Bieber | I Don't Care (with Justin Bieber) | MusicBrainz matched as Ed Sheeran & Justin Bieber – I Don't Care |
 | Ed Sheeran | Merry Christmas | Apple track found by search (Ed Sheeran & Elton John – Merry Christmas) |
 | Electric Callboy | We Got the Moves | MusicBrainz has it only from 2023, after the card year |
 | Ella Endlich | Küss mich, Halt mich, Lieb mich (Drei Haselnüsse für Aschenbrödel) | MusicBrainz matched as Ella Endlich – Küss mich, Halt mich, Lieb mich; Apple track found by search (Ella Endlich – Küss mich, halt mich, lieb mich) |
+| Ella Henderson featuring Rudimental | Alibi | MusicBrainz matched as Ella Henderson – Alibi |
 | Eminem | 8 Mile (Lose Yourself) | MusicBrainz matched as Eminem – 8 Mile |
 | Enigma | Sadeness - Pt. 1 / Radio Edit | MusicBrainz matched as Enigma – Sadeness; Apple track found by search (Enigma – Sadeness (Part I) [Meditation Mix]) |
 | Ennio Morricone | Zwei glorreiche Halunken - The Good, The Bad And The Ugly | Apple track found by search (Ennio Morricone – The Good, The Bad and the Ugly (From "The Good, the Bad and the Ugly")) |
@@ -667,6 +720,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Eric Clapton | Phenomenon (Change the World) | MusicBrainz matched as Eric Clapton – Change the World |
 | Erik Silvester | Zucker im Kaffee | MusicBrainz has it only from 1978, after the card year; Apple track found by search (Erik Silvester – Zucker Im Kaffee) |
 | Eros Ramazzotti | Cose Della Vita (with Tina Turner) | MusicBrainz matched as Eros Ramazzotti – Cose Della Vita |
+| Eslabon Armado and Peso Pluma | Ella Baila Sola | MusicBrainz matched as Eslabon Armado – Ella Baila Sola |
 | Eternal | I Wanna Be the Only One (feat. Bebe Winans) | MusicBrainz matched as Eternal – I Wanna Be the Only One |
 | Eurythmics, Annie Lennox, Dave Stewart | Sweet Dreams (Are Made Of This) | MusicBrainz has it only from 2024, after the card year; Apple track found by search (Eurythmics – Sweet Dreams (Are Made of This)) |
 | Fantasy | Flaschenpost | Apple track found by search (Fantasy – Flaschenpost) |
@@ -714,6 +768,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Gunter Gabriel, Linda Feller | Wenn ich nur ein Trucker wär | MusicBrainz matched as Gunter Gabriel – Wenn ich nur ein Trucker wär; Apple track found by search (Gunter Gabriel & Linda Feller – Wenn ich nur ein Trucker wär) |
 | Gwen Stefani | You Make It Feel Like Christmas (feat. Blake Shelton) | MusicBrainz matched as Gwen Stefani – You Make It Feel Like Christmas |
 | H-Blockx | Risin' High - Def Core Grind Version | MusicBrainz matched as H-Blockx – Risin' High |
+| Hannah Laing featuring RoRo | Good Love | MusicBrainz matched as Hannah Laing – Good Love |
 | Harry Belafonte | Day-O (The Banana Boat Song) | MusicBrainz matched as Harry Belafonte – Day-O |
 | Harry Nilsson | Without You | MusicBrainz has it only from 1991, after the card year; Apple track found by search (Harry Nilsson – Without You) |
 | Harry Simeone Chorale | The Little Drummer Boy | Apple track found by search (Harry Simeone Chorale – The Little Drummer Boy) |
@@ -725,6 +780,8 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Hermes House Band | Country Roads (Dance Radio Version) | Apple track found by search (Hermes House Band – Country Roads (Radio Dance Version)) |
 | High School Musical Cast | High School Musical (We're All In This Together) | MusicBrainz matched as High School Musical Cast – We're All In This Together |
 | Howard Shore | Der Herr der Ringe (The Shire) | Apple track found by search (Howard Shore – The Shire) |
+| Hugel, Topic & Arash feat. Daecolm | I Adore You | Apple track found by search (HUGEL, Topic & Arash – I Adore You (feat. Daecolm)) |
+| Huntr/x (Ejae, Audrey Nuna, Rei Ami) | Golden | MusicBrainz artist matched loosely (HUNTR/X, EJAE, AUDREY NUNA, REI AMI & KPop Demon Hunters Cast) |
 | Ian Dury | Hit Me with Your Rhythm Stick | MusicBrainz artist matched loosely (Ian Dury & the Blockheads) |
 | Ich + Ich | So soll es bleiben - Single Edit | MusicBrainz matched as Ich + Ich – So soll es bleiben |
 | Icona Pop, Charli XCX | I Love It (feat. Charli XCX) | MusicBrainz matched as Icona Pop – I Love It |
@@ -732,6 +789,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Inner Circle | Bad Boys | Apple track found by search (Inner Circle – Bad Boys) |
 | Irene Cara | Fame - Der Weg zum Ruhm | MusicBrainz matched as Irene Cara – Fame |
 | Irene Cara | Flashdance...What a Feeling | MusicBrainz has it only from 2007, after the card year; Apple track found by search (Irene Cara – Flashdance...What a Feeling) |
+| J Hus featuring Drake | Who Told You | MusicBrainz matched as J Hus – Who Told You |
 | James Brown | Get Up I Feel Like Being Like A Sex Machine | MusicBrainz has it only from 1995, after the card year; Apple track found by search (James Brown – Get Up I Feel Like Being Like A Sex Machine (Pts. 1 & 2)) |
 | James Brown | Get Up I Feel Like Being Like A Sex Machine, Pts. 1 & 2 | MusicBrainz has it only from 2018, after the card year; Apple track found by search (James Brown – Get Up I Feel Like Being Like A Sex Machine, Pts. 1 & 2 (feat. The Original J.B.s)) |
 | James Horner | Braveheart (For The Love Of A Princess) | MusicBrainz matched as James Horner – For The Love Of A Princess |
@@ -770,6 +828,8 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Juju | Vermissen (feat. Henning May) | MusicBrainz matched as Juju – Vermissen |
 | Julie Andrews, Dick Van Dyke | Marry Poppins (Supercalifragilisticexpialidocious) | MusicBrainz matched as Julie Andrews, Dick Van Dyke – Supercalifragilisticexpialidocious |
 | Julio Iglesias & Willie Nelson | To All the Girls I've Loved Before | Apple track found by search (Julio Iglesias – To All the Girls I've Loved Before) |
+| Jung Kook featuring Jack Harlow | 3D | MusicBrainz matched as Jung Kook – 3D |
+| Jung Kook featuring Latto | Seven | MusicBrainz matched as Jung Kook – Seven |
 | Jürgen Drews | Wieder Alles im Griff | Apple track found by search (Jürgen Drews – Wieder alles im Griff (Version 2017)) |
 | Jürgen Marcus | Ein Festival der Liebe | Apple track found by search (Jürgen Marcus – Ein Festival der Liebe) |
 | Jürgen von der Lippe | Guten Morgen, liebe Sorgen | Apple track found by search (Jürgen von der Lippe – Guten Morgen, liebe Sorgen (Single)) |
@@ -783,9 +843,12 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Karen O, Ezra Koenig | Her (The Moon Song) | MusicBrainz matched as Karen O – The Moon Song |
 | Karl Dall | Millionen Frauen lieben mich | Apple track found by search (Karl Dall – Millionen Frauen lieben mich) |
 | Karl Jenkins | Adiemus | MusicBrainz has it only from 2002, after the card year |
+| Karol G and Shakira | TQG | Apple track found by search (KAROL G & Shakira – TQG) |
 | Katrina & The Waves | Walking On Sunshine | Apple track found by search (Katrina and the Waves – Walking On Sunshine) |
 | KC & The Sunshine Band | Shake Your Booty | MusicBrainz has it only from 1998, after the card year; Apple track found by search (KC and The Sunshine Band – Shake Your Booty) |
 | Keala Settle | Greatest Showman (This Is Me) | MusicBrainz matched as Keala Settle – This Is Me |
+| Kendrick Lamar featuring AzChike | Peekaboo | MusicBrainz matched as Kendrick Lamar – Peekaboo |
+| Kendrick Lamar featuring Lefty Gunplay | TV Off | MusicBrainz matched as Kendrick Lamar – TV Off |
 | Kendrick Lamar, SZA | Black Panther (All The Stars) | MusicBrainz matched as Kendrick Lamar – All The Stars |
 | Klaus & Klaus | An Der Nordseeküste | Apple track found by search (Klaus & Klaus – An der Nordseeküste) |
 | Klaus & Klaus | Der Eiermann | Apple track found by search (Klaus & Klaus – Der Eiermann) |
@@ -795,9 +858,11 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Klostertaler, Kastelruther Spatzen, Nockis | Hal-Le-Lu-Ja | Apple track found by search (Klostertaler, Kastelruther Spatzen & Nockis – Hal-le-lu-ja) |
 | Klostertaler | Ciao D'Amore | Apple track found by search (Klostertaler – Ciao D'amore) |
 | K.Maro | Femme Like U | MusicBrainz has it only from 2008, after the card year; Apple track found by search (K.Maro – Femme Like U) |
+| Kontra K feat. Santos | Die Sonne | MusicBrainz matched as Kontra K – Die Sonne |
 | Kraftwerk | Taschenrechner - 2009 Remaster | MusicBrainz matched as Kraftwerk – Taschenrechner |
 | Kristina Bach | ...es kribbelt und es prickelt... | Apple track found by search (Kristina Bach – ... es kribbelt und es prickelt...) |
 | Kristine W | Feel What You Want | Apple track found by search (Kristine W – Feel What You Want (Our Tribe Vocal Mix)) |
+| KSI featuring Trippie Redd | Thick of It | MusicBrainz matched as KSI – Thick of It |
 | Kygo | It Ain't Me (with Selena Gomez) | MusicBrainz matched as Kygo – It Ain't Me |
 | Kylie Minogue | Every Day's Like Christmas | Apple track found by search (Kylie Minogue – Every Day's Like Christmas) |
 | Lady A | Need You Now | Apple track found by search (Lady A – Need You Now) |
@@ -821,6 +886,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Liza Minnelli | Cabaret | Apple track found by search (Liza Minnelli – Cabaret) |
 | Lizzo | Good as Hell | Apple track found by search (Lizzo – Good As Hell) |
 | Louis Prima | Buona sera | MusicBrainz has it only from 1956, after the card year |
+| Luca-Dante Spadafora, Niklas Dee & Octavian | Mädchen auf dem Pferd | MusicBrainz matched as Luca-Dante Spadafora – Mädchen auf dem Pferd |
 | Luis Bacalov, Rocky Roberts | Django Unchained (Django) | MusicBrainz matched as Luis Bacalov – Django |
 | Luis Fonsi & Demo Lovato | Échame La Culpa | MusicBrainz matched as Luis Fonsi – Échame La Culpa |
 | Macklemore & Ryan Lewis | Can't Hold Us (feat. Ray Dalton) | MusicBrainz matched as Macklemore & Ryan Lewis – Can't Hold Us |
@@ -870,6 +936,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Mike Krüger | Bodo mit dem Bagger | Apple track found by search (Mike Krüger – Bodo mit dem Bagger (Remastered 2023)) |
 | Mike Krüger | Das Trampolin - Live | MusicBrainz matched as Mike Krüger – Das Trampolin |
 | Mike Krüger | Der Nippel | Apple track found by search (Mike Krüger – Der Nippel (Remastered 2023)) |
+| MK featuring Chrystal | Dior | MusicBrainz matched as MK – Dior |
 | Modjo | Lady - Hear Me Tonight | MusicBrainz matched as Modjo – Lady |
 | Moloko | Sing It Back - Boris Musical Mix - Edit | MusicBrainz matched as Moloko – Sing It Back |
 | Monique | Sieben Tage, Sieben Nächte | Apple track found by search (Mo'Nique – Sieben Tage, sieben Nächte) |
@@ -910,6 +977,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | OMI (feat. Felix Jaehn) | Cheerleader | MusicBrainz matched as OMI – Cheerleader |
 | OneRepublic | Run | MusicBrainz has it only from 2021, after the card year |
 | Otto Waalkes | Wir haben Grund zum Feiern | Apple track found by search (Otto Waalkes – Wir haben Grund zum Feiern) |
+| Pashanim feat. Ceren | Shabab(e)s im VIP | MusicBrainz matched as Pashanim – Shabab(e)s im VIP; Apple track found by search (Pashanim & Ceren – Shabab(e)s im VIP) |
 | Patrick Hernandez | Born to Be Alive | Apple track found by search (Patrick Hernandez – Born to Be Alive (Extended Version)) |
 | Patrick Lindner | Halleluja - Auf das Leben | Apple track found by search (Patrick Lindner – Halleluja - Auf das Leben) |
 | Patrick Lindner | Weihnachten bin ich daheim | Apple track found by search (Patrick Lindner – Weihnachten bin ich daheim) |
@@ -929,6 +997,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Pink Floyd | Money - 2023 Remaster | MusicBrainz matched as Pink Floyd – Money |
 | Pitbull | Give Me Everything (feat. Nayer) | MusicBrainz matched as Pitbull – Give Me Everything |
 | Plüsch | Heimweh | Apple track found by search (Plüsch – Heimweh) |
+| Post Malone featuring Morgan Wallen | I Had Some Help | MusicBrainz matched as Post Malone – I Had Some Help |
 | Pras (feat. Ol' Dirty Bastard & Mýa) | Ghetto Supastar (That is What You Are) | MusicBrainz matched as Pras – Ghetto Supastar (That is What You Are) |
 | Pras | Ghetto Supastar (That is What You Are) (feat. Ol' Dirty Bastard & Mýa) | MusicBrainz matched as Pras – Ghetto Supastar |
 | Prince Ital Joe | United (feat. Marky Mark) | MusicBrainz matched as Prince Ital Joe – United |
@@ -940,6 +1009,8 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Queen | A Winter's Tale - 2011 Remaster | MusicBrainz matched as Queen – A Winter's Tale |
 | Queen | Highlander - Es kann nur einen geben (Princes Of The Universe) | MusicBrainz matched as Queen – Princes Of The Universe |
 | Queen | I Want To Break Free | Apple track found by search (Queen – I Want to Break Free) |
+| RAF Camora feat. Apache 207 | Jupiter | MusicBrainz matched as RAF Camora – Jupiter |
+| RAF Camora feat. Ski Aggu | Liebe Grüße | MusicBrainz matched as RAF Camora – Liebe Grüße |
 | Ray Charles | Georgia on My Mind | Apple track found by search (Ray Charles and His Orchestra – Georgia On My Mind) |
 | Ray Charles | Hit the Road Jack | Apple track found by search (Ray Charles – Hit the Road Jack) |
 | Rednex | The Spirit of the Hawk | Apple track found by search (Rednex – The Spirit of the Hawk) |
@@ -950,6 +1021,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Robert D. | Matrix (Clubbed to Death) | Apple track found by search (Robert D – Clubbed to Death (From "the Matrix")) |
 | Robert Folk | Police Academy | MusicBrainz has it only from 1993, after the card year |
 | Robin Beck | First Time | Apple track found by search (Robin Beck – First Time) |
+| Robin Schulz & Oliver Tree | Miss You | Apple track found by search (Oliver Tree & Robin Schulz – Miss You) |
 | Robin Schulz,Lilly Wood and The Prick | Prayer in C | MusicBrainz matched as Robin Schulz – Prayer in C; Apple track found by search (Lilly Wood & The Prick & Robin Schulz – Prayer in C (Robin Schulz Radio Edit)) |
 | Robin Schulz | In Your Eyes (feat. Alida) | MusicBrainz matched as Robin Schulz – In Your Eyes |
 | Robin Thicke | When I Get You Alone | MusicBrainz knows no release date for it; Apple track found by search (Robin Thicke – When I Get You Alone) |
@@ -960,6 +1032,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Ronan Keating | Notting Hill (When You Say Nothing At All) | MusicBrainz matched as Ronan Keating – When You Say Nothing At All |
 | Roy Black | Wünsche und Gedanken | Apple track found by search (Roy Black – Wünsche und Gedanken) |
 | Rudi Carrell | Goethe war gut | Apple track found by search (Rudi Carrell – Goethe war gut) |
+| Rudimental featuring Charlotte Plank & Vibe Chemistry | Dancing Is Healing | MusicBrainz matched as Rudimental – Dancing Is Healing |
 | Rudimental | Waiting All Night (feat. Ella Eyre) | MusicBrainz matched as Rudimental – Waiting All Night |
 | Rufus, Chaka Khan | Ain't Nobody | MusicBrainz matched as Rufus – Ain't Nobody |
 | Ryan Gosling, Emma Stone | La La Land (City Of Stars) | MusicBrainz matched as Ryan Gosling, Emma Stone – City Of Stars; Apple track found by search (Ryan Gosling – City of Stars) |
@@ -968,6 +1041,8 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | S Club | Don't Stop Movin' | MusicBrainz has it only from 2004, after the card year |
 | Sabrina | Boys - Summertime Love | MusicBrainz matched as Sabrina – Boys |
 | Sade | Smooth Operator - Single Version | MusicBrainz matched as Sade – Smooth Operator |
+| Saja Boys: Andrew Choi, Neckwav, Danny Chung, Kevin Woo and Samuil Lee | Soda Pop | MusicBrainz artist matched loosely (Saja Boys (Andrew Choi, Neckwav, Danny Chung, KEVIN WOO & samUIL Lee) & KPop Demon Hunters Cast) |
+| Saja Boys: Andrew Choi, Neckwav, Danny Chung, Kevin Woo and Samuil Lee | Your Idol | MusicBrainz artist matched loosely (Saja Boys (Andrew Choi, Neckwav, Danny Chung, KEVIN WOO & samUIL Lee) & KPop Demon Hunters Cast) |
 | Sam Cooke | (What A) Wonderful World | MusicBrainz has it only from 1995, after the card year |
 | Sam Cooke | (What A) Wonderful World - Mono | Apple track found by search (Sam Cooke – (What A) Wonderful World (Mono)) |
 | Sam Feldt | Post Malone (feat. RANI) | Apple track found by search (Sam Feldt – Post Malone (feat. RANI)) |
@@ -986,6 +1061,8 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Shakira | La Tortura (feat. Alejandro Sanz) | MusicBrainz matched as Shakira – La Tortura |
 | Shawn Mendes, Camila Cabello | Señorita | MusicBrainz matched as Shawn Mendes – Señorita |
 | Simone | Solang wir lieben | Apple track found by search (Simone – Solang wir lieben) |
+| Ski Aggu feat. Joost & Otto Waalkes | Friesenjung | MusicBrainz matched as Ski Aggu – Friesenjung |
+| Ski Aggu | Z0rnig (2024) | MusicBrainz matched as Ski Aggu – Z0rnig |
 | Small Faces | Itchycoo Park | Apple track found by search (Small Faces – Itchycoo Park (Stereo Version) [2013 Remaster]) |
 | Smash Mouth | All Star | Apple track found by search (Smash Mouth – All Star) |
 | Söhne Mannheims | Und wenn ein Lied - Radio Edit | MusicBrainz matched as Söhne Mannheims – Und wenn ein Lied |
@@ -999,6 +1076,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Steve Harley | Make Me Smile (Come up and See Me) | MusicBrainz artist matched loosely (Steve Harley & Cockney Rebel) |
 | Stevie Wonder | Superstition - Single Version | MusicBrainz matched as Stevie Wonder – Superstition |
 | Stu Phillips | Knight Rider | MusicBrainz has it only from 1989, after the card year |
+| SZA and Kendrick Lamar | 30 for 30 | MusicBrainz matched as SZA – 30 for 30 |
 | Taio Cruz, Flo Rida | Hangover | MusicBrainz matched as Taio Cruz – Hangover |
 | The Animals | House of the Rising Sun | MusicBrainz has it only from 1970, after the card year; Apple track found by search (The Animals – House of the Rising Sun) |
 | The Bangles | Eternal Flame | MusicBrainz has it only from 1997, after the card year; Apple track found by search (The Bangles – Eternal Flame) |
@@ -1042,6 +1120,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Toni Braxton | Christmas In Jamaica (feat. Shaggy) | MusicBrainz matched as Toni Braxton – Christmas In Jamaica |
 | Tony Marshall | Auf der Straße nach Süden | Apple track found by search (Tony Marshall – Auf der Straße nach Süden) |
 | Torfrock | Beinhart | Apple track found by search (Torfrock – Beinhart) |
+| Travis Scott featuring Drake | Meltdown | MusicBrainz matched as Travis Scott – Meltdown |
 | Trenkwalder | Verliab di | Apple track found by search (Trenkwalder – Verliab di) |
 | Trio Rio | New York-Rio-Tokyo | Apple track found by search (Trio Rio – New York-Rio-Tokyo) |
 | Truck Stop | Emmylou, Emmylou | Apple track found by search (Truck Stop – Emmylou, Emmylou) |
@@ -1049,6 +1128,9 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Trude Herr | Weil ich so sexy bin | Apple track found by search (Trude Herr – Weil ich so sexy bin) |
 | T.S. Monk | Bon bon vie - Gimme the Good Life | MusicBrainz matched as T.S. Monk – Bon bon vie |
 | Twenty One Pilots | Suicide Squad (Heathens) | MusicBrainz matched as Twenty One Pilots – Heathens |
+| Twenty4tim feat. Kitty Kat | Hot or Not | MusicBrainz matched as Twenty4tim – Hot or Not |
+| Tyler, the Creator featuring GloRilla, Sexyy Red and Lil Wayne | Sticky | MusicBrainz matched as Tyler, the Creator – Sticky |
+| Tyler, the Creator featuring Lola Young | Like Him | MusicBrainz matched as Tyler, the Creator – Like Him |
 | U2 | With Or Without You | MusicBrainz has it only from 1987, after the card year |
 | Udo Lindenberg & Das Panik-Orchester | Sonderzug nach Pankow | MusicBrainz matched as Udo Lindenberg – Sonderzug nach Pankow |
 | Udo Lindenberg | Ein Herz kann man nicht reparieren | MusicBrainz has it only from 2004, after the card year; Apple track found by search (Udo Lindenberg – Ein Herz kann man nicht reparieren) |
@@ -1059,6 +1141,7 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Vanessa Carlton | A Thousand Miles | Apple track found by search (Vanessa Carlton – A Thousand Miles (Interlude)) |
 | Vangelis | Die Stunde des Siegers | MusicBrainz has it only from 2009, after the card year |
 | Vaughn Monroe | Let It Snow! Let It Snow! Let It Snow! | Apple track found by search (Vaughn Monroe – Let It Snow, Let It Snow, Let It Snow) |
+| Venbee & Goddard. | Messy in Heaven | Apple track found by search (venbee & goddard. – messy in heaven) |
 | Vikinger | Das Kann Nur Liebe Sein (En Vän Som Du) | MusicBrainz matched as Vikinger – Das Kann Nur Liebe Sein |
 | Vincent Gross | Ouzo | Apple track found by search (Vincent Gross – Ouzo) |
 | voXXclub | Was geht hier ab | Apple track found by search (voXXclub – Was geht hier ab) |
@@ -1072,7 +1155,9 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | Wolfgang Ziegler | Ich küss dir die Angst von deiner Haut | Apple track found by search (Wolfgang Ziegler – Ich küss dir die Angst von deiner Haut) |
 | Wolfram | Trödler Abraham | Apple track found by search (Wolfram – Trödler Abraham) |
 | Youssou N'Dour | 7 Seconds (feat. Neneh Cherry) | MusicBrainz matched as Youssou N'Dour – 7 Seconds |
+| Yung Yury | Tabu | Apple track found by search (Yung Yury & Damn Yury – TABU.) |
 | Yusuf / Cat Stevens | Father And Son | MusicBrainz matched as Yusuf – Father And Son |
+| Zach Bryan featuring Kacey Musgraves | I Remember Everything | MusicBrainz matched as Zach Bryan – I Remember Everything |
 
 ## Not found on MusicBrainz (101)
 
@@ -1322,3 +1407,434 @@ genres (else the artist's top tags); Rock Anthems and Schlager Fest add their ge
 | The Snowths | Die Muppet Show (Mah Na Mah Na) |  |
 | Vicky Leandros | Theo, wirfahr'n nach Lodz | pop, schlager |
 | Wencke Myhre | Ich Glou'an Den Weihnachtsmann | schlager |
+
+## Chart songs added (252)
+
+| artist | title | year | charts | sets | genres | listeners |
+|---|---|---:|---|---|---|---:|
+| 21 Savage | Redrum | 2024 | billboard | mega-mix | hip-hop | 964108 |
+| 4Batz and Drake | Act II: Date @ 8 | 2024 | billboard | mega-mix | hip-hop, rnb-soul | 447028 |
+| 6PM Records feat. Hurts, Luciano & Sira | Wonderful Life | 2023 | ch, de | mega-mix | reggae | 23658 |
+| Adam Port & Stryv feat. Keinemusik, Orso & Malachiii | Move | 2024 | ch, uk | mega-mix | dance | 397759 |
+| Addison Rae | Diet Pepsi | 2024 | uk | mega-mix | pop | 1194849 |
+| Alessandra | Queen of Kings | 2023 | uk | mega-mix | pop | 169136 |
+| Alex Warren & Jelly Roll | Bloodline | 2025 | uk | mega-mix | pop | 129270 |
+| Alex Warren | Eternity | 2025 | uk | mega-mix | pop | 304477 |
+| Alex Warren | Ordinary | 2024 | at, billboard, ch, de, uk | mega-mix | country, pop | 790756 |
+| Ariana Grande | Twilight Zone | 2025 | uk | mega-mix | pop | 641209 |
+| Ariana Grande | We Can't Be Friends (Wait for Your Love) | 2024 | billboard, uk | mega-mix | pop | 1511170 |
+| Ariana Grande | Yes, And? | 2024 | billboard, ch, uk | mega-mix | dance, pop | 1190504 |
+| Ayliva feat. Apache 207 | Wunder | 2024 | de | mega-mix | pop | 38593 |
+| Ayliva | Hässlich | 2023 | de | mega-mix | pop | 32290 |
+| Ayliva | Lieb mich | 2024 | de | mega-mix | pop | 15848 |
+| Aymen feat. Sira | 30 Mal am Tag | 2025 | de | mega-mix | dance, pop | 14393 |
+| Bad Bunny | Baile Inolvidable | 2025 | billboard | mega-mix | latin | 1043690 |
+| Bad Bunny | DTMF | 2025 | billboard, ch | mega-mix | latin | 1423806 |
+| Bad Bunny | Eoo | 2025 | billboard | mega-mix | latin | 904428 |
+| Bad Bunny | Monaco | 2023 | billboard | mega-mix | hip-hop, latin | 570954 |
+| Bad Bunny | Nuevayol | 2025 | billboard | mega-mix | latin | 1131144 |
+| Bad Bunny | Where She Goes | 2023 | billboard | mega-mix | latin | 442674 |
+| Becky Hill & Chase & Status | Disconnect | 2023 | uk | mega-mix | pop | 158718 |
+| Bennett | Vois sur ton chemin (Techno Mix) | 2023 | at, ch, de | mega-mix | dance, hip-hop | 12081 |
+| Benson Boone | Mystical Magical | 2025 | billboard | mega-mix | pop, rock | 545988 |
+| Benson Boone | Slow It Down | 2024 | billboard | mega-mix | pop | 527366 |
+| Benson Boone | Sorry I'm Here for Someone Else | 2025 | billboard | mega-mix | pop | 316198 |
+| Beyoncé & Miley Cyrus | II Most Wanted | 2024 | uk | mega-mix | pop, rnb-soul | 395573 |
+| Beyoncé | Jolene | 2024 | uk | mega-mix | pop, rnb-soul | 402317 |
+| Billie Eilish | Birds of a Feather | 2024 | billboard, ch, uk | mega-mix | pop | 2347513 |
+| Billie Eilish | Chihiro | 2024 | uk | mega-mix | dance | 1631929 |
+| Billie Eilish | Lunch | 2024 | billboard, uk | mega-mix | pop | 1651913 |
+| Billie Eilish | What Was I Made For? | 2023 | billboard, ch, uk | mega-mix | indie, pop | 26789 |
+| Billie Eilish | Wildflower | 2024 | billboard, uk | mega-mix | pop | 1749998 |
+| Billy Gillies featuring Hannah Boleyn | DNA (Loving You) | 2023 | uk | mega-mix | dance | 63295 |
+| Bl3ss & CamrinWatsin featuring bbyclose | Kisses | 2024 | uk | mega-mix | dance | 350970 |
+| Bonez MC & Gzuz | Cinnamon Roll | 2023 | at | mega-mix | hip-hop | 26928 |
+| Bonez MC | So | 2023 | at | mega-mix | hip-hop | 127 |
+| Bryson Tiller | Whatever She Wants | 2024 | billboard | mega-mix | hip-hop, rnb-soul | 533979 |
+| Calvin Harris & Sam Smith | Desire | 2023 | uk | mega-mix | dance | 5582 |
+| Calvin Harris featuring Clementine Douglas | Blessings | 2025 | uk | mega-mix | dance | 311674 |
+| Cassö feat. D-Block Europe & Raye | Prada | 2023 | at, de, uk | mega-mix | dance | 631171 |
+| Central Cee & Lil Baby | Band4Band | 2024 | uk | mega-mix | hip-hop | 22494 |
+| Central Cee featuring 21 Savage | GBP | 2025 | uk | mega-mix | hip-hop | 3666 |
+| Central Cee featuring Dave | CRG | 2025 | uk | mega-mix | hip-hop | 2829 |
+| Chappell Roan | Good Luck, Babe! | 2024 | billboard, uk | mega-mix | pop | 2199951 |
+| Chappell Roan | Hot to Go! | 2023 | billboard, uk | mega-mix | indie, pop | 1668633 |
+| Chappell Roan | The Giver | 2025 | uk | mega-mix | country, pop | 695418 |
+| Chappell Roan | The Subway | 2025 | uk | mega-mix | pop, rock | 1041961 |
+| Charli XCX featuring Ariana Grande | Sympathy Is a Knife | 2024 | uk | mega-mix | pop | 1106215 |
+| Charli XCX featuring Billie Eilish | Guess | 2024 | uk | mega-mix | dance, pop | 608759 |
+| Charli XCX | Apple | 2024 | uk | mega-mix | pop | 1502092 |
+| Charli XCX | Speed Drive | 2023 | uk | mega-mix | dance, pop | 360437 |
+| Chase & Status & Bou featuring Irah, Flowdan, Trigga & Takura | Baddadan | 2023 | uk | mega-mix |  | 3443 |
+| Chase & Status & Stormzy | Backbone | 2024 | uk | mega-mix | dance | 170516 |
+| Chrystal | The Days | 2024 | uk | mega-mix | pop, rnb-soul | 73384 |
+| Cynthia Erivo featuring Ariana Grande | Defying Gravity | 2024 | uk | mega-mix | pop, rnb-soul | 479949 |
+| Dardan feat. Azet | Malli | 2023 | ch | mega-mix | hip-hop | 20248 |
+| Dave & Central Cee | Sprinter | 2023 | ch, uk | mega-mix | hip-hop | 764002 |
+| Dave featuring James Blake | History | 2025 | uk | mega-mix |  | 1939 |
+| Dave featuring Tems | Raindance | 2025 | uk | mega-mix | hip-hop | 23806 |
+| David Kushner | Daylight | 2023 | at, billboard, ch, uk | mega-mix | pop | 850267 |
+| Disco Lines & Tinashe | No Broke Boys | 2025 | uk | mega-mix | dance, pop | 651158 |
+| Doechii | Denial Is a River | 2024 | billboard, uk | mega-mix | hip-hop | 1291687 |
+| Doja Cat | Agora Hills | 2023 | billboard | mega-mix | hip-hop, rnb-soul | 1275617 |
+| Don Toliver | No Pole | 2023 | billboard | mega-mix | pop | 1171804 |
+| Drake & Central Cee | Which One | 2025 | uk | mega-mix |  | 6045 |
+| Drake featuring J. Cole | First Person Shooter | 2023 | billboard, uk | mega-mix | hip-hop | 721179 |
+| Drake featuring Sexyy Red and SZA | Rich Baby Daddy | 2023 | billboard, uk | mega-mix | hip-hop | 781519 |
+| Drake featuring SZA | Slime You Out | 2023 | uk | mega-mix | hip-hop, rnb-soul | 553996 |
+| Drake featuring Yeat | IDGAF | 2023 | billboard, uk | mega-mix | hip-hop, rnb-soul | 849966 |
+| Drake | Nokia | 2025 | billboard, uk | mega-mix | hip-hop, rnb-soul | 802278 |
+| Drake | Search & Rescue | 2023 | billboard, uk | mega-mix | hip-hop | 495888 |
+| Drake | Virginia Beach | 2023 | uk | mega-mix | hip-hop, rnb-soul | 545912 |
+| Dua Lipa | Illusion | 2024 | uk | mega-mix | dance, pop | 597807 |
+| Dua Lipa | Training Season | 2024 | uk | mega-mix | disco-funk, pop | 910689 |
+| Ed Sheeran | Azizam | 2025 | uk | mega-mix |  | 306054 |
+| Ed Sheeran | Eyes Closed | 2023 | billboard, uk | mega-mix |  | 284655 |
+| Ed Sheeran | Sapphire | 2025 | uk | mega-mix |  | 207904 |
+| Ella Henderson featuring Rudimental | Alibi | 2024 | uk | mega-mix | pop, rnb-soul | 133750 |
+| Eminem | Houdini | 2024 | at, billboard, ch, uk | mega-mix | hip-hop | 692363 |
+| EsDeeKid | Century | 2025 | uk | mega-mix |  | 509130 |
+| Eslabon Armado and Peso Pluma | Ella Baila Sola | 2023 | billboard | mega-mix |  | 565873 |
+| Fifty Fifty | Cupid | 2023 | billboard, uk | mega-mix | dance, pop | 564599 |
+| Finch, Katja Krasavice & Luca-Dante Spadafora feat. Niklas Dee | One Night Stand | 2024 | de | mega-mix | indie | 2 |
+| Flo Milli | Never Lose Me | 2023 | billboard | mega-mix | hip-hop, rnb-soul | 868137 |
+| Floyymenor & Cris MJ | Gata Only | 2024 | billboard, ch | mega-mix | latin, rock | 645545 |
+| Fred Again | Adore U | 2023 | uk | mega-mix | dance | 6827 |
+| Future, Metro Boomin and Kendrick Lamar | Like That | 2024 | billboard, uk | mega-mix | hip-hop | 1337596 |
+| Future, Metro Boomin, Travis Scott, and Playboi Carti | Type Shit | 2024 | billboard | mega-mix | hip-hop | 978914 |
+| Gigi Perez | Sailor Song | 2024 | billboard, uk | mega-mix |  | 1464052 |
+| GloRilla | Yeah Glo! | 2024 | billboard | mega-mix | hip-hop | 456034 |
+| Gracie Abrams | I Love You, I'm Sorry | 2024 | uk | mega-mix | indie, pop | 984976 |
+| Gracie Abrams | That's So True | 2024 | billboard, de, uk | mega-mix | indie, pop | 2558 |
+| Grupo Frontera and Bad Bunny | Un x100to | 2023 | billboard | mega-mix | latin | 426305 |
+| Gunna | FukUMean | 2023 | billboard, uk | mega-mix | hip-hop | 1004676 |
+| Hannah Laing featuring RoRo | Good Love | 2023 | uk | mega-mix | dance | 127074 |
+| Headie One | Martin's Sofa | 2023 | uk | mega-mix | hip-hop | 46083 |
+| Hozier | Too Sweet | 2024 | at, billboard, uk | mega-mix | pop | 1460019 |
+| Hugel, Topic & Arash feat. Daecolm | I Adore You | 2024 | ch | mega-mix | hip-hop | 250637 |
+| Huntr/x (Ejae, Audrey Nuna, Rei Ami) | Golden | 2025 | at, ch, de | mega-mix | pop | 749 |
+| J Hus featuring Drake | Who Told You | 2023 | uk | mega-mix | hip-hop | 256646 |
+| Jack Black | Steve's Lava Chicken | 2025 | uk | mega-mix | indie | 155431 |
+| Jack Harlow | Lovin on Me | 2023 | billboard, uk | mega-mix | hip-hop | 721069 |
+| Jade | Angel of My Dreams | 2024 | uk | mega-mix | pop | 316667 |
+| Jazeek | Akon | 2025 | at, de | mega-mix |  | 33717 |
+| Jazzy | Giving Me | 2023 | uk | mega-mix | dance, pop, rnb-soul | 188370 |
+| Jimin | Like Crazy | 2023 | uk | mega-mix | pop | 534290 |
+| Jimin | Who | 2024 | billboard, uk | mega-mix | pop | 525053 |
+| JJ | Wasted Love | 2025 | at | mega-mix | dance, indie | 101089 |
+| Jordan Adetunji | Kehlani | 2024 | uk | mega-mix | hip-hop | 437802 |
+| Jung Kook featuring Jack Harlow | 3D | 2023 | uk | mega-mix |  | 14311 |
+| Jung Kook featuring Latto | Seven | 2023 | billboard, uk | mega-mix |  | 12562 |
+| Jung Kook | Standing Next to You | 2023 | uk | mega-mix | pop | 827360 |
+| Justin Bieber | Daisies | 2025 | billboard, uk | mega-mix | metal, pop | 844965 |
+| Käärijä | Cha Cha Cha | 2023 | uk | mega-mix | hip-hop | 255401 |
+| Karol G and Shakira | TQG | 2023 | billboard | mega-mix | latin, pop | 477200 |
+| Kehlani | Folded | 2025 | billboard | mega-mix | rnb-soul | 545158 |
+| Kendrick Lamar & SZA | Luther | 2024 | billboard, uk | mega-mix | hip-hop | 437767 |
+| Kendrick Lamar featuring AzChike | Peekaboo | 2024 | billboard | mega-mix | hip-hop | 302032 |
+| Kendrick Lamar featuring Lefty Gunplay | TV Off | 2024 | billboard, uk | mega-mix | hip-hop | 1321978 |
+| Kendrick Lamar | Euphoria | 2024 | billboard | mega-mix | hip-hop | 1117557 |
+| Kendrick Lamar | Not Like Us | 2024 | billboard, uk | mega-mix | hip-hop | 2015935 |
+| Kendrick Lamar | Squabble Up | 2024 | billboard, uk | mega-mix | hip-hop | 1213731 |
+| Kenya Grace | Strangers | 2023 | at, uk | mega-mix | dance, pop | 945610 |
+| Kontra K feat. Lana Del Rey | Summertime | 2023 | de | mega-mix | hip-hop | 19858 |
+| Kontra K feat. Santos | Die Sonne | 2023 | de | mega-mix | hip-hop | 10944 |
+| KSI featuring Trippie Redd | Thick of It | 2024 | uk | mega-mix | hip-hop | 292432 |
+| Kylie Minogue | XMAS | 2025 | uk | christmas-hits, mega-mix | dance, pop | 1420 |
+| Lady Gaga & Bruno Mars | Die with a Smile | 2024 | at, billboard, ch, uk | mega-mix | pop, rock | 1903886 |
+| Lady Gaga | Abracadabra | 2025 | billboard, uk | mega-mix | dance, pop | 1236804 |
+| Lady Gaga | Disease | 2024 | uk | mega-mix | pop | 841949 |
+| Lana Del Rey | Say Yes to Heaven | 2023 | uk | mega-mix, rock-anthems | indie, rock | 1432691 |
+| Leon Thomas | Mutt | 2024 | billboard | mega-mix | rnb-soul | 765577 |
+| Lewis Capaldi | Something in the Heavens | 2025 | uk | mega-mix | pop | 61614 |
+| Lewis Capaldi | Survive | 2025 | uk | mega-mix | pop | 90322 |
+| Lewis Capaldi | Wish You the Best | 2023 | uk | mega-mix | pop | 217573 |
+| Lil Tecca | Dark Thoughts | 2025 | billboard | mega-mix | hip-hop | 635586 |
+| Lily Allen | Pussy Palace | 2025 | uk | mega-mix | indie, pop | 213848 |
+| Lola Young | Messy | 2024 | at, billboard, ch, de, uk | mega-mix, rock-anthems | indie, rock | 972168 |
+| Loreen | Tattoo | 2023 | at, ch, uk | mega-mix | pop | 384974 |
+| Luca-Dante Spadafora, Niklas Dee & Octavian | Mädchen auf dem Pferd | 2023 | at, de | mega-mix | dance | 54074 |
+| Mae Muller | I Wrote a Song | 2023 | uk | mega-mix | pop, rnb-soul | 70396 |
+| Michael Marcagi | Scared to Start | 2024 | uk | mega-mix | indie | 360312 |
+| Mitski | My Love Mine All Mine | 2023 | uk | mega-mix, rock-anthems | country, indie, rock | 2169181 |
+| MK featuring Chrystal | Dior | 2025 | uk | mega-mix | dance | 129767 |
+| Morgan Wallen | Last Night | 2023 | billboard | mega-mix | country | 437484 |
+| Myles Smith | Nice to Meet You | 2024 | uk | mega-mix |  | 179853 |
+| Nathan Dawe, Joel Corry & Ella Henderson | 0800 Heaven | 2023 | uk | mega-mix | dance | 53295 |
+| Nemo | The Code | 2024 | ch | mega-mix, rock-anthems | rock | 182993 |
+| Nicki Minaj and Ice Spice with Aqua | Barbie World | 2023 | billboard, uk | mega-mix | hip-hop, pop, rnb-soul | 190156 |
+| Nicki Minaj | FTCU | 2023 | billboard | mega-mix | hip-hop, pop, rnb-soul | 515779 |
+| Nina Chuba | Unsicher | 2025 | at | mega-mix |  | 29037 |
+| Nines | Tony Soprano 2 | 2023 | uk | mega-mix | hip-hop | 23431 |
+| Noah Kahan & Sam Fender | Homesick | 2024 | uk | mega-mix | indie | 335141 |
+| Ofenbach feat. Norma Jean Martine | Overdrive | 2023 | de | mega-mix | dance | 176143 |
+| Oimara | Wackelkontakt | 2025 | at, ch, de | mega-mix |  | 46600 |
+| Olivia Dean | Man I Need | 2025 | uk | mega-mix | pop, rnb-soul | 1003706 |
+| Olivia Dean | Nice to Each Other | 2025 | uk | mega-mix | pop, rnb-soul | 723043 |
+| Olivia Dean | So Easy (To Fall in Love) | 2025 | uk | mega-mix | indie, latin, pop | 1038799 |
+| Olivia Rodrigo | Bad Idea Right? | 2023 | uk | mega-mix | indie, pop, rock | 1279069 |
+| Olivia Rodrigo | Get Him Back! | 2023 | uk | mega-mix | indie, pop, rock | 1050238 |
+| Olivia Rodrigo | Obsessed | 2023 | uk | mega-mix | indie, pop, rock | 880838 |
+| PartyNextDoor and Drake | Somebody Loves Me | 2025 | billboard | mega-mix | hip-hop, rnb-soul | 304460 |
+| Pashanim feat. Ceren | Shabab(e)s im VIP | 2025 | at, de | mega-mix |  | 52820 |
+| Pashanim | Mittelmeer | 2024 | de | mega-mix |  | 58315 |
+| Perrie | Forget About Us | 2024 | uk | mega-mix | pop | 80461 |
+| PinkPantheress and Ice Spice | Boy's a Liar Pt. 2 | 2023 | billboard | mega-mix | hip-hop, pop | 1700629 |
+| Playboi Carti and the Weeknd | Rather Lie | 2025 | billboard, uk | mega-mix | hip-hop | 317869 |
+| Playboi Carti | Evil J0rdan | 2024 | uk | mega-mix | hip-hop | 793884 |
+| Post Malone featuring Morgan Wallen | I Had Some Help | 2024 | billboard, uk | mega-mix | country, pop | 693169 |
+| RAF Camora feat. Ahmad Amin | Strada | 2023 | at | mega-mix | hip-hop | 11998 |
+| RAF Camora feat. Apache 207 | Jupiter | 2025 | at | mega-mix | hip-hop | 10673 |
+| RAF Camora feat. Cro | Bei Nacht | 2023 | at | mega-mix | hip-hop | 17083 |
+| RAF Camora feat. HoodBlaq | Tropicana | 2023 | at | mega-mix | hip-hop | 12942 |
+| RAF Camora feat. Luciano | All Night | 2023 | at, ch, de | mega-mix | hip-hop | 32559 |
+| RAF Camora feat. Ski Aggu | Liebe Grüße | 2023 | at, de | mega-mix | hip-hop | 37437 |
+| RAF Camora feat. Yung Hurn | Wien | 2023 | at | mega-mix | hip-hop | 13554 |
+| RAF Camora | Anna | 2023 | at | mega-mix | hip-hop | 12805 |
+| RAF Camora | Out of the Dark | 2024 | at | mega-mix | hip-hop | 14606 |
+| Ravyn Lenae | Love Me Not | 2024 | billboard, uk | mega-mix | pop, rnb-soul, rock | 1443815 |
+| Raye | Where Is My Husband! | 2025 | uk | mega-mix | rnb-soul | 1139825 |
+| Robin Schulz & Oliver Tree | Miss You | 2023 | uk | mega-mix | dance, hip-hop, indie | 407126 |
+| Rudimental featuring Charlotte Plank & Vibe Chemistry | Dancing Is Healing | 2023 | uk | mega-mix | dance | 48432 |
+| Sabrina Carpenter | Bed Chem | 2024 | billboard, uk | mega-mix | disco-funk, pop | 1332093 |
+| Sabrina Carpenter | Busy Woman | 2024 | uk | mega-mix | country, pop | 966909 |
+| Sabrina Carpenter | Feather | 2023 | billboard | mega-mix | disco-funk, pop | 1466369 |
+| Sabrina Carpenter | Manchild | 2025 | billboard, uk | mega-mix | country, pop, rnb-soul | 1396026 |
+| Sabrina Carpenter | My Man on Willpower | 2025 | uk | mega-mix | pop, rock | 676050 |
+| Sabrina Carpenter | Taste | 2024 | billboard, uk | mega-mix | pop | 1637293 |
+| Sabrina Carpenter | Tears | 2025 | uk | mega-mix | disco-funk, pop | 1122667 |
+| Sabrina Carpenter | When Did You Get Hot? | 2025 | uk | mega-mix | pop, rnb-soul | 932849 |
+| Saja Boys: Andrew Choi, Neckwav, Danny Chung, Kevin Woo and Samuil Lee | Soda Pop | 2025 | billboard, uk | mega-mix |  | 682313 |
+| Saja Boys: Andrew Choi, Neckwav, Danny Chung, Kevin Woo and Samuil Lee | Your Idol | 2025 | billboard, uk | mega-mix |  | 657518 |
+| Sam Fender & Olivia Dean | Rein Me In | 2025 | uk | mega-mix | indie | 100821 |
+| Sam Fender | People Watching | 2024 | uk | mega-mix | indie | 190711 |
+| Sam Ryder | You're Christmas to Me | 2023 | uk | christmas-hits, mega-mix | pop | 668 |
+| Sexyy Red | Get It Sexyy | 2024 | billboard | mega-mix | hip-hop | 504012 |
+| Shaboozey | A Bar Song (Tipsy) | 2024 | at, billboard, uk | mega-mix | country, pop | 654880 |
+| Shirin David | Bauch Beine Po | 2024 | at, de | mega-mix |  | 61453 |
+| Sienna Spiro | Die on This Hill | 2025 | uk | mega-mix | rnb-soul | 454785 |
+| Ski Aggu feat. Joost & Otto Waalkes | Friesenjung | 2023 | at, de | mega-mix | dance | 330514 |
+| Ski Aggu | Z0rnig (2024) | 2024 | de | mega-mix | hip-hop | 19456 |
+| Skye Newman | Family Matters | 2025 | uk | mega-mix | indie | 18923 |
+| Sleep Token | Caramel | 2025 | uk | mega-mix, rock-anthems | indie, metal, rock | 292541 |
+| Sombr | 12 to 12 | 2025 | uk | mega-mix | disco-funk, pop, rock | 918634 |
+| Sombr | Back to Friends | 2024 | billboard, uk | mega-mix | indie | 1622244 |
+| Sombr | Undressed | 2025 | billboard, uk | mega-mix, rock-anthems | indie, rock | 1234294 |
+| Switch Disco & Ella Henderson | React | 2023 | uk | mega-mix | dance | 112307 |
+| SZA and Kendrick Lamar | 30 for 30 | 2024 | billboard | mega-mix | hip-hop, rnb-soul | 756617 |
+| SZA | BMF | 2024 | billboard | mega-mix | latin, pop, rnb-soul | 708597 |
+| SZA | Saturn | 2024 | billboard | mega-mix | rnb-soul | 1311031 |
+| Tate McRae | 2 Hands | 2024 | uk | mega-mix | pop, rnb-soul | 413579 |
+| Tate McRae | Exes | 2023 | billboard | mega-mix | pop | 798466 |
+| Tate McRae | Just Keep Watching | 2025 | uk | mega-mix | pop | 71414 |
+| Tate McRae | Revolving Door | 2025 | billboard, uk | mega-mix | pop | 770674 |
+| Tate McRae | Sports Car | 2025 | billboard, uk | mega-mix | pop, rnb-soul | 1026448 |
+| Tate McRae | Tit for Tat | 2025 | uk | mega-mix | pop | 546108 |
+| Taylor Swift featuring Post Malone | Fortnight | 2024 | billboard, uk | mega-mix | pop | 1091381 |
+| Taylor Swift | Down Bad | 2024 | billboard, uk | mega-mix | pop | 706579 |
+| Taylor Swift | Elizabeth Taylor | 2025 | uk | mega-mix | pop | 614208 |
+| Taylor Swift | I Can Do It with a Broken Heart | 2024 | billboard, uk | mega-mix | pop | 814997 |
+| Taylor Swift | I Can See You (Taylor's Version) | 2023 | uk | mega-mix | indie, pop, rock | 629370 |
+| Taylor Swift | Is It Over Now? | 2023 | billboard, uk | mega-mix | country, pop | 1434 |
+| Taylor Swift | Now That We Don't Talk (Taylor's Version) | 2023 | uk | mega-mix | country, pop | 1135 |
+| Taylor Swift | Opalite | 2025 | uk | mega-mix | pop, rnb-soul, rock | 810933 |
+| Taylor Swift | 'Slut!' (Taylor's Version) | 2023 | uk | mega-mix | country, pop | 664 |
+| Taylor Swift | The Fate of Ophelia | 2025 | at, ch, de, uk | mega-mix | pop | 1144802 |
+| Taylor Swift | The Tortured Poets Department | 2024 | uk | mega-mix | pop | 644686 |
+| Teddy Swims | Bad Dreams | 2024 | billboard, uk | mega-mix | rnb-soul | 388238 |
+| Teddy Swims | The Door | 2023 | uk | mega-mix | rnb-soul | 401708 |
+| The Kid Laroi, Jung Kook & Central Cee | Too Much | 2023 | uk | mega-mix | hip-hop | 369373 |
+| The Krown Jewelz | Scrap the Monarchy | 2023 | uk | mega-mix | pop | 437 |
+| The Marías | No One Noticed | 2024 | billboard | mega-mix | indie | 1752833 |
+| The Weeknd & Playboi Carti | Timeless | 2024 | billboard, uk | mega-mix | dance, rnb-soul | 272403 |
+| The Weeknd | Cry for Me | 2025 | billboard, uk | mega-mix | pop | 705369 |
+| Tom Grennan | It Can't Be Christmas | 2025 | uk | christmas-hits, mega-mix | indie | 1795 |
+| Tommy Richman | Million Dollar Baby | 2024 | billboard, uk | mega-mix | rnb-soul | 1406892 |
+| Travis Scott feat. Playboi Carti | Fe!n | 2023 | billboard, ch | mega-mix | hip-hop | 1501928 |
+| Travis Scott featuring Drake | Meltdown | 2023 | billboard, uk | mega-mix | hip-hop | 770312 |
+| Twenty4tim feat. Kitty Kat | Hot or Not | 2023 | de | mega-mix |  | 643 |
+| Twenty4tim | Icecream | 2023 | de | mega-mix |  | 1020 |
+| Tyla | Water | 2023 | billboard, uk | mega-mix | rnb-soul | 1110020 |
+| Tyler, the Creator featuring GloRilla, Sexyy Red and Lil Wayne | Sticky | 2024 | billboard | mega-mix | hip-hop | 1304792 |
+| Tyler, the Creator featuring Lola Young | Like Him | 2024 | billboard | mega-mix | rnb-soul | 1546289 |
+| Venbee & Goddard. | Messy in Heaven | 2023 | uk | mega-mix | dance | 120581 |
+| WizTheMc & Bees & Honey | Show Me Love | 2025 | at, ch, de, uk | mega-mix | dance | 435132 |
+| YG Marley | Praise Jah in the Moonlight | 2023 | uk | mega-mix |  | 418670 |
+| Yung Yury | Tabu | 2023 | de | mega-mix |  | 373 |
+| Zach Bryan featuring Kacey Musgraves | I Remember Everything | 2023 | billboard | mega-mix | country | 650144 |
+| Zach Bryan | Pink Skies | 2024 | billboard | mega-mix | country | 439041 |
+| Zartmann | Tau mich auf | 2025 | at, de | mega-mix | pop | 58629 |
+
+## Chart songs left out (169)
+
+| artist | title | charts | why |
+|---|---|---|---|
+| Baddiel & Skinner & The Lightning Seeds | Three Lions | uk | released 1996, before 2023 |
+| Bailey Zimmerman and Luke Combs | Backup Plan | billboard | only on Billboard, 2850 Last.fm listeners (needs 200000) |
+| Bailey Zimmerman | Religiously | billboard | only on Billboard, 109601 Last.fm listeners (needs 400000) |
+| Bailey Zimmerman | Rock and a Hard Place | billboard | released 2022, before 2023 |
+| Bailey Zimmerman | Where It Ends | billboard | released 2022, before 2023 |
+| Beyoncé | Cuff It | billboard | released 2022, before 2023 |
+| BigXthaPlug featuring Bailey Zimmerman | All the Way | billboard | only on Billboard, 7163 Last.fm listeners (needs 200000) |
+| Bizarrap and Shakira | Bzrp Music Sessions, Vol. 53 | billboard | no Apple track with a preview |
+| Brandon Lake and Jelly Roll | Hard Fought Hallelujah | billboard | only on Billboard, 17835 Last.fm listeners (needs 200000) |
+| Bugzy Malone & TeeDee | Out of Nowhere | uk | released 2022, before 2023 |
+| Central Cee | Let Go | uk | released 2022, before 2023 |
+| Chappell Roan | Pink Pony Club | billboard, uk | released 2020, before 2023 |
+| Chris Brown | Residuals | billboard | only on Billboard, 136329 Last.fm listeners (needs 400000) |
+| Chris Brown | Under the Influence | billboard | released 2019, before 2023 |
+| Chris Stapleton | White Horse | billboard | only on Billboard, 156444 Last.fm listeners (needs 400000) |
+| Cody Johnson and Carrie Underwood | I'm Gonna Love You | billboard | only on Billboard, 37896 Last.fm listeners (needs 300000) |
+| Cody Johnson | The Painter | billboard | only on Billboard, 89455 Last.fm listeners (needs 400000) |
+| Coi Leray | Players | billboard, uk | released 2022, before 2023 |
+| Corey Kent | Wild as Her | billboard | released 2022, before 2023 |
+| D-Block Europe & Clavish | Pakistan | uk | MusicBrainz knows no dated recording |
+| Djo | End of Beginning | billboard, uk | released 2022, before 2023 |
+| Doechii featuring Kodak Black | What It Is (Block Boy) | billboard | only on Billboard, 6134 Last.fm listeners (needs 400000) |
+| Doechii | Anxiety | billboard, ch, uk | released 2020, before 2023 |
+| Drake and 21 Savage | Rich Flex | billboard | released 2022, before 2023 |
+| Drake and 21 Savage | Spin Bout U | billboard | released 2022, before 2023 |
+| Ed Sheeran & Elton John | Merry Christmas | uk | released 2017, before 2023 |
+| Ejae and Andrew Choi | Free | billboard | MusicBrainz knows no dated recording |
+| Ella Langley | Weren't for the Wind | billboard | only on Billboard, 184716 Last.fm listeners (needs 300000) |
+| Eminem | Mockingbird | at, ch | released 2004, before 2023 |
+| ¥$ featuring Rich the Kid & Playboi Carti | Carnival | uk | no Apple track with a preview |
+| Fred Again, Skepta & PlaqueBoyMax | Victory Lap | uk | released 2022, before 2023 |
+| Fuerza Regida and Grupo Frontera | Bebe Dame | billboard | released 2022, before 2023 |
+| Future featuring Drake and Tems | Wait for U | billboard | released 2022, before 2023 |
+| GloRilla and Cardi B | Tomorrow 2 | billboard | released 2022, before 2023 |
+| GloRilla and Megan Thee Stallion | Wanna Be | billboard | only on Billboard, 6729 Last.fm listeners (needs 300000) |
+| GloRilla and Sexyy Red | Whatchu Kno About Me | billboard | only on Billboard, 8147 Last.fm listeners (needs 300000) |
+| Hardy featuring Lainey Wilson | Wait in the Truck | billboard | released 2022, before 2023 |
+| Hardy | Truck Bed | billboard | released 2022, before 2023 |
+| Hudson Westbrook | House Again | billboard | only on Billboard, 82416 Last.fm listeners (needs 300000) |
+| Huntrix: Ejae, Audrey Nuna and Rei Ami | Golden | billboard | MusicBrainz knows no dated recording |
+| Huntrix: Ejae, Audrey Nuna and Rei Ami | How It's Done | billboard | MusicBrainz knows no dated recording |
+| Huntrix: Ejae, Audrey Nuna and Rei Ami | Takedown | billboard | MusicBrainz knows no dated recording |
+| Huntrix: Ejae, Audrey Nuna and Rei Ami | What It Sounds Like | billboard | MusicBrainz knows no dated recording |
+| Huntrix | Golden | uk | MusicBrainz knows no dated recording |
+| Huntrix | How It's Done | uk | MusicBrainz knows no dated recording |
+| Ice Spice and Nicki Minaj | Princess Diana | billboard | only on Billboard, 241095 Last.fm listeners (needs 400000) |
+| Iñigo Quintero | Si no estás | at, ch, de | released 2022, before 2023 |
+| Jason Aldean | Try That in a Small Town | billboard | only on Billboard, 43417 Last.fm listeners (needs 400000) |
+| Jelly Roll featuring Lainey Wilson | Save Me | billboard | released 2020, before 2023 |
+| Jelly Roll | I Am Not Okay | billboard | only on Billboard, 61990 Last.fm listeners (needs 300000) |
+| Jelly Roll | Liar | billboard | only on Billboard, 76770 Last.fm listeners (needs 300000) |
+| Jessie Murph and Jelly Roll | Wild Ones | billboard | only on Billboard, 3100 Last.fm listeners (needs 400000) |
+| Jessie Murph | Blue Strips | billboard | only on Billboard, 121875 Last.fm listeners (needs 200000) |
+| Jordan Davis | Next Thing You Know | billboard | released 2022, before 2023 |
+| Jordan Davis | What My World Spins Around | billboard | released 2022, before 2023 |
+| Jvke | Golden Hour | billboard | released 2022, before 2023 |
+| Kaliii | Area Codes | billboard | only on Billboard, 301639 Last.fm listeners (needs 400000) |
+| Kane Brown and Katelyn Brown | Thank God | billboard | released 2022, before 2023 |
+| Kane Brown | Bury Me in Georgia | billboard | released 2022, before 2023 |
+| ¥$ (Kanye West and Ty Dolla Sign) featuring Rich the Kid and Playboi Carti | Carnival | billboard | MusicBrainz knows no dated recording |
+| Koe Wetzel featuring Jessie Murph | High Road | billboard | only on Billboard, 8998 Last.fm listeners (needs 300000) |
+| Lady Gaga | Bloody Mary | billboard | released 2011, before 2023 |
+| Lainey Wilson | Heart Like a Truck | billboard | released 2022, before 2023 |
+| Lainey Wilson | Watermelon Moonshine | billboard | released 2022, before 2023 |
+| Latto featuring Cardi B | Put It on da Floor Again | billboard | only on Billboard, 145341 Last.fm listeners (needs 400000) |
+| Lewis Capaldi | Pointless | uk | released 2022, before 2023 |
+| Libianca | People | uk | released 2022, before 2023 |
+| Lil Durk featuring J. Cole | All My Life | billboard | only on Billboard, 384678 Last.fm listeners (needs 400000) |
+| Lil Uzi Vert | Just Wanna Rock | billboard | released 2022, before 2023 |
+| Lizzo | Someday at Christmas | uk | released 2022, before 2023 |
+| Lizzy McAlpine | Ceilings | uk | released 2022, before 2023 |
+| Luciano | Time | at, ch, de | released 2008, before 2023 |
+| Luke Combs | Ain't No Love in Oklahoma | billboard | only on Billboard, 223837 Last.fm listeners (needs 300000) |
+| Luke Combs | Fast Car | billboard | only on Billboard, 376146 Last.fm listeners (needs 400000) |
+| Luke Combs | Going, Going, Gone | billboard | released 2022, before 2023 |
+| Luke Combs | Love You Anyway | billboard | only on Billboard, 81964 Last.fm listeners (needs 400000) |
+| Luke Combs | Where the Wild Things Are | billboard | only on Billboard, 169572 Last.fm listeners (needs 400000) |
+| Makko & Miksu/Macloud | Nachts wach | at, de | MusicBrainz knows no dated recording |
+| Mariah the Scientist | Burning Blue | billboard | only on Billboard, 184089 Last.fm listeners (needs 200000) |
+| Megan Moroney | Am I Okay? | billboard | only on Billboard, 93145 Last.fm listeners (needs 300000) |
+| Megan Moroney | Tennessee Orange | billboard | released 2022, before 2023 |
+| Metro Boomin, Future and Chris Brown | Superhero (Heroes & Villains) | billboard | released 2022, before 2023 |
+| Metro Boomin, the Weeknd and 21 Savage | Creepin | billboard, uk | released 2022, before 2023 |
+| Michael Bublé | It's Beginning to Look a Lot Like Christmas | uk | released 2011, before 2023 |
+| Michael Jackson | Thriller | uk | released 1982, before 2023 |
+| Miguel | Sure Thing | billboard, uk | released 2010, before 2023 |
+| Morgan Wallen featuring Ernest | Cowgirls | billboard | only on Billboard, 155042 Last.fm listeners (needs 400000) |
+| Morgan Wallen featuring Post Malone | I Ain't Comin' Back | billboard | only on Billboard, 2617 Last.fm listeners (needs 200000) |
+| Morgan Wallen featuring Tate McRae | What I Want | billboard | only on Billboard, 5214 Last.fm listeners (needs 200000) |
+| Morgan Wallen | 20 Cigarettes | billboard | only on Billboard, 95759 Last.fm listeners (needs 200000) |
+| Morgan Wallen | Ain't That Some | billboard | only on Billboard, 222 Last.fm listeners (needs 400000) |
+| Morgan Wallen | Everything I Love | billboard | only on Billboard, 102129 Last.fm listeners (needs 400000) |
+| Morgan Wallen | I Got Better | billboard | only on Billboard, 181218 Last.fm listeners (needs 200000) |
+| Morgan Wallen | I Wrote the Book | billboard | only on Billboard, 60821 Last.fm listeners (needs 400000) |
+| Morgan Wallen | I'm the Problem | billboard | only on Billboard, 165419 Last.fm listeners (needs 200000) |
+| Morgan Wallen | Just in Case | billboard | only on Billboard, 123088 Last.fm listeners (needs 200000) |
+| Morgan Wallen | Lies Lies Lies | billboard | only on Billboard, 144749 Last.fm listeners (needs 300000) |
+| Morgan Wallen | Love Somebody | billboard | only on Billboard, 201391 Last.fm listeners (needs 300000) |
+| Morgan Wallen | One Thing at a Time | billboard | released 2022, before 2023 |
+| Morgan Wallen | Smile | billboard | only on Billboard, 83488 Last.fm listeners (needs 300000) |
+| Morgan Wallen | Superman | billboard | only on Billboard, 61325 Last.fm listeners (needs 200000) |
+| Morgan Wallen | Thinkin' Bout Me | billboard | only on Billboard, 472 Last.fm listeners (needs 400000) |
+| Morgan Wallen | Thought You Should Know | billboard | released 2022, before 2023 |
+| Morgan Wallen | You Proof | billboard | released 2022, before 2023 |
+| Muni Long | Made for Me | billboard | only on Billboard, 293063 Last.fm listeners (needs 400000) |
+| Natasha Bedingfield | Unwritten | at | released 2004, before 2023 |
+| Nate Smith | Bulletproof | billboard | only on Billboard, 42252 Last.fm listeners (needs 300000) |
+| Nate Smith | World on Fire | billboard | only on Billboard, 70005 Last.fm listeners (needs 400000) |
+| Netón Vega | Loco | billboard | only on Billboard, 3 Last.fm listeners (needs 300000) |
+| Nicki Minaj featuring Lil Uzi Vert | Everybody | billboard | only on Billboard, 4298 Last.fm listeners (needs 400000) |
+| Nicki Minaj | Super Freaky Girl | billboard | released 2022, before 2023 |
+| Noah Kahan and Post Malone | Dial Drunk | billboard | only on Billboard, 306324 Last.fm listeners (needs 400000) |
+| Oasis | Live Forever | uk | released 1994, before 2023 |
+| Old Dominion | Memory Lane | billboard | only on Billboard, 66690 Last.fm listeners (needs 400000) |
+| Oliver Anthony Music | Rich Men North of Richmond | billboard | MusicBrainz knows no dated recording |
+| One Direction | Night Changes | uk | released 2014, before 2023 |
+| Óscar Maydon and Fuerza Regida | Tu Boda | billboard | only on Billboard, 1226 Last.fm listeners (needs 300000) |
+| Parker McCollum | Burn It Down | billboard | only on Billboard, 29388 Last.fm listeners (needs 400000) |
+| Parker McCollum | Handle on You | billboard | released 2022, before 2023 |
+| Paul Russell | Lil Boo Thang | billboard | only on Billboard, 314637 Last.fm listeners (needs 400000) |
+| Peso Pluma and Natanael Cano | PRC | billboard | only on Billboard, 160125 Last.fm listeners (needs 400000) |
+| Peso Pluma | Por Las Noches | billboard | released 2021, before 2023 |
+| PinkPantheress | Boy's a Liar | uk | released 2022, before 2023 |
+| , Playboi Carti & Madonna | Popular | uk | MusicBrainz knows no dated recording |
+| Post Malone featuring Blake Shelton | Pour Me a Drink | billboard | only on Billboard, 213942 Last.fm listeners (needs 300000) |
+| Post Malone featuring Doja Cat | I Like You (A Happier Song) | billboard | released 2022, before 2023 |
+| Raye featuring 070 Shake | Escapism | billboard, uk | released 2022, before 2023 |
+| Rema and Selena Gomez | Calm Down | billboard | released 2022, before 2023 |
+| Rema | Calm Down | ch, uk | released 2022, before 2023 |
+| Rihanna | Lift Me Up | billboard | released 2022, before 2023 |
+| Riley Green | Worst Way | billboard | only on Billboard, 118763 Last.fm listeners (needs 300000) |
+| Rosa Linn | Snap | ch | released 2022, before 2023 |
+| Russell Dickerson | Happen to Me | billboard | only on Billboard, 43391 Last.fm listeners (needs 200000) |
+| Sam Barber featuring Avery Anna | Indigo | billboard | only on Billboard, 177710 Last.fm listeners (needs 300000) |
+| Sam Smith and Kim Petras | Unholy | billboard | released 2022, before 2023 |
+| Shaboozey | Good News | billboard | only on Billboard, 106303 Last.fm listeners (needs 300000) |
+| Soho Bani feat. Herbert Grönemeyer | Zeit, dass sich was dreht | de | MusicBrainz knows no dated recording |
+| Sonny Fodera & MK featuring Clementine Douglas | Asking | uk | Apple dates it 2026, MusicBrainz 2023 |
+| Sonny Fodera, Jazzy & D.O.D. | Somedays | uk | Apple dates it 2026, MusicBrainz 2024 |
+| Stephen Sanchez | Until I Found You | billboard | released 2021, before 2023 |
+| Steve Lacy | Bad Habit | billboard | released 2022, before 2023 |
+| Stormzy | Firebabe | uk | released 2022, before 2023 |
+| Strandz | Us Against the World | uk | released 2022, before 2023 |
+| Summer Walker | Heart of a Woman | billboard | only on Billboard, 216744 Last.fm listeners (needs 300000) |
+| SZA | Kill Bill | billboard, uk | released 2022, before 2023 |
+| SZA | Nobody Gets Me | billboard | released 2022, before 2023 |
+| SZA | Shirt | billboard | released 2022, before 2023 |
+| SZA | Snooze | billboard | released 2022, before 2023 |
+| Taylor Swift featuring Ice Spice | Karma | billboard | released 2022, before 2023 |
+| Taylor Swift | Cruel Summer | billboard, uk | released 2019, before 2023 |
+| Taylor Swift | Lavender Haze | billboard | released 2022, before 2023 |
+| The Beatles | Now and Then | at, de, uk | released 2010, before 2023 |
+| The Weeknd and Ariana Grande | Die for You | billboard | Apple dates it 2016, MusicBrainz 2023 |
+| The Weeknd | Die for You | uk | released 2016, before 2023 |
+| Thomas Rhett | After All the Bars Are Closed | billboard | only on Billboard, 50409 Last.fm listeners (needs 300000) |
+| Tiësto featuring Tate McRae | 10:35 | uk | released 2022, before 2023 |
+| Together for Palestine | Lullaby | uk | no Apple track with a preview |
+| Toosii | Favorite Song | billboard | only on Billboard, 139419 Last.fm listeners (needs 400000) |
+| Tucker Wetmore | Wind Up Missin' You | billboard | only on Billboard, 20731 Last.fm listeners (needs 300000) |
+| Twenty4tim | I Don’t Care | de | MusicBrainz knows no dated recording |
+| Tyler Hubbard | Dancin' in the Country | billboard | released 2022, before 2023 |
+| Usher, Summer Walker and 21 Savage | Good Good | billboard | only on Billboard, 109629 Last.fm listeners (needs 400000) |
+| Victoria Monét | On My Mama | billboard | only on Billboard, 356168 Last.fm listeners (needs 400000) |
+| Warren Zeiders | Pretty Little Poison | billboard | only on Billboard, 95728 Last.fm listeners (needs 400000) |
+| Xavi | La Diabla | billboard | only on Billboard, 207181 Last.fm listeners (needs 400000) |
+| Yng Lvcas and Peso Pluma | La Bebé | billboard | Apple dates it 2021, MusicBrainz 2024 |
+| Young Nudy featuring 21 Savage | Peaches & Eggplants | billboard | only on Billboard, 342348 Last.fm listeners (needs 400000) |
+| Zach Bryan | Something in the Orange | billboard | released 2022, before 2023 |
+| Zach Top | I Never Lie | billboard | only on Billboard, 110699 Last.fm listeners (needs 300000) |

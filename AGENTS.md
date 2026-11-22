@@ -40,6 +40,10 @@ Party mode is the product, training a side feature on the same round engine.
 ## Song data
 - Year = the song's INITIAL release year, never a re-release, remaster or compilation date. No trustworthy year
   → song dropped. Pre-1950 without a card: earliest MusicBrainz recording.
+- Card lists end 2021–2024 (none 2025), so chart songs fill the recent years (`data/charts/`, de/en.wikipedia
+  number-one, year-end and UK top-ten pages; hitparade.ch is behind a Cloudflare challenge; Wikipedia 429s ten
+  requests back to back). A chart year only bounds the search: year = MusicBrainz first release, Apple agreeing
+  within a year, else dropped; a card always wins.
 - Original covers only: Apple artwork only when the match is the original album, else Cover Art Archive of the
   first release group, else none (UI draws a record).
 - Song id is stable across re-imports (earliest recording MBID, else `artist|title` slug); progress and history

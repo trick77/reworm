@@ -36,6 +36,8 @@ type Song struct {
 const (
 	YearCard     = "card"
 	YearOverride = "override"
+	// YearMusicBrainz is a chart song's: MusicBrainz's first release, Apple agreeing within a year.
+	YearMusicBrainz = "musicbrainz"
 )
 
 // Cover sources; "" is none (the UI draws a record).

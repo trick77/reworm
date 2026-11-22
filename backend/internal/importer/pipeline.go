@@ -13,6 +13,7 @@ import (
 	"github.com/trick77/toolkit/applemusic"
 
 	"github.com/trick77/reworm/internal/cards"
+	"github.com/trick77/reworm/internal/charts"
 	"github.com/trick77/reworm/internal/httpcache"
 	"github.com/trick77/reworm/internal/musicbrainz"
 	"github.com/trick77/reworm/internal/song"
@@ -50,15 +51,22 @@ type Pipeline struct {
 	// Previous, set offline, is the last dataset by card key: a song whose resolve would need the network
 	// (httpcache.ErrOffline) keeps its entry from there; one not in it is left out.
 	Previous map[string]song.Song
+	// ChartFrom is the earliest release year a chart song may have: older ones are recurrents ("Last Christmas"
+	// every December, "Murder on the Dancefloor" 2024 via a film), which the cards cover or leave out on purpose.
+	ChartFrom int
 }
 
-// entry is one unique song of the card sets before resolving.
+// entry is one unique song of the card sets or the charts before resolving.
 type entry struct {
 	Artist, Title string
-	// Year is the earliest card year; Years every distinct one (more than one is a conflict in the report).
+	// Year is the earliest card year; Years every distinct one (more than one is a conflict in the report). For a
+	// chart entry both are chart years: Year bounds the MusicBrainz search, the song's year is its first release.
 	Year  int
 	Years []int
 	Sets  []string
+	// Chart says no card names the song, only charts: Sources (charts.CH, …).
+	Chart   bool
+	Sources []string
 }
 
 // resolved is an entry with what the sources said: the song and the report's notes.
@@ -82,10 +90,15 @@ type resolved struct {
 	// trackYear is the song's year setTrack judged the track by; kept marks a song taken from the previous dataset.
 	trackYear int
 	kept      bool
+	// Drop says why a chart song stays out of the dataset; empty: it is in. christmas: a Last.fm top tag says so.
+	Drop      string
+	christmas bool
 }
 
-// collect dedupes the sets' cards by normalized artist+title, drops year-less cards and counts per set.
-func collect(sets []cards.Set) ([]entry, map[string]*setStats) {
+// collect dedupes the sets' cards by normalized artist+title, drops year-less cards and counts per set; then the
+// chart rows, those a card names (by the same key) left out and counted per chart year. Spellings the key does
+// not fold ("and" for "&", "featuring") meet in merge, by song id.
+func collect(sets []cards.Set, rows []charts.Row) ([]entry, map[string]*setStats, map[int]*chartStats) {
 	stats := map[string]*setStats{}
 	byKey := map[string]*entry{}
 	for _, set := range sets {
@@ -112,6 +125,32 @@ func collect(sets []cards.Set) ([]entry, map[string]*setStats) {
 			}
 		}
 	}
+	chartStatsByYear := map[int]*chartStats{}
+	for _, row := range rows {
+		st := chartStatsByYear[row.Year]
+		if st == nil {
+			st = &chartStats{}
+			chartStatsByYear[row.Year] = st
+		}
+		st.Rows++
+		k := song.Key(row.Artist, row.Title)
+		e := byKey[k]
+		switch {
+		case e == nil:
+			e = &entry{Artist: row.Artist, Title: row.Title, Year: row.Year, Chart: true}
+			byKey[k] = e
+		case !e.Chart:
+			st.OnCard++
+			continue
+		}
+		if !slices.Contains(e.Years, row.Year) {
+			e.Years = append(e.Years, row.Year)
+		}
+		e.Year = min(e.Year, row.Year)
+		if !slices.Contains(e.Sources, row.Source) {
+			e.Sources = append(e.Sources, row.Source)
+		}
+	}
 	keys := make([]string, 0, len(byKey))
 	for k := range byKey {
 		keys = append(keys, k)
@@ -122,9 +161,10 @@ func collect(sets []cards.Set) ([]entry, map[string]*setStats) {
 		e := byKey[k]
 		slices.Sort(e.Years)
 		slices.Sort(e.Sets)
+		slices.Sort(e.Sources)
 		out = append(out, *e)
 	}
-	return out, stats
+	return out, stats, chartStatsByYear
 }
 
 // resolveAll runs resolve over entries on Workers goroutines (MusicBrainz's throttle serializes its share). Every
@@ -212,7 +252,8 @@ var errLeftOut = errors.New("offline and not in the previous dataset")
 // previousNote is the low-confidence note of a song an offline run kept from the previous dataset.
 const previousNote = "kept from the previous import (offline, needs the network)"
 
-// previous is e as the previous dataset has it, its sets and year from the cards as they are now.
+// previous is e as the previous dataset has it, its sets and year from the cards as they are now. A chart song
+// keeps its year (MusicBrainz's) and sets (from its genres and tags, chartSets) as stored.
 func (p *Pipeline) previous(e entry) (resolved, error) {
 	s, ok := p.Previous[song.Key(e.Artist, e.Title)]
 	if !ok {
@@ -221,7 +262,10 @@ func (p *Pipeline) previous(e entry) (resolved, error) {
 	if !ok {
 		return resolved{}, errLeftOut
 	}
-	s.Title, s.Sets = musicbrainz.CleanTitle(e.Title), e.Sets
+	s.Title = musicbrainz.CleanTitle(e.Title)
+	if !e.Chart {
+		s.Sets = e.Sets
+	}
 	if s.YearSource == song.YearCard {
 		s.Year = e.Year
 	}
@@ -232,7 +276,7 @@ func (p *Pipeline) previous(e entry) (resolved, error) {
 // rejudge redoes the original-album flag and the cover after the song's year moved (a merge, a year override).
 // A song kept from the previous dataset has no track to judge: it stays as it was.
 func (p *Pipeline) rejudge(ctx context.Context, r *resolved) error {
-	if r.kept || r.Song.Year == r.trackYear {
+	if r.kept || r.Drop != "" || r.Song.Year == r.trackYear {
 		return nil
 	}
 	return p.setTrack(ctx, r, r.track, r.Song.Storefront)
@@ -247,6 +291,9 @@ func (p *Pipeline) log() *slog.Logger {
 
 // resolve finds one song: MusicBrainz recording, Apple track, cover.
 func (p *Pipeline) resolve(ctx context.Context, e entry) (resolved, error) {
+	if e.Chart {
+		return p.resolveChart(ctx, e)
+	}
 	r := resolved{entry: e}
 	// The title as shown: release notes the card list copied from a streaming title ("Heroes - 2017 Remaster", 137
 	// of them) dropped. The id's slug keeps the card's spelling, so it does not move.
@@ -316,8 +363,13 @@ func (p *Pipeline) setTrack(ctx context.Context, r *resolved, t applemusic.Song,
 // the year bound; last, missed by all of those or matched there only undated or later than the card, with the
 // card's first name and each reading (MusicBrainz finds "Queen, David Bowie" only as Queen), the pick checked
 // against the card's whole artist: "Earth" or "Simon" alone is not the card's. Only the first search can match
-// exactly; the others are low confidence, why says how.
+// exactly; the others are low confidence, why says how. A chart year is no card year: it only bounds the search,
+// the pick prefers no recording by it (a 2024 reissue of a 2001 hit would win), the earliest one is the song.
 func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Match, ok bool, why string, err error) {
+	pick := e.Year
+	if e.Chart {
+		pick = 0
+	}
 	type query struct{ artist, title string }
 	titles := musicbrainz.SongTitles(e.Title, e.Artist)
 	main := musicbrainz.MainArtist(e.Artist)
@@ -332,7 +384,7 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 		if err != nil {
 			return m, false, "", err
 		}
-		if m, ok := musicbrainz.Pick(recs, q.artist, q.title, e.Year); ok {
+		if m, ok := musicbrainz.Pick(recs, q.artist, q.title, pick); ok {
 			if i == 0 {
 				return m, true, "", nil
 			}
@@ -344,7 +396,7 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 	if err != nil {
 		return m, false, "", err
 	}
-	m, ok = musicbrainz.Pick(recs, e.Artist, e.Title, e.Year)
+	m, ok = musicbrainz.Pick(recs, e.Artist, e.Title, pick)
 	m.Exact = false
 	// The first name's searches also when the unbounded match is weak, undated or after the card's time: theirs are
 	// bounded by it, so a pick there is the better one.
@@ -354,7 +406,7 @@ func (p *Pipeline) findRecording(ctx context.Context, e entry) (m musicbrainz.Ma
 			if err != nil {
 				return m, false, "", err
 			}
-			if lm, lok := musicbrainz.Pick(recs, e.Artist, t, e.Year); lok {
+			if lm, lok := musicbrainz.Pick(recs, e.Artist, t, pick); lok {
 				lm.Exact = false
 				return lm, true, "MusicBrainz matched as " + lead + " – " + t, nil
 			}
@@ -615,8 +667,10 @@ func originalYear(y int, g musicbrainz.Group, cardYear int) bool {
 func ownAlbum(t applemusic.Song) bool { return musicbrainz.SameArtist(t.AlbumArtist, t.Artist) }
 
 // merge folds resolved entries that came out as the same song id (two card spellings of one recording) into one:
-// the sets joined, the earliest card year kept. A song whose year moved has its track's original-album flag and
-// cover redone: both were judged against the year it had.
+// the sets joined, the earliest card year kept. A card beats a chart hit (year, sets, track: the chart adds only
+// its sources, for the report); two chart spellings join their sources ("Lady Gaga and Bruno Mars" on Billboard,
+// "Lady Gaga & Bruno Mars" in the Swiss chart), one kept beating one dropped. A song whose year moved has its
+// track's original-album flag and cover redone: both were judged against the year it had.
 func (p *Pipeline) merge(ctx context.Context, rs []resolved) (out []resolved, merged []string, err error) {
 	out, merged = merge(rs)
 	for i := range out {
@@ -637,6 +691,14 @@ func merge(rs []resolved) (out []resolved, merged []string) {
 			continue
 		}
 		o := &out[i]
+		if o.Chart || r.Chart {
+			sources := union(o.Sources, r.Sources)
+			if !r.Chart || (o.Chart && o.Drop != "" && r.Drop == "") {
+				*o = r
+			}
+			o.Sources = sources
+			continue
+		}
 		merged = append(merged, fmt.Sprintf("| %s | %s | %s | %s |", cell(r.Artist), cell(r.Title), cell(o.Artist), cell(o.Title)))
 		for _, s := range r.Song.Sets {
 			if !slices.Contains(o.Song.Sets, s) {
@@ -654,6 +716,18 @@ func merge(rs []resolved) (out []resolved, merged []string) {
 		o.Year = o.Song.Year
 	}
 	return out, merged
+}
+
+// union is a and b without repeats, sorted.
+func union(a, b []string) []string {
+	out := slices.Clone(a)
+	for _, s := range b {
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // CoverArt checks the Cover Art Archive for a release group's front cover.
