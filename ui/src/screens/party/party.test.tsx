@@ -127,6 +127,45 @@ describe("party: lobby and join", () => {
     }
   });
 
+  it("keeps the lobby to mode and songs, the rest behind More options with a summary", async () => {
+    const world = new FakeWorld();
+    const { s } = await hostRoom(world);
+    // the host's screen is the stage, not a player
+    expect(
+      s.getByText(
+        "This screen plays the music. Everyone answers on their phone, you too.",
+      ),
+    ).toBeInTheDocument();
+    expect(s.queryByText("The host's device starts the game.")).toBeNull();
+    const more = s.getByRole("button", { name: /More options/ });
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(
+      within(more).getByText("First to 10 · 20 s · Chorus · Medium"),
+    ).toBeInTheDocument();
+    for (const name of ["First to", "Clip length", "Clip start", "Difficulty"])
+      expect(s.queryByRole("group", { name })).toBeNull();
+    fireEvent.click(more);
+    expect(more).toHaveAttribute("aria-expanded", "true");
+    expect(more).toHaveTextContent("Done");
+    expect(more).not.toHaveTextContent("First to 10");
+    for (const name of ["First to", "Clip length", "Clip start", "Difficulty"])
+      expect(s.getByRole("group", { name })).toBeInTheDocument();
+    fireEvent.click(more);
+    expect(more).toHaveAttribute("aria-expanded", "false");
+    expect(s.queryByRole("group", { name: "First to" })).toBeNull();
+  });
+
+  it("shows another profile viewing the lobby neither settings nor the stage line", async () => {
+    const world = new FakeWorld();
+    await hostRoom(world);
+    const g = within(renderApp("/room/K7Q4", world.device("p-mia")).container);
+    expect(
+      await g.findByText("The host's device starts the game."),
+    ).toBeInTheDocument();
+    expect(g.queryByText(/This screen plays the music/)).toBeNull();
+    expect(g.queryByRole("button", { name: /More options/ })).toBeNull();
+  });
+
   it("changes the game settings in the lobby and kicks a player", async () => {
     const world = new FakeWorld();
     const { s } = await hostRoom(world);
@@ -134,6 +173,10 @@ describe("party: lobby and join", () => {
     await s.findByText("Players · 1");
     fireEvent.click(s.getByRole("button", { name: "Buzzer" }));
     await waitFor(() => expect(world.room("K7Q4").state.mode).toBe("buzzer"));
+    const more = s.getByRole("button", { name: /More options/ });
+    // difficulty only plays in years mode: neither in the summary nor among the options
+    expect(within(more).getByText("First to 10 · 20 s · Chorus")).toBeVisible();
+    fireEvent.click(more);
     expect(s.queryByRole("group", { name: "Difficulty" })).toBeNull();
     fireEvent.click(s.getByRole("button", { name: "15" }));
     fireEvent.click(s.getByRole("button", { name: "30 s" }));
@@ -145,6 +188,8 @@ describe("party: lobby and join", () => {
       }),
     );
     expect(world.room("K7Q4").state.toWin).toBe(15);
+    fireEvent.click(more);
+    expect(within(more).getByText("First to 15 · 30 s · Random")).toBeVisible();
     fireEvent.click(s.getByRole("button", { name: "Change" }));
     fireEvent.click(await s.findByRole("button", { name: /Mega Mix/ }));
     await waitFor(() =>
@@ -154,6 +199,11 @@ describe("party: lobby and join", () => {
       ]),
     );
     fireEvent.click(s.getByRole("button", { name: "Earlier / Later" }));
+    // a change shows in the summary at once, before the server echoes it
+    expect(
+      within(more).getByText("First to 15 · 30 s · Random · Medium"),
+    ).toBeVisible();
+    fireEvent.click(more);
     fireEvent.click(await s.findByRole("button", { name: "Hard" }));
     await waitFor(() =>
       expect(world.room("K7Q4").state.settings.difficulty).toBe("hard"),
@@ -161,6 +211,10 @@ describe("party: lobby and join", () => {
     expect(JSON.parse(localStorage.getItem("reworm.room")!).difficulty).toBe(
       "hard",
     );
+    fireEvent.click(more);
+    expect(
+      within(more).getByText("First to 15 · 30 s · Random · Hard"),
+    ).toBeVisible();
 
     fireEvent.click(s.getByRole("button", { name: "Remove Mia" }));
     expect(await s.findByText("Players · 0")).toBeInTheDocument();
@@ -696,6 +750,7 @@ describe("party: requests that fail", () => {
     expect(await s.findByText("Players · 1")).toBeInTheDocument();
     expect(s.getByRole("button", { name: "Buzzer" })).toHaveClass("on");
     // a second change builds on the first
+    fireEvent.click(s.getByRole("button", { name: /More options/ }));
     fireEvent.click(s.getByRole("button", { name: "15" }));
     expect(s.getByRole("button", { name: "Buzzer" })).toHaveClass("on");
     release();

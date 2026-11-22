@@ -6,6 +6,7 @@ import { ApiError, type Api } from "../../api/client";
 import { appUrl, BASE } from "../../base";
 import { toApiError, useApi, useAsync, useMe } from "../../api/context";
 import type {
+  ClipStart,
   Decks,
   Difficulty,
   RoomMode,
@@ -125,11 +126,27 @@ const stable = (v: unknown): string =>
       : x,
   );
 
+const clipStarts: Record<ClipStart, string> = {
+  chorus: "Chorus",
+  random: "Random",
+};
+const difficulties: Record<Difficulty, string> = {
+  easy: "Easy",
+  medium: "Medium",
+  hard: "Hard",
+};
+const options = <T extends string>(labels: Record<T, string>) =>
+  (Object.keys(labels) as T[]).map((value) => ({
+    value,
+    label: labels[value],
+  }));
+
 function Lobby({ state, host }: { state: RoomState; host: boolean }) {
   const api = useApi();
   const decks = useAsync(host ? "decks" : null, () => api.decks());
   const [error, setError] = useState<ApiError | null>(null);
   const [picking, setPicking] = useState(false);
+  const [more, setMore] = useState(false);
   // pending: the user's changes not yet echoed by the server. They stay on top of every newer room
   // state (a player joining) until the server's settings carry them; a refused change drops them.
   const [pending, setPending] = useState<Partial<RoomSettings> | null>(null);
@@ -154,6 +171,14 @@ function Lobby({ state, host }: { state: RoomState; host: boolean }) {
       .catch((e: unknown) => setError(toApiError(e)));
   };
   const n = state.players.length;
+  const years = cur.mode === "years";
+  // difficulty only plays in years mode
+  const summary = [
+    `First to ${cur.toWin}`,
+    `${cur.clip.length} s`,
+    clipStarts[cur.clip.start],
+    ...(years ? [difficulties[cur.difficulty]] : []),
+  ].join(" · ");
   return (
     <Screen
       footer={
@@ -176,6 +201,12 @@ function Lobby({ state, host }: { state: RoomState; host: boolean }) {
           <div className="num room-code" aria-label="Room code">
             {state.code}
           </div>
+          {host && (
+            <div className="sub" style={{ fontSize: 13, marginTop: 6 }}>
+              This screen plays the music. Everyone answers on their phone, you
+              too.
+            </div>
+          )}
         </div>
         <div className="col">
           <div className="label">Players · {n}</div>
@@ -229,7 +260,7 @@ function Lobby({ state, host }: { state: RoomState; host: boolean }) {
                 ]}
               />
               <div className="sub" style={{ fontSize: 12.5, marginTop: 8 }}>
-                {cur.mode === "years"
+                {years
                   ? "A year is shown; the fastest right Earlier, Spot on or Later takes the round."
                   : "First buzz stops the clip; say artist + title, the room judges 2 / 1 / 0."}
               </div>
@@ -258,60 +289,69 @@ function Lobby({ state, host }: { state: RoomState; host: boolean }) {
                     />
                   </div>
                 )}
-                <div className="set-row">
-                  <div>First to</div>
-                  <Segmented
-                    label="First to"
-                    value={String(cur.toWin)}
-                    onChange={(v) => change({ toWin: +v })}
-                    options={[5, 10, 15].map((v) => ({
-                      value: String(v),
-                      label: `${v}`,
-                    }))}
-                  />
-                </div>
-                <div className="set-row">
-                  <div>Clip</div>
-                  <Segmented
-                    label="Clip length"
-                    value={String(cur.clip.length)}
-                    onChange={(v) =>
-                      change({ clip: { ...cur.clip, length: +v } })
-                    }
-                    options={[10, 20, 30].map((v) => ({
-                      value: String(v),
-                      label: `${v} s`,
-                    }))}
-                  />
-                </div>
-                <div className="set-row">
-                  <div>Clip start</div>
-                  <Segmented
-                    label="Clip start"
-                    value={cur.clip.start}
-                    onChange={(start) =>
-                      change({ clip: { ...cur.clip, start } })
-                    }
-                    options={[
-                      { value: "chorus", label: "Chorus" },
-                      { value: "random", label: "Random" },
-                    ]}
-                  />
-                </div>
-                {cur.mode === "years" && (
-                  <div className="set-row">
-                    <div>Difficulty</div>
-                    <Segmented<Difficulty>
-                      label="Difficulty"
-                      value={cur.difficulty}
-                      onChange={(difficulty) => change({ difficulty })}
-                      options={[
-                        { value: "easy", label: "Easy" },
-                        { value: "medium", label: "Medium" },
-                        { value: "hard", label: "Hard" },
-                      ]}
-                    />
-                  </div>
+                <button
+                  type="button"
+                  className="set-row more"
+                  aria-expanded={more}
+                  onClick={() => setMore((v) => !v)}
+                >
+                  <span style={{ minWidth: 0 }}>
+                    More options
+                    {!more && <span className="m">{summary}</span>}
+                  </span>
+                  <span className="link">{more ? "Done" : "Change"}</span>
+                </button>
+                {more && (
+                  <>
+                    <div className="set-row">
+                      <div>First to</div>
+                      <Segmented
+                        label="First to"
+                        value={String(cur.toWin)}
+                        onChange={(v) => change({ toWin: +v })}
+                        options={[5, 10, 15].map((v) => ({
+                          value: String(v),
+                          label: `${v}`,
+                        }))}
+                      />
+                    </div>
+                    <div className="set-row">
+                      <div>Clip</div>
+                      <Segmented
+                        label="Clip length"
+                        value={String(cur.clip.length)}
+                        onChange={(v) =>
+                          change({ clip: { ...cur.clip, length: +v } })
+                        }
+                        options={[10, 20, 30].map((v) => ({
+                          value: String(v),
+                          label: `${v} s`,
+                        }))}
+                      />
+                    </div>
+                    <div className="set-row">
+                      <div>Clip start</div>
+                      <Segmented
+                        label="Clip start"
+                        value={cur.clip.start}
+                        onChange={(start) =>
+                          change({ clip: { ...cur.clip, start } })
+                        }
+                        options={options(clipStarts)}
+                      />
+                    </div>
+                    {years && (
+                      <div className="set-row">
+                        <div>Difficulty</div>
+                        <Segmented
+                          label="Difficulty"
+                          value={cur.difficulty}
+                          onChange={(difficulty) => change({ difficulty })}
+                          options={options(difficulties)}
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </Card>
             </>
