@@ -16,10 +16,17 @@ describe("training", () => {
     expect(await screen.findByText("New session")).toBeInTheDocument();
     // pick decks, years, mode details, then start
     fireEvent.click(await screen.findByRole("button", { name: /Mega Mix/ }));
+    // one kind at a time: a category drops the sets, a genre the category
     fireEvent.click(screen.getByRole("button", { name: "Categories" }));
     fireEvent.click(screen.getByRole("button", { name: /Smash Hits/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Sets" }));
+    expect(screen.getByRole("button", { name: /Mega Mix/ })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Genres" }));
     fireEvent.click(screen.getByRole("button", { name: /^Rock/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Pop/ }));
     fireEvent.click(screen.getByRole("button", { name: "60s–80s" }));
     expect(screen.getByText("1960 – 1989")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("From year"), {
@@ -45,9 +52,9 @@ describe("training", () => {
       clip: { length: 30, start: "random" },
       length: 20,
       deck: {
-        sets: ["essentials", "megamix"],
-        categories: ["smash"],
-        genres: ["rockg"],
+        sets: [],
+        categories: [],
+        genres: ["rockg", "pop"],
         from: 1970,
         to: 1995,
       },

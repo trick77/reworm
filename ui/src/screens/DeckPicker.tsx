@@ -16,7 +16,7 @@ const HINT: Record<Tab, string> = {
 const toggle = (xs: string[], x: string) =>
   xs.includes(x) ? xs.filter((y) => y !== x) : [...xs, x];
 
-// DeckPicker: card sets, categories and genres, several at once (training setup, party lobby).
+// DeckPicker: card sets, categories or genres, several of one kind at a time (training setup, party lobby).
 export function DeckPicker({
   decks,
   deck,
@@ -35,8 +35,16 @@ export function DeckPicker({
         ? "categories"
         : "genres",
   );
+  // One kind at a time: the server takes a song in any picked set, category or genre, so a set left on beside
+  // Gen Alpha played that set's oldies too.
   const pick = (k: Tab, id: string) =>
-    onChange({ ...deck, [k]: toggle(deck[k], id) });
+    onChange({
+      ...deck,
+      sets: [],
+      categories: [],
+      genres: [],
+      [k]: toggle(deck[k], id),
+    });
   return (
     <>
       <Segmented

@@ -35,6 +35,24 @@ export const allYears = (deck: Partial<Deck> = {}): Deck => ({
   ...deck,
 });
 
+// oneKind keeps one kind of a deck, the one the picker opens on: sets, else categories, else genres. The server
+// takes a song in any of them, so a deck saved before the picker kept to one kind played a set's oldies beside
+// Gen Alpha.
+export const oneKind = (d: Deck): Deck =>
+  d.sets.length
+    ? { ...d, categories: [], genres: [] }
+    : d.categories.length
+      ? { ...d, genres: [] }
+      : d;
+
+// loadSettings is saved room or training settings with their deck kept to one kind.
+export function loadSettings<T extends { deck: Deck }>(
+  key: "room" | "train",
+): T | null {
+  const v = load<T>(key);
+  return v?.deck ? { ...v, deck: oneKind(v.deck) } : v;
+}
+
 export const defaultRoom = (deck: Deck): RoomSettings => ({
   mode: "years",
   deck,

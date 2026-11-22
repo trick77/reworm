@@ -389,6 +389,21 @@ test("kick: a removed phone is told so and cannot rejoin", async ({
   ]);
 });
 
+test("songs: a category replaces the preselected set, it does not add to it", async ({
+  browser,
+}) => {
+  const { stage, code } = await hostRoom(browser);
+  await expect(stage.getByText("Essentials", { exact: true })).toBeVisible();
+  await stage.getByRole("button", { name: "Change", exact: true }).click();
+  await stage.getByRole("button", { name: "Categories" }).click();
+  await stage.getByRole("button", { name: /Number ones/ }).click();
+  await expect
+    .poll(async () => (await roomState(stage, code)).settings.deck)
+    .toMatchObject({ sets: [], categories: ["number-ones"], genres: [] });
+  await expect(stage.getByText("Number ones", { exact: true })).toBeVisible();
+  await shot(stage, "lobby-deck-category");
+});
+
 test("anyone hosts: an iPad without a profile opens and runs the room, only it is the host", async ({
   browser,
 }) => {
