@@ -5,14 +5,14 @@ import type { Decks, TrainSettings } from "../api/types";
 import { avatarInfo } from "../avatars";
 import { Avatar } from "../components/Avatar";
 import { Button, Card, IconButton } from "../components/Controls";
-import { allYears, defaultTraining, load } from "../lib/prefs";
+import { allYears, defaultTraining, loadSettings } from "../lib/prefs";
 import { Brand, deckLabel, Problem, Screen, SetupPending } from "./common";
 import { useStartTraining } from "./train/useStart";
 
 // lastTraining is the saved training settings, else the first card set.
 export function lastTraining(decks?: Decks): TrainSettings {
   return (
-    load<TrainSettings>("train") ??
+    loadSettings<TrainSettings>("train") ??
     defaultTraining(
       allYears({ sets: decks?.sets[0] ? [decks.sets[0].id] : [] }),
     )

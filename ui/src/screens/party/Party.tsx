@@ -18,7 +18,13 @@ import { unlockAudio } from "../../audio/unlock";
 import { StageScale } from "../../components/AppShell";
 import { Avatar } from "../../components/Avatar";
 import { Button, Card, IconButton, Segmented } from "../../components/Controls";
-import { allYears, defaultRoom, load, save } from "../../lib/prefs";
+import {
+  allYears,
+  defaultRoom,
+  load,
+  loadSettings,
+  save,
+} from "../../lib/prefs";
 import {
   deckLabel,
   Loading,
@@ -52,7 +58,7 @@ function openRoom(api: Api, decks: Decks): Promise<{ code: string }> {
     }
     const first = decks.sets[0]?.id;
     const settings =
-      load<RoomSettings>("room") ??
+      loadSettings<RoomSettings>("room") ??
       defaultRoom(allYears({ sets: first ? [first] : [] }));
     const r = await api.createRoom(settings);
     save("hosting", r.code);

@@ -26,7 +26,7 @@ import { cx } from "../../lib/cx";
 import {
   allYears,
   defaultTraining,
-  load,
+  loadSettings,
   YEAR_MAX,
   YEAR_MIN,
 } from "../../lib/prefs";
@@ -294,7 +294,7 @@ function Summary({ id, t0 }: { id: string; t0: number }) {
   const s = sum.data;
   const drill = s ? [...new Set(s.misses.map((m) => m.song.id))] : [];
   const mins = Math.max(1, Math.round((now - t0) / 60000));
-  const settings = load<TrainSettings>("train");
+  const settings = loadSettings<TrainSettings>("train");
   return (
     <AppShell
       footer={
