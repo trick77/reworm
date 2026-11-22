@@ -12,14 +12,14 @@ import { Button, Card } from "../components/Controls";
 import { Icon } from "../components/Icon";
 import { WormLogo } from "../WormLogo";
 import {
-  AvatarStrip,
-  CodeBoxes,
+  ClaimCode,
   Loading,
   Problem,
   QrCode,
   Screen,
   ScreenHead,
   secondsLeft,
+  SetupPending,
   Unpaired,
   useNow,
 } from "./common";
@@ -67,7 +67,7 @@ export function Who() {
           Who's playing?
         </div>
         <div className="sub">This device remembers the choice.</div>
-        {unpaired && <Unpaired what="Picking a profile" />}
+        {unpaired && <Unpaired title="No profile on this device yet" />}
         {profiles.error && (
           <Problem error={profiles.error} retry={profiles.reload} />
         )}
@@ -107,7 +107,8 @@ export function Who() {
           </div>
         )}
         <div className="sub" style={{ marginTop: 26, fontSize: 12 }}>
-          Only paired devices see this. New people join with an invite code.
+          Only devices with a profile see this. New people join with an invite
+          code.
         </div>
       </div>
     </Screen>
@@ -215,7 +216,7 @@ export function MePage() {
     return (
       <Screen tab="settings">
         <ScreenHead back="/" title="Profile & devices" />
-        <Unpaired what="A profile" />
+        <Unpaired title="No profile on this device yet" />
       </Screen>
     );
   if (!me)
@@ -363,101 +364,36 @@ export function MePage() {
   );
 }
 
-// NAME_REQUIRED: a claim of a code alone refused with these is an invite: it needs a name and an
-// avatar (the server answers 400 invalid_name and leaves the code usable).
-const NAME_REQUIRED = [
-  "invalid_name",
-  "invalid_avatar",
-  "name_required",
-  "profile_required",
-];
-
+// Pair is /pair and a code's link /pair/<code>: an invite or one of your own devices. A fresh install has
+// nobody to get a code from: the setup hint instead.
 export function Pair({ code: given }: { code?: string }) {
-  const api = useApi();
   const [, go] = useLocation();
-  const { reload } = useMe();
-  const [code, setCode] = useState(
-    (given ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""),
-  );
-  const [invite, setInvite] = useState(false);
-  const [name, setName] = useState("");
-  const [avatar, setAvatar] = useState("vinyl");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ready =
-    code.length === 6 && (!invite || name.trim().length > 0) && !busy;
-
-  const claim = () => {
-    if (!ready) return;
-    setBusy(true);
-    setError(null);
-    api.claimPair(invite ? { code, name: name.trim(), avatar } : { code }).then(
-      () => {
-        reload();
-        go("/", { replace: true });
-      },
-      (e: unknown) => {
-        const err = toApiError(e);
-        setBusy(false);
-        if (!invite && (NAME_REQUIRED.includes(err.code) || err.status === 422))
-          setInvite(true);
-        else if (err.status === 404 || err.status === 410)
-          setError("That code is unknown or expired. Make a new one.");
-        else setError(err.message);
-      },
-    );
-  };
-
+  const { fresh, reload } = useMe();
   return (
-    <Screen
-      footer={
-        <Button disabled={!ready} onClick={claim}>
-          {invite ? "Create my profile" : "Pair this device"}
-        </Button>
-      }
-    >
-      <ScreenHead back="/" title="Pair this device" />
+    <Screen>
+      <ScreenHead back="/" title="Enter your code" />
       <div style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
-        <div className="sub" style={{ margin: "34px 0 8px" }}>
-          The code on your other device
-        </div>
-        <CodeBoxes
-          value={code}
-          onChange={setCode}
-          length={6}
-          label="Pairing code"
-          onDone={claim}
-        />
-        {invite && (
+        {fresh ? (
+          <SetupPending />
+        ) : (
           <>
-            <div style={{ fontWeight: 700, marginTop: 26 }}>
-              You're invited!
+            <div className="sub" style={{ margin: "34px 0 8px" }}>
+              The code from an invite or from your other device
             </div>
-            <div className="sub" style={{ margin: "4px 0 10px" }}>
-              Pick a name and an avatar for your profile.
-            </div>
-            <input
-              className="input"
-              aria-label="Your name"
-              value={name}
-              maxLength={20}
-              onChange={(e) => setName(e.target.value)}
-              style={{ textAlign: "center", maxWidth: 260 }}
+            <ClaimCode
+              given={given}
+              onDone={() => {
+                reload();
+                go("/", { replace: true });
+              }}
             />
-            <div style={{ marginTop: 14 }}>
-              <AvatarStrip value={avatar} onChange={setAvatar} />
+            <div className="sub" style={{ marginTop: 22, fontSize: 12.5 }}>
+              Codes work once and for 5 minutes. Someone who plays here makes
+              one under Profile &amp; devices → Invite someone; your own device
+              under Add a device.
             </div>
           </>
         )}
-        {error && (
-          <div className="err" role="alert">
-            {error}
-          </div>
-        )}
-        <div className="sub" style={{ marginTop: 22, fontSize: 12.5 }}>
-          Codes work once and for 5 minutes. On a paired device: Profile &amp;
-          devices → Add a device.
-        </div>
       </div>
     </Screen>
   );

@@ -13,15 +13,18 @@ import type { Api } from "./api/client";
 // tab; window.__fake is its world, to pose any screen from the console.
 async function fakeApi(): Promise<Api | undefined> {
   if (!import.meta.env.DEV) return undefined;
-  const q = new URLSearchParams(window.location.search).get("fake");
-  if (q === "0") sessionStorage.removeItem("reworm.fake");
-  if (q === "1") sessionStorage.setItem("reworm.fake", "1");
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("fake") === "0") sessionStorage.removeItem("reworm.fake");
+  if (q.get("fake") === "1") sessionStorage.setItem("reworm.fake", "1");
   if (sessionStorage.getItem("reworm.fake") !== "1") return undefined;
   const { FakeWorld } = await import("./test/fakeApi");
-  const world = new FakeWorld({ timers: true, latency: 120 });
+  // ?fresh=1: a fresh install, no profile yet (its setup link is /setup/fake-setup), kept for the tab too
+  if (q.get("fresh") === "0") sessionStorage.removeItem("reworm.fresh");
+  if (q.get("fresh") === "1") sessionStorage.setItem("reworm.fresh", "1");
+  const fresh = sessionStorage.getItem("reworm.fresh") === "1";
+  const world = new FakeWorld({ timers: true, latency: 120, seed: !fresh });
   // ?guest=1: an unpaired phone (a party guest), else Jan's paired device
-  const guest =
-    new URLSearchParams(window.location.search).get("guest") === "1";
+  const guest = fresh || q.get("guest") === "1";
   const api = world.device(guest ? null : "p-jan", "This browser");
   Object.assign(window, { __fake: world, __fakeApi: api });
   return api;

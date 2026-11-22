@@ -8,7 +8,14 @@ import { Button, Card, IconButton, Pill } from "../components/Controls";
 import { DeckArt } from "../components/DeckArt";
 import { Icon } from "../components/Icon";
 import { allYears, defaultTraining, load, save } from "../lib/prefs";
-import { accColor, Brand, deckLabel, Problem, Screen } from "./common";
+import {
+  accColor,
+  Brand,
+  deckLabel,
+  Problem,
+  Screen,
+  SetupPending,
+} from "./common";
 import { useStartTraining } from "./train/useStart";
 
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
@@ -38,7 +45,8 @@ const JOIN: Action = {
 };
 
 // GameNight leads with Join on a guest's phone (no profile, can only join) and with Host on a paired device.
-// guest null: not known yet, no buttons, so a guest never taps a Host that turns into Join under the finger.
+// guest null: not known yet, no buttons, so a guest never taps a Host that turns into Join under the finger; also
+// a fresh install, where no game can exist.
 function GameNight({
   avatars,
   guest,
@@ -146,7 +154,7 @@ function Progress({ stats }: { stats: TrainStats }) {
 export function Home() {
   const api = useApi();
   const [, go] = useLocation();
-  const { me, unpaired, loading, error: meError, reload } = useMe();
+  const { me, unpaired, fresh, loading, error: meError, reload } = useMe();
   const paired = !!me;
   const stats = useAsync(paired ? "stats" : null, () => api.trainStats());
   const decks = useAsync(paired ? "decks" : null, () => api.decks());
@@ -203,22 +211,26 @@ export function Home() {
       </div>
       <div className="cols">
         <div className="col">
+          {/* fresh: no profile anywhere, so no game to host or join: no buttons */}
           <GameNight
-            guest={me ? false : unpaired || meError ? true : null}
+            guest={
+              me ? false : fresh ? null : unpaired || meError ? true : null
+            }
             avatars={
               profiles.data?.map((p) => p.avatar) ?? ["vinyl", "mic", "guitar"]
             }
           />
-          {unpaired && (
+          {fresh && <SetupPending />}
+          {unpaired && !fresh && (
             <div className="sub" style={{ marginTop: 14, fontSize: 13 }}>
-              Training and hosting need a profile.{" "}
+              Hosting and solo training need a profile.{" "}
               <button
                 type="button"
                 className="link"
                 style={{ padding: "12px 4px", margin: "-12px -4px" }}
                 onClick={() => go("/pair")}
               >
-                Pair this device
+                Got an invite code?
               </button>
             </div>
           )}

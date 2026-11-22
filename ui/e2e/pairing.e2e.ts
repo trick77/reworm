@@ -1,5 +1,5 @@
 // Pairing (D3): "Add a device" logs a second browser in as the admin's profile, "Invite someone" makes a new
-// profile, and nobody switches into the admin profile.
+// profile (redeemed on /host, straight into the lobby), and nobody switches into the admin profile.
 import { expect, test, type Page } from "@playwright/test";
 import { closeDevices, device, shot } from "./helpers";
 
@@ -27,7 +27,7 @@ test("pairing: add a device, invite someone, the admin profile is not switchable
   await shot(admin, "pair-code");
   const second = await device(browser, "phone");
   await second.goto(`pair/${code}`);
-  await second.getByRole("button", { name: "Pair this device" }).click();
+  await second.getByRole("button", { name: "Use this code" }).click();
   await expect(second).toHaveURL(/\/reworm\/$/);
   await expect(second.getByText("Solo training")).toBeVisible();
   await second.goto("me");
@@ -35,21 +35,27 @@ test("pairing: add a device, invite someone, the admin profile is not switchable
   // a used code is gone
   const third = await device(browser, "phone");
   await third.goto(`pair/${code}`);
-  await third.getByRole("button", { name: "Pair this device" }).click();
+  await third.getByRole("button", { name: "Use this code" }).click();
   await expect(third.getByRole("alert")).toContainText("unknown or expired");
 
-  // Invite someone: the code asks for a name and an avatar and makes a new profile
+  // Invite someone, redeemed right where hosting asks for a profile: name and avatar make a new profile, and
+  // the device goes on into its lobby
   await admin.getByRole("button", { name: "Done" }).click();
   const invite = await pairCode(admin, "Invite someone");
-  await third.goto(`pair/${invite}`);
-  await third.getByRole("button", { name: "Pair this device" }).click();
+  await third.goto("host");
+  await expect(third.getByText("Hosting is invite-only here")).toBeVisible();
+  await third.getByLabel("Your code").fill(invite);
+  await third.getByRole("button", { name: "Use this code" }).click();
   await expect(third.getByText("You're invited!")).toBeVisible();
   const name = `Guest${test.info().project.name === "webkit" ? "W" : "C"}`;
   await third.getByLabel("Your name").fill(name);
   await third.getByRole("radio", { name: "Quaver" }).click();
-  await shot(third, "pair-invite");
+  await shot(third, "host-invite");
   await third.getByRole("button", { name: "Create my profile" }).click();
-  await expect(third.getByText("Solo training")).toBeVisible();
+  await expect(third.locator('[aria-label="Room code"]')).toHaveText(
+    /^[A-Z0-9]{4}$/,
+  );
+  await expect(third).toHaveURL(/\/reworm\/room\/[A-Z0-9]{4}$/);
   await third.goto("me");
   await expect(third.getByText(name, { exact: true }).first()).toBeVisible();
   await expect(third.getByText(/· admin$/)).toHaveCount(0);

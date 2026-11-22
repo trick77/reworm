@@ -1,9 +1,10 @@
-// Pieces shared by the screens: header, brand, loading and error states, toggle, QR, rings, the year range,
-// the avatar strip and the code boxes.
+// Pieces shared by the screens: header, brand, loading and error states, the way to a profile (code claim, setup
+// hint), toggle, QR, rings, the year range, the avatar strip and the code boxes.
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import type { ApiError } from "../api/client";
+import { toApiError, useApi, useMe } from "../api/context";
 import type { Deck, Decks, Difficulty } from "../api/types";
 import { AVATARS } from "../avatars";
 import { AppShell, type Tab } from "../components/AppShell";
@@ -117,20 +118,139 @@ export function Problem({
   );
 }
 
-// Unpaired: this device has no profile yet (401), with the way to pair it.
-export function Unpaired({ what }: { what: string }) {
-  const [, go] = useLocation();
+// NARROW: a card alone on a wide screen keeps a readable width, centred.
+const NARROW = { marginTop: 18, maxWidth: 460, marginInline: "auto" };
+
+// SetupPending: no profile exists yet (401 setup_pending): only the setup link from the log makes the first.
+export function SetupPending({ narrow = false }: { narrow?: boolean }) {
+  const { reload } = useMe();
   return (
-    <Card style={{ marginTop: 18 }}>
-      <div style={{ fontWeight: 700 }}>This device isn't paired</div>
+    <Card style={narrow ? NARROW : { marginTop: 18 }}>
+      <div style={{ fontWeight: 700 }}>Reworm isn't set up yet</div>
       <div className="sub" style={{ fontSize: 13, margin: "4px 0 12px" }}>
-        {what} needs a profile. On a paired device open Profile &amp; devices →
-        Add a device, then enter the code here.
+        Reworm printed a one-time setup link in its container log (docker logs)
+        when it started. Open it on this device to create the first profile.
       </div>
-      <Button small variant="sky" icon="qr" onClick={() => go("/pair")}>
-        Pair this device
+      <Button small variant="ghost" onClick={reload}>
+        Check again
       </Button>
     </Card>
+  );
+}
+
+// Unpaired: this device has no profile (401): why it needs one, and the code field to get it right here. onDone
+// runs after the claim, once the profile is reloaded.
+export function Unpaired({
+  title,
+  onDone,
+}: {
+  title: string;
+  onDone?: () => void;
+}) {
+  const { fresh, reload } = useMe();
+  if (fresh) return <SetupPending narrow />;
+  return (
+    <Card style={NARROW}>
+      <div style={{ fontWeight: 700 }}>{title}</div>
+      <div className="sub" style={{ fontSize: 13, margin: "4px 0 16px" }}>
+        A profile is your invite to this Reworm; it also keeps your training
+        progress. Ask someone who plays here for a code (Profile &amp; devices →
+        Invite someone), or use the code from your own other device.
+      </div>
+      <ClaimCode
+        onDone={() => {
+          reload();
+          onDone?.();
+        }}
+      />
+    </Card>
+  );
+}
+
+// NAME_REQUIRED: a claim of a code alone refused with these is an invite: it needs a name and an
+// avatar (the server answers 400 invalid_name and leaves the code usable).
+const NAME_REQUIRED = [
+  "invalid_name",
+  "invalid_avatar",
+  "name_required",
+  "profile_required",
+];
+
+// ClaimCode: the code of an invite or of one of your own devices, claimed for this device. An invite asks for a
+// name and an avatar first. onDone runs once the device has its profile.
+export function ClaimCode({
+  given,
+  onDone,
+}: {
+  given?: string;
+  onDone: () => void;
+}) {
+  const api = useApi();
+  const [code, setCode] = useState(
+    (given ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""),
+  );
+  const [invite, setInvite] = useState(false);
+  const [name, setName] = useState("");
+  const [avatar, setAvatar] = useState("vinyl");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const ready =
+    code.length === 6 && (!invite || name.trim().length > 0) && !busy;
+
+  const claim = () => {
+    if (!ready) return;
+    setBusy(true);
+    setError(null);
+    api
+      .claimPair(invite ? { code, name: name.trim(), avatar } : { code })
+      .then(onDone, (e: unknown) => {
+        const err = toApiError(e);
+        setBusy(false);
+        if (!invite && (NAME_REQUIRED.includes(err.code) || err.status === 422))
+          setInvite(true);
+        else if (err.status === 404 || err.status === 410)
+          setError("That code is unknown or expired. Make a new one.");
+        else setError(err.message);
+      });
+  };
+
+  return (
+    <div style={{ textAlign: "center" }}>
+      <CodeBoxes
+        value={code}
+        onChange={setCode}
+        length={6}
+        label="Your code"
+        onDone={claim}
+      />
+      {invite && (
+        <>
+          <div style={{ fontWeight: 700, marginTop: 26 }}>You're invited!</div>
+          <div className="sub" style={{ margin: "4px 0 10px" }}>
+            Pick a name and an avatar for your profile.
+          </div>
+          <input
+            className="input"
+            aria-label="Your name"
+            value={name}
+            maxLength={20}
+            onChange={(e) => setName(e.target.value)}
+            style={{ textAlign: "center", maxWidth: 260 }}
+          />
+          <div style={{ marginTop: 14 }}>
+            <AvatarStrip value={avatar} onChange={setAvatar} />
+          </div>
+        </>
+      )}
+      {error && (
+        <div className="err" role="alert">
+          {error}
+        </div>
+      )}
+      <Button disabled={!ready} onClick={claim} style={{ marginTop: 18 }}>
+        {invite ? "Create my profile" : "Use this code"}
+      </Button>
+    </div>
   );
 }
 

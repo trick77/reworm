@@ -156,7 +156,8 @@ export function Host() {
   return (
     <Screen>
       <ScreenHead back="/party" title="Host a game" />
-      {unpaired && <Unpaired what="Hosting a game" />}
+      {/* a code claimed here reloads the profile: the effect above then opens the room */}
+      {unpaired && <Unpaired title="Hosting is invite-only here" />}
       {error && <Problem error={error} retry={retry} />}
       {!unpaired && !error && <Loading />}
     </Screen>

@@ -15,7 +15,10 @@ describe("pairing", () => {
     const { code } = await mine.pair("device");
     const fresh = world.device();
     const r = renderApp(`/pair/${code.toLowerCase()}`, fresh);
-    fireEvent.click(screen.getByRole("button", { name: "Pair this device" }));
+    expect(screen.getByText("Enter your code")).toBeInTheDocument();
+    expect(screen.getByText(/Invite someone/)).toBeInTheDocument();
+    expect(screen.getByText(/Add a device/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
     await waitFor(() => expect(r.path()).toBe("/"));
     expect((await fresh.me()).profile.name).toBe("Mia");
     expect(
@@ -28,10 +31,10 @@ describe("pairing", () => {
     const { code } = await world.device("p-jan").pair("invite");
     const fresh = world.device();
     const r = renderApp("/pair", fresh);
-    fireEvent.change(screen.getByLabelText("Pairing code"), {
+    fireEvent.change(screen.getByLabelText("Your code"), {
       target: { value: code },
     });
-    fireEvent.keyDown(screen.getByLabelText("Pairing code"), { key: "Enter" });
+    fireEvent.keyDown(screen.getByLabelText("Your code"), { key: "Enter" });
     expect(await screen.findByText("You're invited!")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Create my profile" }),
@@ -74,7 +77,7 @@ describe("pairing", () => {
   it("reports an unknown code", async () => {
     const world = new FakeWorld();
     renderApp("/pair/AAAAAA", world.device());
-    fireEvent.click(screen.getByRole("button", { name: "Pair this device" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "unknown or expired",
     );
@@ -192,17 +195,35 @@ describe("profiles and devices", () => {
     vi.useRealTimers();
   });
 
-  it("an unpaired device sees how to pair on the profile page and Who's playing", async () => {
+  it("a device without a profile enters a code right on the profile page and Who's playing", async () => {
     const world = new FakeWorld();
     const r = renderApp("/me", world.device());
     expect(
-      await screen.findByText("This device isn't paired"),
+      await screen.findByText("No profile on this device yet"),
     ).toBeInTheDocument();
+    expect(screen.getByText(/A profile is your invite/)).toBeInTheDocument();
+    expect(screen.queryByText(/pair/i)).toBeNull();
+    // a code of Mia's other device: the page goes on as Mia's
+    const { code } = await world.device("p-mia").pair("device");
+    fireEvent.change(screen.getByLabelText("Your code"), {
+      target: { value: code },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
+    expect(await screen.findByText("this one")).toBeInTheDocument();
+    expect(r.path()).toBe("/me");
     r.unmount();
-    const w = renderApp("/who", world.device());
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Pair this device" }),
-    );
-    expect(w.path()).toBe("/pair");
+    renderApp("/who", world.device());
+    expect(
+      await screen.findByText("No profile on this device yet"),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Your code")).toBeInTheDocument();
+  });
+
+  it("a fresh install shows the setup card instead of a code field", async () => {
+    renderApp("/me", new FakeWorld({ seed: false }).device());
+    expect(
+      await screen.findByText("Reworm isn't set up yet"),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText("Your code")).toBeNull();
   });
 });

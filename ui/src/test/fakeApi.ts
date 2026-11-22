@@ -883,7 +883,11 @@ export class FakeApi implements Api {
   ) {
     return this.log(name, () => {
       const p = this.profile();
-      return p ? f(p) : fail(401, "unauthorized", "this device is not paired");
+      if (p) return f(p);
+      // as the server: no profile anywhere yet, the setup link is pending
+      return this.world.profiles.size
+        ? fail(401, "unauthorized", "this device is not paired")
+        : fail(401, "setup_pending", "no profile yet");
     });
   }
 

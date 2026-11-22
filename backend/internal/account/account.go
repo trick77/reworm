@@ -183,10 +183,25 @@ FROM devices d JOIN profiles p ON p.id = d.profile_id WHERE d.id = ?`, c.Subject
 	return id, nil
 }
 
-// Require runs h for a paired device and answers 401 otherwise.
+// errSetupPending is the 401 before the first profile: the UI points to the setup link in the log. It tells only
+// that, never the token.
+var errSetupPending = api.Fail(http.StatusUnauthorized, "setup_pending", "no profile yet: open the setup link from the log")
+
+// setupPending reports an unused setup token. Boot mints it while no profile exists (SetupToken) and setup clears
+// it, so it needs no query per request.
+func (s *Service) setupPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.setupToken != ""
+}
+
+// Require runs h for a paired device and answers 401 otherwise, setup_pending while no profile exists yet.
 func (s *Service) Require(h func(http.ResponseWriter, *http.Request, Identity)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := s.Identify(r)
+		if errors.Is(err, api.ErrUnauthorized) && s.setupPending() {
+			err = errSetupPending
+		}
 		if err != nil {
 			api.WriteError(w, r, err)
 			return

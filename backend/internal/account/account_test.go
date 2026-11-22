@@ -40,6 +40,10 @@ func newEnv(t *testing.T) *env {
 	}
 	e.mux = http.NewServeMux()
 	e.svc.Mount(e.mux)
+	// as at boot: the setup token is minted before the first request
+	if _, err := e.svc.SetupToken(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	return e
 }
 
@@ -129,8 +133,8 @@ func (e *env) setup(b *browser) meJSON {
 func TestSetup(t *testing.T) {
 	e := newEnv(t)
 	b := e.browser("Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X)")
-	if rec := b.do(http.MethodGet, "/api/me", nil); rec.Code != http.StatusUnauthorized || errCode(t, rec) != "unauthorized" {
-		t.Fatalf("unpaired /api/me = %d", rec.Code)
+	if rec := b.do(http.MethodGet, "/api/me", nil); rec.Code != http.StatusUnauthorized || errCode(t, rec) != "setup_pending" {
+		t.Fatalf("unpaired /api/me before setup = %d", rec.Code)
 	}
 	token, _ := e.svc.SetupToken(context.Background())
 	again, _ := e.svc.SetupToken(context.Background())
@@ -162,6 +166,60 @@ func TestSetup(t *testing.T) {
 	if rec := b.do(http.MethodPost, "/api/setup", "nope"); rec.Code != http.StatusBadRequest {
 		t.Errorf("malformed = %d", rec.Code)
 	}
+}
+
+// Before the first profile a 401 says so (the UI points to the setup link), never with the token; after setup,
+// and after a restart with profiles, it is the plain unauthorized again.
+func TestRequire_setupPending(t *testing.T) {
+	e := newEnv(t)
+	token, _ := e.svc.SetupToken(context.Background())
+	rec := e.browser("x").do(http.MethodGet, "/api/me", nil)
+	if body := rec.Body.String(); strings.Contains(body, token) {
+		t.Errorf("401 body leaks the setup token: %s", body)
+	}
+	if rec.Code != http.StatusUnauthorized || errCode(t, rec) != "setup_pending" {
+		t.Errorf("before setup = %d", rec.Code)
+	}
+	if rec := e.browser("x").do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"}); errCode(t, rec) != "setup_pending" {
+		t.Errorf("pair before setup = %d", rec.Code)
+	}
+	e.setup(e.browser("Mac"))
+	if rec := e.browser("x").do(http.MethodGet, "/api/me", nil); rec.Code != http.StatusUnauthorized || errCode(t, rec) != "unauthorized" {
+		t.Errorf("after setup = %d", rec.Code)
+	}
+
+	// a restart over the same database: the boot finds a profile, no token, no pending setup
+	again, err := New(Options{DB: e.svc.db, Key: make([]byte, 32), Now: e.clock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok, err := again.SetupToken(context.Background()); tok != "" || err != nil {
+		t.Fatalf("token after restart = %q, %v", tok, err)
+	}
+	mux := http.NewServeMux()
+	again.Mount(mux)
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me", nil))
+	if rec.Code != http.StatusUnauthorized || errCode(t, rec) != "unauthorized" {
+		t.Errorf("after restart = %d", rec.Code)
+	}
+}
+
+// Unpaired requests read the pending state while a setup clears it (go test -race).
+func TestRequire_setupPendingRace(t *testing.T) {
+	e := newEnv(t)
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 20 {
+				if rec := e.browser("x").do(http.MethodGet, "/api/me", nil); rec.Code != http.StatusUnauthorized {
+					t.Errorf("unpaired /api/me = %d", rec.Code)
+				}
+			}
+		})
+	}
+	e.setup(e.browser("Mac"))
+	wg.Wait()
 }
 
 func TestSetup_raceMakesOneAdmin(t *testing.T) {

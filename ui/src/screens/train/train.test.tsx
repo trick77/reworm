@@ -277,7 +277,7 @@ describe("training", () => {
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
   });
 
-  it("starts today's round from home, and a decade, and points an unpaired device to pairing", async () => {
+  it("starts today's round from home, and a decade, and takes a code on a device without a profile", async () => {
     const world = new FakeWorld();
     const r = renderApp("/", world.device("p-jan"));
     fireEvent.click(
@@ -297,9 +297,33 @@ describe("training", () => {
       JSON.parse(localStorage.getItem("reworm.train")!).deck.from,
     ).not.toBe(1970);
     r2.unmount();
-    renderApp("/train", world.device());
+    const r3 = renderApp("/train", world.device());
     expect(
-      await screen.findByText("This device isn't paired"),
+      await screen.findByText("Training needs a profile"),
+    ).toBeInTheDocument();
+    const { code } = await world.device("p-jan").pair("device");
+    fireEvent.change(screen.getByLabelText("Your code"), {
+      target: { value: code },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
+    expect(
+      await screen.findByRole("button", { name: /Mega Mix/ }),
+    ).toBeInTheDocument();
+    r3.unmount();
+
+    // a session opened on a device without a profile: the code, then the session itself
+    const phone = world.device();
+    renderApp(`/train/${ses.id}`, phone);
+    expect(
+      await screen.findByText("Training needs a profile"),
+    ).toBeInTheDocument();
+    const again = await world.device("p-jan").pair("device");
+    fireEvent.change(screen.getByLabelText("Your code"), {
+      target: { value: again.code },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Use this code" }));
+    expect(
+      await screen.findByRole("button", { name: "End session" }),
     ).toBeInTheDocument();
   });
 });
