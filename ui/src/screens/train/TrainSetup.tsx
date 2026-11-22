@@ -1,4 +1,5 @@
-// /train — a new training session: what to listen to, the years, the mode, difficulty, clip and length.
+// /train — your progress and decades on top, then a new training session: what to listen to, the years, the mode,
+// difficulty, clip and length.
 import { useState } from "react";
 import { useApi, useAsync, useMe } from "../../api/context";
 import type { ClipStart, Difficulty, TrainSettings } from "../../api/types";
@@ -16,6 +17,7 @@ import {
   YearRange,
 } from "../common";
 import { DeckPicker } from "../DeckPicker";
+import { Progress, type DecadeStart } from "./Progress";
 import { useStartTraining } from "./useStart";
 
 const MODES = [
@@ -44,8 +46,11 @@ export function TrainSetup() {
   const api = useApi();
   const { me, unpaired, error: meError, reload } = useMe();
   const decks = useAsync(me ? "decks" : null, () => api.decks());
+  const stats = useAsync(me ? "stats" : null, () => api.trainStats());
   const [cfg, setCfg] = useState<TrainSettings | null>(null);
+  // one start for the Start button and the decade tiles; tile: the last one came from a tile (its error shows there)
   const training = useStartTraining();
+  const [tile, setTile] = useState(false);
 
   if (unpaired)
     return (
@@ -64,7 +69,8 @@ export function TrainSetup() {
         />
       </Screen>
     );
-  if (!decks.data)
+  // the progress on top is in before the form shows: nothing slides in under a finger (a stats failure is in too)
+  if (!decks.data || (!stats.data && !stats.error))
     return (
       <Screen tab="train">
         <ScreenHead back="/" title="New session" />
@@ -74,6 +80,14 @@ export function TrainSetup() {
 
   const c = cfg ?? lastTraining(decks.data);
   const set = (patch: Partial<TrainSettings>) => setCfg({ ...c, ...patch });
+  const decade: DecadeStart = {
+    start: (s) => {
+      setTile(true);
+      training.start(s, false);
+    },
+    busy: training.busy,
+    error: tile ? training.error : null,
+  };
 
   return (
     <Screen
@@ -81,13 +95,23 @@ export function TrainSetup() {
         <Button
           icon="play"
           disabled={training.busy}
-          onClick={() => training.start(c)}
+          onClick={() => {
+            setTile(false);
+            training.start(c);
+          }}
         >
           Start · {c.length} songs
         </Button>
       }
     >
       <ScreenHead back="/" title="New session" />
+      {stats.error ? (
+        <Problem error={stats.error} retry={stats.reload} />
+      ) : (
+        stats.data && (
+          <Progress stats={stats.data} settings={c} training={decade} />
+        )
+      )}
       <div className="cols">
         <div className="col">
           <div className="label">What to listen to</div>
@@ -174,7 +198,7 @@ export function TrainSetup() {
               label: `${n} songs`,
             }))}
           />
-          {training.error && <Problem error={training.error} />}
+          {training.error && !tile && <Problem error={training.error} />}
           <div className="sub" style={{ fontSize: 12, marginTop: 14 }}>
             <Icon name="flame" size={14} /> Missed songs come back a few cards
             later with a different year.

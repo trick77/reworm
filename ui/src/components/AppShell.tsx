@@ -2,11 +2,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { cx } from "../lib/cx";
 import { Icon, type IconName } from "./Icon";
 
-export type Tab = "home" | "party" | "train" | "settings";
+export type Tab = "home" | "train" | "settings";
 
 const TABS: { tab: Tab; label: string; icon: IconName }[] = [
   { tab: "home", label: "Home", icon: "home" },
-  { tab: "party", label: "Party", icon: "party" },
   { tab: "train", label: "Train", icon: "train" },
   { tab: "settings", label: "Settings", icon: "gear" },
 ];

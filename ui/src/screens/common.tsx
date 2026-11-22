@@ -16,7 +16,6 @@ import { WormLogo } from "../WormLogo";
 
 const TAB_PATH: Record<Tab, string> = {
   home: "/",
-  party: "/party",
   train: "/train",
   settings: "/settings",
 };

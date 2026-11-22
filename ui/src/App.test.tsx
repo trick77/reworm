@@ -10,24 +10,33 @@ import { FakeWorld } from "./test/fakeApi";
 import { renderApp } from "./test/render";
 
 describe("App", () => {
-  it("shows home for a paired device: game night, solo training, progress, decades, decks", async () => {
-    const r = renderApp("/", new FakeWorld().device("p-jan"));
-    expect(await screen.findByText("Gold record")).toBeInTheDocument();
+  it("shows home for a paired device: the game in three steps, then only solo training", async () => {
+    renderApp("/", new FakeWorld().device("p-jan"));
+    expect(await screen.findByText("Essentials")).toBeInTheDocument();
     expect(screen.getByText("Play with friends")).toBeInTheDocument();
+    const steps = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(steps).toEqual([
+      "1One screen plays a song clip and shows a year.",
+      "2Everyone taps Earlier, Spot on or Later on their phone.",
+      "3Fastest right answer takes the round.",
+    ]);
     expect(screen.getByText("Solo training")).toBeInTheDocument();
+    // progress, decades, streak and decks live on the Train tab
+    for (const gone of ["Your progress", "Decades", "Decks", "Gold record"])
+      expect(screen.queryByText(gone)).toBeNull();
     expect(
-      await screen.findByText("Card set · 1908–2021 · 308 cards"),
-    ).toBeInTheDocument();
-    expect(screen.getByText("1,380 / 1,500 XP")).toBeInTheDocument();
-    expect(screen.getByText("12")).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Train the 1970s" }),
+    ).toBeNull();
+  });
+
+  it("has the tabs Home, Train and Settings, and sends the old /party home", async () => {
+    const r = renderApp("/party", new FakeWorld().device("p-jan"));
+    expect(r.path()).toBe("/");
+    expect(await screen.findByText("Solo training")).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Main" });
     expect(
-      screen.getByRole("button", { name: "Train the 1970s" }),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Mega Mix/ }));
-    expect(r.path()).toBe("/train");
-    expect(JSON.parse(localStorage.getItem("reworm.train")!).deck.sets).toEqual(
-      ["megamix"],
-    );
+      [...nav.querySelectorAll("button")].map((b) => b.textContent),
+    ).toEqual(["Home", "Train", "Settings"]);
   });
 
   it("takes the tabs and the home buttons to their routes", async () => {
@@ -36,13 +45,12 @@ describe("App", () => {
       fireEvent.click(screen.getAllByRole("button", { name })[0]);
       expect(r.path()).toBe(path);
     };
-    await screen.findByText("Gold record");
-    go("Party", "/party");
+    await screen.findByText("Solo training");
     go(/^Host a game/, "/host");
     await screen.findByLabelText("Room code");
-    go("Back", "/party");
-    go(/^Join a game/, "/join");
-    go("Back", "/party");
+    go("Back", "/");
+    go(/^Join$/, "/join");
+    go("Back", "/");
     go("Settings", "/settings");
     go("Train", "/train");
     go("Back", "/");
@@ -55,7 +63,7 @@ describe("App", () => {
 
   it("leads with Host on a paired device", async () => {
     renderApp("/", new FakeWorld().device("p-jan"));
-    await screen.findByText("Gold record");
+    await screen.findByText("Solo training");
     const host = screen.getByRole("button", { name: "Host a game" });
     const join = screen.getByRole("button", { name: "Join" });
     expect(
@@ -73,7 +81,9 @@ describe("App", () => {
       screen.getByText(/Hosting and solo training need a profile/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/pair/i)).toBeNull();
-    expect(screen.getByText(/no account needed/)).toBeInTheDocument();
+    expect(screen.queryByText(/server/i)).toBeNull();
+    // the same three steps as on a paired device
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
     const join = screen.getByRole("button", { name: "Join a game" });
     const host = screen.getByRole("button", { name: "Host" });
     expect(

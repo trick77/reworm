@@ -90,6 +90,12 @@ describe("setup", () => {
     const first = world.device();
     // the link exactly as the server log prints it: /setup/<token>
     const r = renderApp("/setup/fake-setup", first);
+    expect(
+      screen.getByText(
+        "The first profile on this Reworm. You'll be its admin.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/server|pair/i)).toBeNull();
     fireEvent.change(screen.getByLabelText("Your name"), {
       target: { value: "Jan" },
     });
@@ -108,12 +114,26 @@ describe("setup", () => {
       target: { value: "Eve" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create my profile" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("already used");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This setup link was already used. Get a code from a device that has a profile.",
+    );
   });
 
-  it("says when the link has no token", () => {
-    renderApp("/setup", new FakeWorld().device());
-    expect(screen.getByRole("alert")).toHaveTextContent("no token");
+  it("says when the link is wrong, or has no token: copy it from the container log", async () => {
+    const world = new FakeWorld({ seed: false });
+    const r = renderApp("/setup/wrong", world.device());
+    fireEvent.change(screen.getByLabelText("Your name"), {
+      target: { value: "Jan" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create my profile" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "This setup link isn't valid. Copy it again from the container log.",
+    );
+    r.unmount();
+    renderApp("/setup", world.device());
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The setup link has no token. Open the link from the container log.",
+    );
   });
 });
 
@@ -132,13 +152,16 @@ describe("profiles and devices", () => {
     const api = world.device("p-mia");
     const r = renderApp("/who", api);
     fireEvent.click(await screen.findByRole("button", { name: "Jan" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Jan is the admin profile",
+    const card = await screen.findByRole("alert");
+    expect(card).toHaveTextContent(
+      "Jan is the admin profileIt can't be picked here. Make a code on one of Jan's devices (Profile & devices → Add a device) and enter it on this one.",
     );
+    expect(card).not.toHaveTextContent(/pair/i);
     expect(r.path()).toBe("/who");
     expect((await api.me()).profile.name).toBe("Mia");
-    fireEvent.click(screen.getByRole("button", { name: "Pair this device" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enter a code" }));
     expect(r.path()).toBe("/pair");
+    expect(await screen.findByText("Enter your code")).toBeInTheDocument();
   });
 
   it("Add someone opens the profile page with an invite code", async () => {
@@ -160,6 +183,7 @@ describe("profiles and devices", () => {
     expect(await screen.findByText("this one")).toBeInTheDocument();
     expect(screen.getByText("2 h ago")).toBeInTheDocument();
     expect(screen.getByText("3 days ago")).toBeInTheDocument();
+    expect(screen.getByText("Profiles on this Reworm")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("radio", { name: /Woofer/ }));
     await waitFor(() =>

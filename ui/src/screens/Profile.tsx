@@ -76,11 +76,11 @@ export function Who() {
           <Card style={{ marginTop: 18 }} role="alert">
             <div style={{ fontWeight: 700 }}>{admin} is the admin profile</div>
             <div className="sub" style={{ fontSize: 13, margin: "4px 0 12px" }}>
-              It can't be picked here. On one of {admin}'s devices open Profile
-              &amp; devices → Add a device, then enter the code on this one.
+              It can't be picked here. Make a code on one of {admin}'s devices
+              (Profile &amp; devices → Add a device) and enter it on this one.
             </div>
             <Button small variant="sky" icon="qr" onClick={() => go("/pair")}>
-              Pair this device
+              Enter a code
             </Button>
           </Card>
         )}
@@ -329,7 +329,7 @@ export function MePage() {
             No passwords: each device keeps a login cookie for a year. Remove a
             lost phone here.
           </div>
-          <div className="label">Profiles on this server</div>
+          <div className="label">Profiles on this Reworm</div>
           <Card style={{ padding: "6px 14px" }}>
             {profiles.data?.map((p) => (
               <div className="set-row" key={p.id}>
@@ -424,9 +424,9 @@ export function Setup({ token: given }: { token?: string }) {
         setBusy(false);
         setError(
           err.status === 410
-            ? "This setup link was already used. Pair this device from one that is set up."
+            ? "This setup link was already used. Get a code from a device that has a profile."
             : err.status === 403 || err.status === 401
-              ? "This setup link isn't valid. Copy it again from the server log."
+              ? "This setup link isn't valid. Copy it again from the container log."
               : err.message,
         );
       },
@@ -458,11 +458,11 @@ export function Setup({ token: given }: { token?: string }) {
           Welcome to Reworm
         </div>
         <div className="sub">
-          The first device of this server. You'll be its admin.
+          The first profile on this Reworm. You'll be its admin.
         </div>
         {!token && (
           <div className="err" role="alert">
-            The setup link has no token. Open the link from the server log.
+            The setup link has no token. Open the link from the container log.
           </div>
         )}
         <div className="sub" style={{ margin: "28px 0 8px" }}>
