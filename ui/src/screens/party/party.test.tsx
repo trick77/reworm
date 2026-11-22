@@ -72,6 +72,8 @@ describe("party: lobby and join", () => {
     const padApi = world.device();
     const pad = renderApp("/join", padApi);
     const p = within(pad.container);
+    // the form is a centered block on a wide screen, the pad is not
+    expect(pad.container.querySelector(".scroll")).toHaveClass("form");
     fireEvent.change(p.getByLabelText("Room code"), {
       target: { value: "zz-zz" },
     });
@@ -88,6 +90,7 @@ describe("party: lobby and join", () => {
     fireEvent.keyDown(p.getByLabelText("Room code"), { key: "Enter" });
     expect(await p.findByText("You're in!")).toBeInTheDocument();
     expect(pad.path()).toBe("/join/K7Q4");
+    expect(pad.container.querySelector(".scroll")).not.toHaveClass("form");
     // the new player is handed to /join/K7Q4: no second ask
     expect(padApi.calls).not.toContain("roomMe");
   });

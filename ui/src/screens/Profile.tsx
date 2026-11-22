@@ -48,7 +48,7 @@ export function Who() {
     );
   };
   return (
-    <Screen>
+    <Screen className="form">
       <div
         style={{
           maxWidth: 560,
@@ -370,7 +370,7 @@ export function Pair({ code: given }: { code?: string }) {
   const [, go] = useLocation();
   const { fresh, reload } = useMe();
   return (
-    <Screen>
+    <Screen className="form">
       <ScreenHead back="/" title="Enter your code" />
       <div style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
         {fresh ? (
@@ -434,6 +434,7 @@ export function Setup({ token: given }: { token?: string }) {
   };
   return (
     <Screen
+      className="form"
       footer={
         <Button disabled={!ready} onClick={create}>
           Create my profile
