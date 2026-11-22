@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -245,7 +246,170 @@ func TestSetup_raceMakesOneAdmin(t *testing.T) {
 	}
 }
 
-func TestPairDeviceAndInvite(t *testing.T) {
+// create makes a new profile for b and returns its /api/me.
+func (e *env) create(b *browser, name, avatar string) meJSON {
+	e.t.Helper()
+	rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: name, Avatar: avatar})
+	if rec.Code != http.StatusCreated {
+		e.t.Fatalf("create %s = %d %s", name, rec.Code, rec.Body)
+	}
+	return decode[meJSON](e.t, rec)
+}
+
+// Anyone can make a profile once the server is set up; before that only the setup link makes the first (admin).
+func TestCreateProfile(t *testing.T) {
+	e := newEnv(t)
+	friend := e.browser("Mozilla/5.0 (Linux; Android 15)")
+	if rec := friend.do(http.MethodPost, "/api/profiles", createRequest{Name: "Mia", Avatar: "mic"}); rec.Code != http.StatusUnauthorized || errCode(t, rec) != "setup_pending" {
+		t.Fatalf("create before setup = %d", rec.Code)
+	}
+	if tok, _ := e.svc.SetupToken(context.Background()); tok == "" {
+		t.Fatal("a refused create used up the setup")
+	}
+	me := e.setup(e.browser("Mac"))
+
+	if rec := friend.do(http.MethodPost, "/api/profiles", createRequest{Name: " ", Avatar: "mic"}); rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_name" {
+		t.Errorf("no name = %d", rec.Code)
+	}
+	if rec := friend.do(http.MethodPost, "/api/profiles", createRequest{Name: "Mia", Avatar: "kazoo"}); rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_avatar" {
+		t.Errorf("bad avatar = %d", rec.Code)
+	}
+	if rec := friend.do(http.MethodPost, "/api/profiles", "nope"); rec.Code != http.StatusBadRequest {
+		t.Errorf("malformed = %d", rec.Code)
+	}
+	fm := e.create(friend, " Mia ", "mic")
+	if fm.Profile.ID == me.Profile.ID || fm.Profile.Name != "Mia" || fm.Profile.Avatar != "mic" || fm.Profile.Admin || fm.Device.Label != "Android" {
+		t.Errorf("created = %+v", fm)
+	}
+	if got := decode[meJSON](t, friend.do(http.MethodGet, "/api/me", nil)); got != fm {
+		t.Errorf("/api/me after create = %+v", got)
+	}
+
+	// The profile's only device leaving it would strand it: no list, no switching leads back. Refused, unless the
+	// caller says leave; then the stranded profile goes with its progress.
+	if rec := friend.do(http.MethodPost, "/api/profiles", createRequest{Name: "Mia 2", Avatar: "worm"}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_device" {
+		t.Fatalf("create over the last device = %d", rec.Code)
+	}
+	if got := decode[meJSON](t, friend.do(http.MethodGet, "/api/me", nil)); got.Profile.ID != fm.Profile.ID {
+		t.Fatalf("a refused create moved the device: %+v", got)
+	}
+	rec := friend.do(http.MethodPost, "/api/profiles", createRequest{Name: "Mia 2", Avatar: "worm", Leave: true})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create with leave = %d %s", rec.Code, rec.Body)
+	}
+	if again := decode[meJSON](t, rec); again.Profile.ID == fm.Profile.ID || again.Device.ID == fm.Device.ID {
+		t.Errorf("second create = %+v", again)
+	}
+	if n := e.count(`SELECT count(*) FROM profiles WHERE id = ?`, fm.Profile.ID); n != 0 {
+		t.Errorf("stranded profile rows = %d, want 0", n)
+	}
+	if n := e.count(`SELECT count(*) FROM devices WHERE id = ?`, fm.Device.ID); n != 0 {
+		t.Errorf("old device rows = %d, want 0", n)
+	}
+}
+
+func (e *env) count(query string, args ...any) int {
+	e.t.Helper()
+	var n int
+	if err := e.svc.db.QueryRow(query, args...).Scan(&n); err != nil {
+		e.t.Fatal(err)
+	}
+	return n
+}
+
+// A profile with another device left keeps it: no question, nothing deleted.
+func TestCreateProfile_otherDeviceStays(t *testing.T) {
+	e := newEnv(t)
+	e.setup(e.browser("Mac"))
+	phone, tablet := e.browser("iPhone"), e.browser("iPad")
+	fm := e.create(phone, "Mia", "mic")
+	tablet.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: decode[pairJSON](t, phone.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"})).Code})
+	e.create(tablet, "Lea", "note")
+	if got := decode[meJSON](t, phone.do(http.MethodGet, "/api/me", nil)); got.Profile.ID != fm.Profile.ID {
+		t.Errorf("Mia's phone = %+v", got)
+	}
+}
+
+// Only a refused cookie counts as unpaired: a failed lookup must not skip removing the old device.
+func TestCreateProfile_identifyError(t *testing.T) {
+	e := newEnv(t)
+	e.setup(e.browser("Mac"))
+	b := e.browser("x")
+	e.create(b, "Mia", "mic")
+	_ = e.svc.db.Close()
+	if rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: "Lea", Avatar: "note", Leave: true}); rec.Code != http.StatusInternalServerError {
+		t.Errorf("create with the db down = %d", rec.Code)
+	}
+	if rec := b.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: "AAAAAA"}); rec.Code != http.StatusInternalServerError {
+		t.Errorf("claim with the db down = %d", rec.Code)
+	}
+}
+
+// Profiles are private: no list of them and no switching into another one without its device code.
+func TestProfiles_noListNoSwitch(t *testing.T) {
+	e := newEnv(t)
+	host := e.browser("Mac")
+	e.setup(host)
+	if rec := host.do(http.MethodGet, "/api/profiles", nil); rec.Code == http.StatusOK {
+		t.Errorf("GET /api/profiles = %d, want gone", rec.Code)
+	}
+	if rec := host.do(http.MethodPost, "/api/profiles/switch", map[string]string{"profileId": "x"}); rec.Code != http.StatusNotFound {
+		t.Errorf("switch = %d, want 404", rec.Code)
+	}
+}
+
+func TestCreateProfileIsRateLimited(t *testing.T) {
+	e := newEnv(t)
+	e.setup(e.browser("Mac"))
+	// a party behind one router (one address, a browser each) makes its profiles at once; refusals cost nothing
+	for i := range 10 {
+		b := e.browser("x")
+		if rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: "", Avatar: "mic"}); rec.Code != http.StatusBadRequest {
+			t.Fatalf("bad name %d = %d", i, rec.Code)
+		}
+		if rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: "P", Avatar: "mic"}); rec.Code != http.StatusCreated {
+			t.Fatalf("create %d = %d", i, rec.Code)
+		}
+	}
+	b := e.browser("x")
+	if rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: "P", Avatar: "mic"}); rec.Code != http.StatusTooManyRequests {
+		t.Errorf("11th create = %d, want 429", rec.Code)
+	}
+	// the claim and pairing limit is its own
+	if rec := b.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: "AAAAAA"}); rec.Code != http.StatusNotFound {
+		t.Errorf("claim after the create limit = %d", rec.Code)
+	}
+	e.advance(time.Hour / 10)
+	if rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: "P", Avatar: "mic"}); rec.Code != http.StatusCreated {
+		t.Errorf("create after 6 min = %d", rec.Code)
+	}
+}
+
+// Keys rotated by the thousand (IPv6 /64s) still meet the server-wide limit.
+func TestCreateProfile_serverWideLimit(t *testing.T) {
+	e := newEnv(t)
+	e.setup(e.browser("Mac"))
+	for i := range MaxCreatesPerHour + 1 {
+		b := e.browser("x")
+		b.ip = fmt.Sprintf("[2001:db8:0:%x::1]:1", i)
+		want := http.StatusCreated
+		if i == MaxCreatesPerHour {
+			want = http.StatusTooManyRequests
+		}
+		if rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: "P", Avatar: "mic"}); rec.Code != want {
+			t.Fatalf("create %d = %d, want %d", i, rec.Code, want)
+		}
+	}
+	// the server refills one a 2 min; the refused caller gets it, its own budget untouched by the refusal
+	e.advance(time.Hour / MaxCreatesPerHour)
+	b := e.browser("x")
+	b.ip = fmt.Sprintf("[2001:db8:0:%x::1]:1", MaxCreatesPerHour)
+	if rec := b.do(http.MethodPost, "/api/profiles", createRequest{Name: "P", Avatar: "mic"}); rec.Code != http.StatusCreated {
+		t.Fatalf("create after the refill = %d", rec.Code)
+	}
+}
+
+func TestPairDevice(t *testing.T) {
 	e := newEnv(t)
 	host := e.browser("Macintosh")
 	me := e.setup(host)
@@ -255,6 +419,10 @@ func TestPairDeviceAndInvite(t *testing.T) {
 	}
 	if rec := host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "car"}); rec.Code != http.StatusBadRequest {
 		t.Errorf("bad kind = %d", rec.Code)
+	}
+	// invites are gone: anyone makes their own profile
+	if rec := host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "invite"}); rec.Code != http.StatusBadRequest || errCode(t, rec) != "invalid_kind" {
+		t.Errorf("invite = %d", rec.Code)
 	}
 	rec := host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"})
 	if rec.Code != http.StatusCreated {
@@ -278,77 +446,58 @@ func TestPairDeviceAndInvite(t *testing.T) {
 		t.Errorf("reused code = %d, want 404", rec.Code)
 	}
 
-	// Invite: a new profile; name and avatar required, a bad one leaves the code usable.
-	inv := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "invite"}))
-	friend := e.browser("Android")
-	if rec := friend.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code}); rec.Code != http.StatusBadRequest {
-		t.Errorf("invite without a name = %d", rec.Code)
-	}
-	if rec := friend.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "nope"}); rec.Code != http.StatusBadRequest {
-		t.Errorf("invite with a bad avatar = %d", rec.Code)
-	}
-	rec = friend.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("invite claim = %d %s", rec.Code, rec.Body)
-	}
-	fm := decode[meJSON](t, rec)
-	if fm.Profile.ID == me.Profile.ID || fm.Profile.Name != "Mia" || fm.Profile.Admin {
-		t.Errorf("invited profile = %+v", fm)
-	}
-
 	// Expired.
 	late := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"}))
 	e.advance(PairTTL)
 	if rec := e.browser("x").do(http.MethodPost, "/api/pair/claim", claimRequest{Code: late.Code}); rec.Code != http.StatusNotFound {
 		t.Errorf("expired code = %d", rec.Code)
 	}
+}
 
-	// Who's playing: both profiles; the phone switches to Mia's.
-	list := decode[[]profileListJSON](t, phone.do(http.MethodGet, "/api/profiles", nil))
-	if len(list) != 2 || list[0].Name != "Jan" || list[1].Name != "Mia" {
-		t.Errorf("profiles = %+v", list)
+// An invite code made before invites went away claims nothing: it is not a device code.
+func TestClaim_leftoverInvite(t *testing.T) {
+	e := newEnv(t)
+	me := e.setup(e.browser("Mac"))
+	if _, err := e.svc.db.Exec(`INSERT INTO pairing_codes (code, kind, profile_id, expires_at) VALUES ('INV123', 'invite', ?, ?)`,
+		me.Profile.ID, e.clock().Add(PairTTL).UnixMilli()); err != nil {
+		t.Fatal(err)
 	}
-	rec = phone.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: fm.Profile.ID})
-	if rec.Code != http.StatusOK || decode[meJSON](t, rec).Profile.ID != fm.Profile.ID {
-		t.Errorf("switch = %d", rec.Code)
-	}
-	if rec := phone.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: "nope"}); rec.Code != http.StatusNotFound {
-		t.Errorf("switch to unknown = %d", rec.Code)
-	}
-	if got := decode[meJSON](t, phone.do(http.MethodGet, "/api/me", nil)); got.Profile.Name != "Mia" || got.Device.ID != pm.Device.ID {
-		t.Errorf("after switch = %+v", got)
-	}
-	// No way into the admin profile by switching, not even back: only pairing from an admin device.
-	if rec := phone.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: me.Profile.ID}); rec.Code != http.StatusForbidden || errCode(t, rec) != "admin_profile" {
-		t.Errorf("switch into admin = %d", rec.Code)
-	}
-	if got := decode[meJSON](t, phone.do(http.MethodGet, "/api/me", nil)); got.Profile.Admin {
-		t.Error("escalated to admin")
-	}
-	if rec := host.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: me.Profile.ID}); rec.Code != http.StatusOK {
-		t.Errorf("admin staying on its own profile = %d", rec.Code)
+	if rec := e.browser("x").do(http.MethodPost, "/api/pair/claim", claimRequest{Code: "INV123"}); rec.Code != http.StatusNotFound {
+		t.Errorf("leftover invite = %d, want 404", rec.Code)
 	}
 }
 
 func TestClaimReplacesThePreviousDevice(t *testing.T) {
 	e := newEnv(t)
 	host := e.browser("Mac")
-	e.setup(host)
-	inv := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "invite"}))
+	me := e.setup(host)
+	friend := e.browser("Android")
+	fm := e.create(friend, "Mia", "mic")
+	mias := decode[pairJSON](t, friend.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"}))
 	// The admin's only device cannot be claimed over: the server would lose its admin.
-	if rec := host.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_admin" {
+	if rec := host.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: mias.Code}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_admin" {
 		t.Fatalf("claim over the last admin device = %d", rec.Code)
 	}
-	// With a second admin device it can: its old device row goes, the new one is Mia's.
-	second := e.browser("iPhone")
-	second.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"})).Code})
-	rec := host.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"})
-	if rec.Code != http.StatusCreated {
+	// Mia's only device takes Jan's code: refused (it would strand Mia), and the code stays usable; with leave her
+	// device row and her profile go, the new device is Jan's.
+	jans := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"}))
+	if rec := friend.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: jans.Code}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_device" {
+		t.Fatalf("claim over Mia's last device = %d", rec.Code)
+	}
+	rec := friend.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: jans.Code, Leave: true})
+	if rec.Code != http.StatusCreated || decode[meJSON](t, rec).Profile.ID != me.Profile.ID {
 		t.Fatal(rec.Code)
 	}
-	var n int
-	if err := e.svc.db.QueryRow(`SELECT count(*) FROM devices`).Scan(&n); err != nil || n != 2 {
-		t.Errorf("devices = %d, %v; want 2", n, err)
+	if n := e.count(`SELECT count(*) FROM devices WHERE id = ?`, fm.Device.ID); n != 0 {
+		t.Errorf("Mia's old device rows = %d; want 0", n)
+	}
+	if n := e.count(`SELECT count(*) FROM profiles WHERE id = ?`, fm.Profile.ID); n != 0 {
+		t.Errorf("Mia's stranded profile rows = %d; want 0", n)
+	}
+	// a device already on the code's profile just gets a fresh device row, no question
+	again := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"}))
+	if rec := friend.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: again.Code}); rec.Code != http.StatusCreated {
+		t.Errorf("claim of its own profile's code = %d", rec.Code)
 	}
 }
 
@@ -367,10 +516,8 @@ func TestLastAdminDeviceStays(t *testing.T) {
 	e := newEnv(t)
 	host := e.browser("Mac")
 	me := e.setup(host)
-	inv := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "invite"}))
-	mia := decode[meJSON](t, e.browser("Android").do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"}))
-	if rec := host.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: mia.Profile.ID}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_admin" {
-		t.Errorf("switch away from the last admin device = %d", rec.Code)
+	if rec := host.do(http.MethodPost, "/api/profiles", createRequest{Name: "Mia", Avatar: "mic"}); rec.Code != http.StatusConflict || errCode(t, rec) != "last_admin" {
+		t.Errorf("new profile on the last admin device = %d", rec.Code)
 	}
 	if rec := host.do(http.MethodDelete, "/api/devices/"+me.Device.ID, nil); rec.Code != http.StatusConflict {
 		t.Errorf("delete the last admin device = %d", rec.Code)
@@ -378,8 +525,8 @@ func TestLastAdminDeviceStays(t *testing.T) {
 	// Once a second admin device exists, both are allowed.
 	phone := e.browser("iPhone")
 	pm := decode[meJSON](t, phone.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"})).Code}))
-	if rec := host.do(http.MethodPost, "/api/profiles/switch", switchRequest{ProfileID: mia.Profile.ID}); rec.Code != http.StatusOK {
-		t.Errorf("switch with another admin device = %d", rec.Code)
+	if mia := e.create(host, "Mia", "mic"); mia.Profile.Admin {
+		t.Errorf("new profile with another admin device = %+v", mia)
 	}
 	if rec := phone.do(http.MethodDelete, "/api/devices/"+pm.Device.ID, nil); rec.Code != http.StatusConflict {
 		t.Errorf("the phone is now the last admin device: delete = %d", rec.Code)
@@ -412,12 +559,19 @@ func TestDevicesAndRevoke(t *testing.T) {
 	}
 
 	// Another profile cannot remove the admin's devices; removing your own current device signs you out.
-	inv := decode[pairJSON](t, host.do(http.MethodPost, "/api/pair", pairRequest{Kind: "invite"}))
 	friend := e.browser("Android")
-	fm := decode[meJSON](t, friend.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: inv.Code, Name: "Mia", Avatar: "mic"}))
+	fm := e.create(friend, "Mia", "mic")
 	if rec := friend.do(http.MethodDelete, "/api/devices/"+me.Device.ID, nil); rec.Code != http.StatusNotFound {
 		t.Errorf("foreign delete = %d", rec.Code)
 	}
+	// a profile's last device stays, for anyone: removing it would strand the profile (no list, no switching)
+	for _, who := range []*browser{friend, host} {
+		if rec := who.do(http.MethodDelete, "/api/devices/"+fm.Device.ID, nil); rec.Code != http.StatusConflict || errCode(t, rec) != "last_device" {
+			t.Errorf("delete Mia's last device = %d", rec.Code)
+		}
+	}
+	tablet := e.browser("iPad")
+	tablet.do(http.MethodPost, "/api/pair/claim", claimRequest{Code: decode[pairJSON](t, friend.do(http.MethodPost, "/api/pair", pairRequest{Kind: "device"})).Code})
 	if rec := friend.do(http.MethodDelete, "/api/devices/"+fm.Device.ID, nil); rec.Code != http.StatusNoContent {
 		t.Errorf("own delete = %d", rec.Code)
 	}

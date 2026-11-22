@@ -37,6 +37,9 @@ const MaxName = 24
 // DeviceTTL is how long a device stays paired without pairing again.
 const DeviceTTL = 365 * 24 * time.Hour
 
+// MaxCreatesPerHour bounds the profiles made on the whole server, per hour (burst the same).
+const MaxCreatesPerHour = 30
+
 // PairTTL is how long a pairing code works.
 const PairTTL = 5 * time.Minute
 
@@ -93,6 +96,10 @@ type Service struct {
 	publicURL string
 	now       func() time.Time
 	limit     func(http.Handler) http.Handler
+	// creates meters new profiles per clientKey, on their own: signup is open, so this is the brake on spam.
+	// allCreates meters them for the whole server: an IPv6 caller has 65,536 /64 keys in a /48.
+	creates, allCreates *ratelimit.Limiter
+	clientKey           func(*http.Request) string
 
 	mu         sync.Mutex
 	setupToken string
@@ -115,7 +122,13 @@ func New(o Options) (*Service, error) {
 	}
 	// Pairing and setup: a person types a code now and then; ten tries a minute is plenty and stops guessing.
 	lim := ratelimit.New(ratelimit.Options{Rate: 10.0 / 60, Burst: 10, Now: o.Now})
-	return &Service{db: o.DB, sessions: s, publicURL: o.PublicURL, now: o.Now, limit: lim.Middleware(o.ClientKey)}, nil
+	// New profiles: a party behind one router (up to 8 players) makes theirs at once; past that, ten an hour.
+	creates := ratelimit.New(ratelimit.Options{Rate: 10.0 / 3600, Burst: 10, Now: o.Now})
+	// Server-wide: 30, then 30 an hour, plenty for a game night or three; with one room per host, keys rotated by
+	// the thousand still cannot hold MaxRooms (rooms expire after 2 h).
+	all := ratelimit.New(ratelimit.Options{Rate: float64(MaxCreatesPerHour) / 3600, Burst: MaxCreatesPerHour, Now: o.Now})
+	return &Service{db: o.DB, sessions: s, publicURL: o.PublicURL, now: o.Now, limit: lim.Middleware(o.ClientKey),
+		creates: creates, allCreates: all, clientKey: o.ClientKey}, nil
 }
 
 // LoadKey reads the cookie signing key at path, creating a random one on first boot. It lives in the data dir so

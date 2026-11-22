@@ -1,119 +1,25 @@
-// Profiles and paired devices: who's playing, profile & devices with pairing codes, claiming a
-// code on a new device, and the first device's setup link.
-import { useEffect, useEffectEvent, useState } from "react";
+// Profile and paired devices: profile & devices with device codes, claiming a code on a new device, and the
+// first device's setup link. Profiles are private: no list of them, no switching between them.
+import { useState } from "react";
 import { useLocation, useSearchParams } from "wouter";
 import type { ApiError } from "../api/client";
 import { toApiError, useApi, useAsync, useMe } from "../api/context";
-import type { PairCode, PairKind } from "../api/types";
+import type { PairCode } from "../api/types";
 import { avatarInfo } from "../avatars";
 import { appUrl } from "../base";
 import { Avatar, AvatarPicker } from "../components/Avatar";
 import { Button, Card } from "../components/Controls";
-import { Icon } from "../components/Icon";
 import { WormLogo } from "../WormLogo";
 import {
-  ClaimCode,
+  GetProfile,
   Loading,
   Problem,
   QrCode,
   Screen,
   ScreenHead,
   secondsLeft,
-  SetupPending,
-  Unpaired,
   useNow,
 } from "./common";
-
-export function Who() {
-  const api = useApi();
-  const [, go] = useLocation();
-  const { unpaired, reload } = useMe();
-  const profiles = useAsync(unpaired ? null : "profiles", () => api.profiles());
-  const [error, setError] = useState<ApiError | null>(null);
-  // admin: the admin profile someone tried to switch into (only pairing from its device gets there)
-  const [admin, setAdmin] = useState<string | null>(null);
-  const pick = (id: string, name: string) => {
-    setError(null);
-    setAdmin(null);
-    return api.switchProfile(id).then(
-      () => {
-        reload();
-        go("/");
-      },
-      (e: unknown) => {
-        const err = toApiError(e);
-        if (err.code === "admin_profile") setAdmin(name);
-        else setError(err);
-      },
-    );
-  };
-  return (
-    <Screen className="form">
-      <div
-        style={{
-          maxWidth: 560,
-          margin: "0 auto",
-          textAlign: "center",
-          paddingTop: 40,
-        }}
-      >
-        <div
-          className="seal"
-          style={{ margin: "0 auto", width: 46, height: 46, borderRadius: 12 }}
-        >
-          <WormLogo />
-        </div>
-        <div className="h-title" style={{ marginTop: 18 }}>
-          Who's playing?
-        </div>
-        <div className="sub">This device remembers the choice.</div>
-        {unpaired && <Unpaired title="No profile on this device yet" />}
-        {profiles.error && (
-          <Problem error={profiles.error} retry={profiles.reload} />
-        )}
-        {error && <Problem error={error} />}
-        {admin && (
-          <Card style={{ marginTop: 18 }} role="alert">
-            <div style={{ fontWeight: 700 }}>{admin} is the admin profile</div>
-            <div className="sub" style={{ fontSize: 13, margin: "4px 0 12px" }}>
-              It can't be picked here. Make a code on one of {admin}'s devices
-              (Profile &amp; devices → Add a device) and enter it on this one.
-            </div>
-            <Button small variant="sky" icon="qr" onClick={() => go("/pair")}>
-              Enter a code
-            </Button>
-          </Card>
-        )}
-        {profiles.data && (
-          <div className="who-grid">
-            {profiles.data.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => void pick(p.id, p.name)}
-              >
-                <Avatar avatar={p.avatar} size={88} alt="" />
-                <b style={{ fontSize: 15 }}>{p.name}</b>
-              </button>
-            ))}
-            <button type="button" onClick={() => go("/me?invite=1")}>
-              <span className="who-add">
-                <Icon name="plus" size={30} />
-              </span>
-              <span className="sub" style={{ fontSize: 14 }}>
-                Add someone
-              </span>
-            </button>
-          </div>
-        )}
-        <div className="sub" style={{ marginTop: 26, fontSize: 12 }}>
-          Only devices with a profile see this. New people join with an invite
-          code.
-        </div>
-      </div>
-    </Screen>
-  );
-}
 
 const ago = (t: number, now: number) => {
   const s = Math.max(0, (now - t) / 1000);
@@ -126,15 +32,7 @@ const ago = (t: number, now: number) => {
 const mmss = (s: number) =>
   `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-function PairPanel({
-  kind,
-  code,
-  onClose,
-}: {
-  kind: PairKind;
-  code: PairCode;
-  onClose: () => void;
-}) {
+function PairPanel({ code, onClose }: { code: PairCode; onClose: () => void }) {
   useNow(1000); // ticks the expiry; the time itself is the server's (expiresAt)
   const left = secondsLeft(code.expiresAt);
   // the server may hand an app path (/pair/CODE): the QR needs the full address
@@ -143,15 +41,12 @@ function PairPanel({
     <Card
       className="pair-panel fade-in"
       role="dialog"
-      aria-label={kind === "invite" ? "Invite someone" : "Add a device"}
+      aria-label="Add a device"
     >
-      <div style={{ fontWeight: 700 }}>
-        {kind === "invite" ? "Invite someone" : "Add one of your devices"}
-      </div>
+      <div style={{ fontWeight: 700 }}>Add one of your devices</div>
       <div className="sub" style={{ fontSize: 12.5, margin: "4px 0 14px" }}>
-        {kind === "invite"
-          ? "Scan on their phone: they pick a name and avatar and get their own progress."
-          : "Scan with the new device's camera, or open the site there and type the code. It logs in as you."}
+        Scan with the new device's camera, or open the site there and type the
+        code. It logs in as you.
       </div>
       <QrCode value={url} size={150} />
       <div
@@ -185,38 +80,23 @@ function PairPanel({
 export function MePage() {
   const api = useApi();
   const [, go] = useLocation();
-  const [params] = useSearchParams();
   const { me, unpaired, error: meError, reload } = useMe();
   const devices = useAsync(me ? "devices" : null, () => api.devices());
-  const profiles = useAsync(me ? "profiles" : null, () => api.profiles());
-  const [pair, setPair] = useState<{ kind: PairKind; code: PairCode } | null>(
-    null,
-  );
+  const [pair, setPair] = useState<PairCode | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [avatar, setAvatar] = useState<string | null>(null);
   const now = useNow(30_000);
 
-  const fetchCode = (kind: PairKind) =>
-    api.pair(kind).then(
-      (code) => setPair({ kind, code }),
-      (e: unknown) => setError(toApiError(e)),
-    );
-  const makeCode = (kind: PairKind) => {
+  const makeCode = () => {
     setError(null);
-    void fetchCode(kind);
+    api.pair().then(setPair, (e: unknown) => setError(toApiError(e)));
   };
-  // /me?invite=1 (Who's playing → Add someone) opens with an invite code
-  const wantInvite = !!me && params.get("invite") === "1";
-  const askInvite = useEffectEvent(() => void fetchCode("invite"));
-  useEffect(() => {
-    if (wantInvite) askInvite();
-  }, [wantInvite]);
 
   if (unpaired)
     return (
       <Screen tab="settings">
         <ScreenHead back="/" title="Profile & devices" />
-        <Unpaired title="No profile on this device yet" />
+        <GetProfile title="No profile on this device yet" />
       </Screen>
     );
   if (!me)
@@ -297,65 +177,30 @@ export function MePage() {
             {!devices.data && <div className="set-row sub">Loading…</div>}
           </Card>
           {pair ? (
-            <PairPanel
-              kind={pair.kind}
-              code={pair.code}
-              onClose={() => setPair(null)}
-            />
+            <PairPanel code={pair} onClose={() => setPair(null)} />
           ) : (
-            <div className="row" style={{ gap: 8, marginTop: 12 }}>
-              <Button
-                small
-                variant="sky"
-                icon="qr"
-                style={{ flex: 1 }}
-                onClick={() => makeCode("device")}
-              >
-                Add a device
-              </Button>
-              <Button
-                small
-                variant="ghost"
-                icon="plus"
-                style={{ flex: 1 }}
-                onClick={() => makeCode("invite")}
-              >
-                Invite someone
-              </Button>
-            </div>
+            <Button
+              small
+              variant="sky"
+              icon="qr"
+              style={{ marginTop: 12, width: "100%" }}
+              onClick={makeCode}
+            >
+              Add a device
+            </Button>
           )}
           {error && <div className="err">{error.message}</div>}
           <div className="sub" style={{ fontSize: 12, marginTop: 10 }}>
             No passwords: each device keeps a login cookie for a year. Remove a
             lost phone here.
           </div>
-          <div className="label">Profiles on this Reworm</div>
-          <Card style={{ padding: "6px 14px" }}>
-            {profiles.data?.map((p) => (
-              <div className="set-row" key={p.id}>
-                <div className="row">
-                  <Avatar
-                    avatar={p.id === me.profile.id ? av : p.avatar}
-                    size={34}
-                    alt=""
-                  />
-                  <b>{p.name}</b>
-                </div>
-                {p.id === me.profile.id && (
-                  <span className="sub" style={{ fontSize: 12 }}>
-                    you
-                  </span>
-                )}
-              </div>
-            ))}
-          </Card>
           <Button
             small
             variant="ghost"
-            style={{ marginTop: 12, width: "100%" }}
-            onClick={() => go("/who")}
+            style={{ marginTop: 18, width: "100%" }}
+            onClick={() => go("/pair")}
           >
-            Switch profile on this device
+            Use another profile on this device
           </Button>
         </div>
       </div>
@@ -364,37 +209,29 @@ export function MePage() {
   );
 }
 
-// Pair is /pair and a code's link /pair/<code>: an invite or one of your own devices. A fresh install has
-// nobody to get a code from: the setup hint instead.
+// Pair is /pair and a code's link /pair/<code>: the code of one of your own devices, or a new profile. A device
+// with a profile gets here to use another one (Profile & devices); a fresh install has nobody to get a code
+// from: the setup hint instead (GetProfile).
 export function Pair({ code: given }: { code?: string }) {
   const [, go] = useLocation();
-  const { fresh, reload } = useMe();
+  const { me } = useMe();
   return (
     <Screen className="form">
-      <ScreenHead back="/" title="Enter your code" />
-      <div style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
-        {fresh ? (
-          <SetupPending />
-        ) : (
-          <>
-            <div className="sub" style={{ margin: "34px 0 8px" }}>
-              The code from an invite or from your other device
-            </div>
-            <ClaimCode
-              given={given}
-              onDone={() => {
-                reload();
-                go("/", { replace: true });
-              }}
-            />
-            <div className="sub" style={{ marginTop: 22, fontSize: 12.5 }}>
-              Codes work once and for 5 minutes. Someone who plays here makes
-              one under Profile &amp; devices → Invite someone; your own device
-              under Add a device.
-            </div>
-          </>
-        )}
-      </div>
+      <ScreenHead
+        back={me ? "/me" : "/"}
+        title={me ? "Another profile" : "Enter your code"}
+      />
+      <GetProfile
+        key={given ?? ""} // a code's link opened in this tab starts over with that code
+        title={
+          me
+            ? `Use another profile instead of ${me.profile.name}`
+            : "The code from your other device"
+        }
+        given={given}
+        codeFirst
+        onDone={() => go("/", { replace: true })}
+      />
     </Screen>
   );
 }

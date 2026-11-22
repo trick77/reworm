@@ -137,46 +137,152 @@ export function SetupPending({ narrow = false }: { narrow?: boolean }) {
   );
 }
 
-// Unpaired: this device has no profile (401): why it needs one, and the code field to get it right here. onDone
-// runs after the claim, once the profile is reloaded.
-export function Unpaired({
+// GetProfile: a profile for this device: make one right here, or bring yours over from another device with its
+// code (given: from a code's link, opens on the code). Shown where a device without a profile needs one (401),
+// and on /pair to move a device to another profile. onDone runs once the profile is reloaded.
+export function GetProfile({
   title,
+  given,
+  codeFirst = false,
   onDone,
 }: {
   title: string;
+  given?: string;
+  codeFirst?: boolean;
   onDone?: () => void;
 }) {
   const { fresh, reload } = useMe();
+  const [withCode, setWithCode] = useState(codeFirst || !!given);
   if (fresh) return <SetupPending narrow />;
+  const done = () => {
+    reload();
+    onDone?.();
+  };
   return (
     <Card style={NARROW}>
       <div style={{ fontWeight: 700 }}>{title}</div>
       <div className="sub" style={{ fontSize: 13, margin: "4px 0 16px" }}>
-        A profile is your invite to this Reworm; it also keeps your training
-        progress. Ask someone who plays here for a code (Profile &amp; devices →
-        Invite someone), or use the code from your own other device.
+        {withCode
+          ? "On your other device, open Profile & devices → Add a device and enter its code here. Codes work once and for 5 minutes."
+          : "Pick a name and an avatar. Your profile keeps your training progress and is yours alone."}
       </div>
-      <ClaimCode
-        onDone={() => {
-          reload();
-          onDone?.();
-        }}
-      />
+      {withCode ? (
+        <ClaimCode given={given} onDone={done} />
+      ) : (
+        <CreateProfile onDone={done} />
+      )}
+      <button
+        type="button"
+        className="link"
+        style={{ marginTop: 14, padding: "12px 4px" }}
+        onClick={() => setWithCode((v) => !v)}
+      >
+        {withCode
+          ? "New here? Create a profile"
+          : "Have a profile on another device? Use its code"}
+      </button>
     </Card>
   );
 }
 
-// NAME_REQUIRED: a claim of a code alone refused with these is an invite: it needs a name and an
-// avatar (the server answers 400 invalid_name and leaves the code usable).
-const NAME_REQUIRED = [
-  "invalid_name",
-  "invalid_avatar",
-  "name_required",
-  "profile_required",
-];
+// useMove runs a call that puts this device on a profile. 409 last_device asks first (ask): this device is the only
+// one of its profile, so going on (run(true)) deletes that profile and its progress.
+function useMove(
+  call: (leave: boolean) => Promise<void>,
+  onDone: () => void,
+  wording: (e: ApiError) => string = (e) => e.message,
+) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ask, setAsk] = useState(false);
+  const run = (leave = false) => {
+    setBusy(true);
+    setError(null);
+    setAsk(false);
+    call(leave).then(onDone, (e: unknown) => {
+      const err = toApiError(e);
+      setBusy(false);
+      if (err.code === "last_device") setAsk(true);
+      else setError(wording(err));
+    });
+  };
+  return { busy, error, ask, run, cancel: () => setAsk(false) };
+}
 
-// ClaimCode: the code of an invite or of one of your own devices, claimed for this device. An invite asks for a
-// name and an avatar first. onDone runs once the device has its profile.
+// LeaveConfirm: the question useMove asks before this device leaves its profile for good.
+function LeaveConfirm({
+  onLeave,
+  onCancel,
+}: {
+  onLeave: () => void;
+  onCancel: () => void;
+}) {
+  const { me } = useMe();
+  const name = me?.profile.name ?? "This profile";
+  return (
+    <div className="leave-confirm" role="alert">
+      <b>This is {name}'s only device.</b> Going on deletes {name}'s profile and
+      training progress for good.
+      <div className="row" style={{ gap: 8, marginTop: 12 }}>
+        <Button small variant="ghost" style={{ flex: 1 }} onClick={onCancel}>
+          Keep {name}
+        </Button>
+        <Button small style={{ flex: 1 }} onClick={onLeave}>
+          Delete it
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// CreateProfile: a new profile for this device, name and avatar. onDone runs once the device has it. No maxLength:
+// the server counts characters, the browser UTF-16 units; a name too long is its invalid_name.
+export function CreateProfile({ onDone }: { onDone: () => void }) {
+  const api = useApi();
+  const [name, setName] = useState("");
+  const [avatar, setAvatar] = useState("vinyl");
+  const m = useMove(
+    (leave) => api.createProfile({ name: name.trim(), avatar, leave }),
+    onDone,
+  );
+  const ready = name.trim().length > 0 && !m.busy;
+  const create = () => {
+    if (ready) m.run();
+  };
+  return (
+    <div style={{ textAlign: "center" }}>
+      <input
+        className="input"
+        aria-label="Your name"
+        value={name}
+        onChange={(e) => {
+          m.cancel(); // the question was about the input it was asked for
+          setName(e.target.value);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && create()}
+        style={{ textAlign: "center", maxWidth: 260 }}
+      />
+      <div style={{ marginTop: 14 }}>
+        <AvatarStrip value={avatar} onChange={setAvatar} />
+      </div>
+      {m.error && (
+        <div className="err" role="alert">
+          {m.error}
+        </div>
+      )}
+      {m.ask ? (
+        <LeaveConfirm onLeave={() => m.run(true)} onCancel={m.cancel} />
+      ) : (
+        <Button disabled={!ready} onClick={create} style={{ marginTop: 18 }}>
+          Create my profile
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ClaimCode: the code of one of your own devices (Add a device), claimed for this device. onDone runs once the
+// device has the profile.
 export function ClaimCode({
   given,
   onDone,
@@ -188,67 +294,43 @@ export function ClaimCode({
   const [code, setCode] = useState(
     (given ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""),
   );
-  const [invite, setInvite] = useState(false);
-  const [name, setName] = useState("");
-  const [avatar, setAvatar] = useState("vinyl");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const ready =
-    code.length === 6 && (!invite || name.trim().length > 0) && !busy;
-
+  const m = useMove(
+    (leave) => api.claimPair({ code, leave }),
+    onDone,
+    (err) =>
+      err.status === 404 || err.status === 410
+        ? "That code is unknown or expired. Make a new one."
+        : err.message,
+  );
+  const ready = code.length === 6 && !m.busy;
   const claim = () => {
-    if (!ready) return;
-    setBusy(true);
-    setError(null);
-    api
-      .claimPair(invite ? { code, name: name.trim(), avatar } : { code })
-      .then(onDone, (e: unknown) => {
-        const err = toApiError(e);
-        setBusy(false);
-        if (!invite && (NAME_REQUIRED.includes(err.code) || err.status === 422))
-          setInvite(true);
-        else if (err.status === 404 || err.status === 410)
-          setError("That code is unknown or expired. Make a new one.");
-        else setError(err.message);
-      });
+    if (ready) m.run();
   };
 
   return (
     <div style={{ textAlign: "center" }}>
       <CodeBoxes
         value={code}
-        onChange={setCode}
+        onChange={(c) => {
+          m.cancel(); // a new code is another profile: ask again
+          setCode(c);
+        }}
         length={6}
         label="Your code"
         onDone={claim}
       />
-      {invite && (
-        <>
-          <div style={{ fontWeight: 700, marginTop: 26 }}>You're invited!</div>
-          <div className="sub" style={{ margin: "4px 0 10px" }}>
-            Pick a name and an avatar for your profile.
-          </div>
-          <input
-            className="input"
-            aria-label="Your name"
-            value={name}
-            maxLength={20}
-            onChange={(e) => setName(e.target.value)}
-            style={{ textAlign: "center", maxWidth: 260 }}
-          />
-          <div style={{ marginTop: 14 }}>
-            <AvatarStrip value={avatar} onChange={setAvatar} />
-          </div>
-        </>
-      )}
-      {error && (
+      {m.error && (
         <div className="err" role="alert">
-          {error}
+          {m.error}
         </div>
       )}
-      <Button disabled={!ready} onClick={claim} style={{ marginTop: 18 }}>
-        {invite ? "Create my profile" : "Use this code"}
-      </Button>
+      {m.ask ? (
+        <LeaveConfirm onLeave={() => m.run(true)} onCancel={m.cancel} />
+      ) : (
+        <Button disabled={!ready} onClick={claim} style={{ marginTop: 18 }}>
+          Use this code
+        </Button>
+      )}
     </div>
   );
 }

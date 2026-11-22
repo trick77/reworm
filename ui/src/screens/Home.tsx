@@ -135,9 +135,9 @@ export function Home() {
               type="button"
               className="link"
               style={{ padding: "12px 4px", margin: "-12px -4px" }}
-              onClick={() => go("/pair")}
+              onClick={() => go("/me")}
             >
-              Got an invite code?
+              Create one
             </button>
           </div>
         )}

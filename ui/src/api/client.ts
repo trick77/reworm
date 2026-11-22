@@ -8,9 +8,7 @@ import type {
   Device,
   Me,
   PairCode,
-  PairKind,
   Points,
-  Profile,
   RoomSettings,
   RoomState,
   TrainAnswer,
@@ -43,21 +41,24 @@ export type RoomHandlers = {
   onLive?: (live: boolean) => void;
 };
 
+export type Leaving = { leave?: boolean };
+
 export interface Api {
   version(): Promise<string>;
   me(): Promise<Me>;
   setup(body: { token: string; name: string; avatar: string }): Promise<void>;
-  profiles(): Promise<Profile[]>;
-  switchProfile(profileId: string): Promise<void>;
+  // createProfile makes a new profile for this device (anyone may, once the server is set up). leave: this
+  // device may leave its profile although it is that profile's last one (409 last_device otherwise); the old
+  // profile is deleted. claimPair takes leave the same way.
+  createProfile(
+    body: Leaving & { name: string; avatar: string },
+  ): Promise<void>;
   updateMe(body: { name?: string; avatar?: string }): Promise<void>;
   devices(): Promise<Device[]>;
   removeDevice(id: string): Promise<void>;
-  pair(kind: PairKind): Promise<PairCode>;
-  claimPair(body: {
-    code: string;
-    name?: string;
-    avatar?: string;
-  }): Promise<void>;
+  // pair makes a code that puts another device on this profile.
+  pair(): Promise<PairCode>;
+  claimPair(body: Leaving & { code: string }): Promise<void>;
   decks(): Promise<Decks>;
 
   createRoom(settings: RoomSettings): Promise<{ code: string }>;
@@ -197,16 +198,15 @@ export class HttpApi implements Api {
   me = () => this.get<Me>("/api/me");
   setup = (b: { token: string; name: string; avatar: string }) =>
     this.post("/api/setup", b);
-  profiles = () => this.get<Profile[]>("/api/profiles");
-  switchProfile = (profileId: string) =>
-    this.post("/api/profiles/switch", { profileId });
+  createProfile = (b: Leaving & { name: string; avatar: string }) =>
+    this.post("/api/profiles", b);
   updateMe = (b: { name?: string; avatar?: string }) =>
     this.call<void>("PATCH", "/api/me", b);
   devices = () => this.get<Device[]>("/api/devices");
   removeDevice = (id: string) =>
     this.call<void>("DELETE", `/api/devices/${encodeURIComponent(id)}`);
-  pair = (kind: PairKind) => this.post<PairCode>("/api/pair", { kind });
-  claimPair = (b: { code: string; name?: string; avatar?: string }) =>
+  pair = () => this.post<PairCode>("/api/pair", { kind: "device" });
+  claimPair = (b: Leaving & { code: string }) =>
     this.post("/api/pair/claim", b);
   decks = () => this.get<Decks>("/api/decks");
 

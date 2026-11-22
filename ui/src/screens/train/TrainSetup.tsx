@@ -9,11 +9,11 @@ import { cx } from "../../lib/cx";
 import { lastTraining } from "../Home";
 import {
   Distrib,
+  GetProfile,
   Loading,
   Problem,
   Screen,
   ScreenHead,
-  Unpaired,
   YearRange,
 } from "../common";
 import { DeckPicker } from "../DeckPicker";
@@ -56,7 +56,7 @@ export function TrainSetup() {
     return (
       <Screen tab="train">
         <ScreenHead back="/" title="New session" />
-        <Unpaired title="Training needs a profile" />
+        <GetProfile title="Training needs a profile" />
       </Screen>
     );
   if (meError || decks.error)

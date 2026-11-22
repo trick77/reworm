@@ -5,8 +5,10 @@ import {
   ApiError,
   type Api,
   type HostAction,
+  type Leaving,
   type RoomHandlers,
 } from "../api/client";
+import { AVATAR_KEYS } from "../avatars";
 import type {
   Card,
   Choice,
@@ -14,7 +16,6 @@ import type {
   Decks,
   Device,
   Me,
-  PairKind,
   Points,
   Profile,
   RoomSettings,
@@ -254,10 +255,7 @@ function clipOf(s: FakeSong, length: number): Clip {
 export class FakeWorld {
   profiles = new Map<string, Profile & { admin: boolean }>();
   devices = new Map<string, FakeDevice>();
-  pairs = new Map<
-    string,
-    { kind: PairKind; profileId: string; expiresAt: number }
-  >();
+  pairs = new Map<string, { profileId: string; expiresAt: number }>();
   setupToken: string | null = "fake-setup";
   rooms = new Map<string, FakeRoom>();
   sessions = new Map<string, FakeSession>();
@@ -913,29 +911,48 @@ export class FakeApi implements Api {
       this.dev.profileId = id;
       return Promise.resolve();
     });
-  profiles = () =>
-    this.paired("profiles", () =>
-      ok(
-        [...this.world.profiles.values()].map(({ id, name, avatar }) => ({
+  createProfile = (b: Leaving & { name: string; avatar: string }) =>
+    this.log("createProfile", () => {
+      // as the server: only the setup link makes the first profile
+      if (!this.world.profiles.size)
+        return fail(401, "setup_pending", "no profile yet");
+      if (!b.name.trim())
+        return fail(400, "invalid_name", "a name is 1 to 24 characters");
+      if (!(AVATAR_KEYS as readonly string[]).includes(b.avatar))
+        return fail(400, "invalid_avatar", "unknown avatar");
+      const id = nextId("p-");
+      return this.attach(id, !!b.leave, () =>
+        this.world.profiles.set(id, {
           id,
-          name,
-          avatar,
-        })),
-      ),
-    );
-  switchProfile = (profileId: string) =>
-    this.paired("switch", (me) => {
-      const to = this.world.profiles.get(profileId);
-      if (!to) return fail(404, "unknown_profile");
-      if (to.admin && me.id !== to.id)
-        return fail(
-          403,
-          "admin_profile",
-          "pair this device from an admin device instead",
-        );
-      this.dev.profileId = profileId;
-      return Promise.resolve();
+          name: b.name.trim(),
+          avatar: b.avatar,
+          admin: false,
+        }),
+      );
     });
+
+  // attach moves this device to profile id, as the server: its old profile's last device leaves only with leave
+  // (409 last_device), never the admin's (409 last_admin); a stranded profile goes. make runs once it may.
+  private attach(id: string, leave: boolean, make = () => {}) {
+    const old = this.profile();
+    if (old && old.id !== id) {
+      const last = ![...this.world.devices.values()].some(
+        (d) => d.profileId === old.id && d.id !== this.deviceId,
+      );
+      if (last && old.admin)
+        return fail(
+          409,
+          "last_admin",
+          "this is the admin profile's only device: pair another one first",
+        );
+      if (last && !leave)
+        return fail(409, "last_device", "this is the profile's only device");
+      if (last) this.world.profiles.delete(old.id);
+    }
+    make();
+    this.dev.profileId = id;
+    return Promise.resolve();
+  }
   updateMe = (b: { name?: string; avatar?: string }) =>
     this.paired("updateMe", (p) => {
       if (b.name != null) p.name = b.name;
@@ -960,7 +977,7 @@ export class FakeApi implements Api {
       this.world.devices.delete(id);
       return Promise.resolve();
     });
-  pair = (kind: PairKind) =>
+  pair = () =>
     this.paired("pair", (p) => {
       const code = Math.random()
         .toString(36)
@@ -968,30 +985,18 @@ export class FakeApi implements Api {
         .toUpperCase()
         .padEnd(6, "X");
       const expiresAt = Date.now() + 5 * 60_000;
-      this.world.pairs.set(code, { kind, profileId: p.id, expiresAt });
+      this.world.pairs.set(code, { profileId: p.id, expiresAt });
       return ok({ code, url: `${location.origin}/pair/${code}`, expiresAt });
     });
-  claimPair = (b: { code: string; name?: string; avatar?: string }) =>
+  claimPair = (b: Leaving & { code: string }) =>
     this.log("claim", () => {
       const pc = this.world.pairs.get(b.code.toUpperCase());
       if (!pc || pc.expiresAt < Date.now())
         return fail(404, "invalid_code", "code unknown or expired");
-      if (pc.kind === "invite") {
-        if (!b.name || !b.avatar)
-          return fail(400, "invalid_name", "name and avatar needed");
-        const id = nextId("p-");
-        this.world.profiles.set(id, {
-          id,
-          name: b.name,
-          avatar: b.avatar,
-          admin: false,
-        });
-        this.dev.profileId = id;
-      } else {
-        this.dev.profileId = pc.profileId;
-      }
-      this.world.pairs.delete(b.code.toUpperCase());
-      return Promise.resolve();
+      // a refusal leaves the code usable
+      return this.attach(pc.profileId, !!b.leave, () =>
+        this.world.pairs.delete(b.code.toUpperCase()),
+      );
     });
   decks = () => this.log("decks", () => ok(FAKE_DECKS));
 

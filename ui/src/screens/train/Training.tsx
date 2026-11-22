@@ -32,13 +32,13 @@ import {
 } from "../../lib/prefs";
 import {
   accColor,
+  GetProfile,
   Loading,
   Problem,
   Ring,
   Screen,
   ScreenHead,
   TIERS,
-  Unpaired,
 } from "../common";
 import { useStartTraining } from "./useStart";
 
@@ -571,7 +571,7 @@ export function Training({ id }: { id: string }) {
       <Screen tab="train">
         <ScreenHead back="/" title="Training" />
         {ses.error.status === 401 ? (
-          <Unpaired title="Training needs a profile" onDone={ses.reload} />
+          <GetProfile title="Training needs a profile" onDone={ses.reload} />
         ) : ses.error.status === 404 ? (
           <Card style={{ marginTop: 18 }} role="alert">
             <div style={{ fontWeight: 700 }}>This session is gone</div>

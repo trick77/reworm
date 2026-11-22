@@ -7,7 +7,7 @@ import { Screen } from "./screens/common";
 import { Home } from "./screens/Home";
 import { Join } from "./screens/party/Join";
 import { Host, Room } from "./screens/party/Party";
-import { MePage, Pair, Setup, Who } from "./screens/Profile";
+import { MePage, Pair, Setup } from "./screens/Profile";
 import { Settings } from "./screens/Settings";
 import { Training } from "./screens/train/Training";
 import { TrainSetup } from "./screens/train/TrainSetup";
@@ -51,7 +51,6 @@ function Routes({ dev }: { dev: boolean }) {
       </Route>
       <Route path="/pair/:code?">{(p) => <Pair code={p.code} />}</Route>
       <Route path="/setup/:token?">{(p) => <Setup token={p.token} />}</Route>
-      <Route path="/who" component={Who} />
       <Route path="/me" component={MePage} />
       <Route path="/train" component={TrainSetup} />
       <Route path="/train/:id">
